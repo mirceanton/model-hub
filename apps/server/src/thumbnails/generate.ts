@@ -71,7 +71,7 @@ export async function generateThumbnail(
     const thumbnailsDir = join(project.path, THUMBNAILS_DIRNAME);
     await mkdir(thumbnailsDir, { recursive: true });
     const thumbnailAbsolutePath = join(thumbnailsDir, THUMBNAIL_FILENAME);
-    await page.locator("canvas").screenshot({ path: thumbnailAbsolutePath });
+    await page.locator("canvas").screenshot({ path: thumbnailAbsolutePath, omitBackground: true });
 
     db.update(projectsTable)
       .set({

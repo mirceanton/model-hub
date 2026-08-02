@@ -1,7 +1,7 @@
 import type { ModelExtension } from "@model-hub/shared"
 import { Bounds } from "@react-three/drei"
 import { Canvas, useFrame } from "@react-three/fiber"
-import { Component, Suspense, useRef, type ReactNode } from "react"
+import { Component, Suspense, useEffect, useRef, type ReactNode } from "react"
 import { useSearchParams } from "react-router"
 import { EmptyGeometryError, ModelMesh } from "@/components/model-mesh"
 import { fileUrl } from "@/lib/model-loader"
@@ -58,6 +58,15 @@ export function InternalRenderPage() {
   const projectId = Number(params.get("projectId"))
   const file = params.get("file")
   const extension = params.get("ext") as ModelExtension | null
+
+  // The app's global `body { @apply bg-background }` paints an opaque,
+  // theme-dependent color. This route has no persisted theme preference
+  // (fresh Playwright context), so it'd otherwise bake in the "light" default
+  // as an opaque square behind every thumbnail. Thumbnails must be
+  // transparent so they pick up whichever theme is active when displayed.
+  useEffect(() => {
+    document.body.style.backgroundColor = "transparent"
+  }, [])
 
   if (!Number.isInteger(projectId) || !file || (extension !== "stl" && extension !== "3mf")) {
     window.__modelHubRenderError = "invalid-params"
