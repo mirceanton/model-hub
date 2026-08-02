@@ -37,7 +37,7 @@ export function ProjectListPage() {
   const isFiltered = search.trim().length > 0 || activeTag != null
 
   return (
-    <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:gap-6">
+    <div className="flex flex-col gap-4 lg:flex-row lg:gap-6">
       <div className="flex min-w-0 flex-1 flex-col gap-4">
         <div className="relative w-full sm:max-w-xs">
           <Search className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />

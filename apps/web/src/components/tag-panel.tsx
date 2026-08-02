@@ -70,9 +70,14 @@ export function TagPanel({ tags, isLoading, activeTag, onSelectTag, className }:
         <ChevronDown className={cn("size-4 transition-transform", isOpen && "rotate-180")} />
       </button>
 
-      <div className={cn("mt-2 lg:mt-0 lg:block", isOpen ? "block" : "hidden")}>
-        <div className="rounded-lg border">
-          <div className="flex items-center gap-1 border-b p-2">
+      <div
+        className={cn(
+          "mt-2 lg:sticky lg:top-4 lg:mt-0 lg:flex lg:max-h-[calc(100svh-2rem)] lg:flex-col",
+          isOpen ? "block" : "hidden",
+        )}
+      >
+        <div className="flex flex-col rounded-lg border lg:min-h-0">
+          <div className="flex shrink-0 items-center gap-1 border-b p-2">
             <div className="relative flex-1">
               <Search className="absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground" />
               <Input
@@ -85,7 +90,7 @@ export function TagPanel({ tags, isLoading, activeTag, onSelectTag, className }:
             <CreateTagDialog />
           </div>
 
-          <div className="grid grid-cols-[1fr_auto] gap-x-2 border-b px-3 py-1.5 text-xs text-muted-foreground">
+          <div className="grid shrink-0 grid-cols-[1fr_auto] gap-x-2 border-b px-3 py-1.5 text-xs text-muted-foreground">
             <button
               type="button"
               onClick={() => toggleSort("name")}
@@ -104,7 +109,7 @@ export function TagPanel({ tags, isLoading, activeTag, onSelectTag, className }:
             </button>
           </div>
 
-          <div className="max-h-80 overflow-y-auto">
+          <div className="max-h-80 overflow-y-auto lg:max-h-none lg:min-h-0 lg:flex-1">
             {isLoading ? (
               <div className="flex flex-col gap-1.5 p-2">
                 {Array.from({ length: 5 }).map((_, i) => (
@@ -152,7 +157,7 @@ export function TagPanel({ tags, isLoading, activeTag, onSelectTag, className }:
           </div>
 
           {activeTag && (
-            <div className="border-t p-2">
+            <div className="shrink-0 border-t p-2">
               <button
                 type="button"
                 onClick={() => onSelectTag(null)}
