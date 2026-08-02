@@ -87,7 +87,7 @@ export function ProjectListPage() {
         isLoading={tagsPending}
         activeTag={activeTag}
         onSelectTag={setActiveTag}
-        className="lg:w-72 lg:shrink-0"
+        className="order-first lg:order-none lg:w-72 lg:shrink-0"
       />
     </div>
   )
