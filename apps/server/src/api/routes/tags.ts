@@ -1,4 +1,4 @@
-import type { TagWithCount } from "@model-hub/shared";
+import type { Tag, TagWithCount } from "@model-hub/shared";
 import { and, eq, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { DbClient } from "../../db/client.js";
@@ -19,6 +19,26 @@ export function registerTagRoutes(app: FastifyInstance, db: DbClient): void {
       .orderBy(tagsTable.name)
       .all();
     return rows;
+  });
+
+  app.post<{ Body: { name?: string } }>("/api/tags", async (request, reply) => {
+    const rawName = request.body?.name;
+    if (!rawName) {
+      return reply.code(400).send({ error: "name is required" });
+    }
+
+    let tag;
+    try {
+      tag = getOrCreateTag(db, rawName);
+    } catch (err) {
+      if (err instanceof InvalidTagNameError) {
+        return reply.code(400).send({ error: err.message });
+      }
+      throw err;
+    }
+
+    const result: Tag = { id: tag.id, name: tag.name };
+    return reply.code(201).send(result);
   });
 
   app.post<{ Params: { id: string }; Body: { name?: string } }>(

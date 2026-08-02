@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   addProjectTag,
+  createTag,
   fetchAuthMe,
   fetchProject,
   fetchProjects,
@@ -56,6 +57,16 @@ export function useTags() {
     queryKey: ["tags"],
     queryFn: fetchTags,
     refetchInterval: REFETCH_INTERVAL_MS,
+  })
+}
+
+export function useCreateTag() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (name: string) => createTag(name),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["tags"] })
+    },
   })
 }
 
