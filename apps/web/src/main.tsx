@@ -3,6 +3,7 @@ import { StrictMode } from "react"
 import { createRoot } from "react-dom/client"
 import { BrowserRouter } from "react-router"
 import App from "./App.tsx"
+import { RootErrorBoundary } from "./components/root-error-boundary"
 import { ThemeProvider } from "./components/theme-provider"
 import "./index.css"
 
@@ -10,12 +11,14 @@ const queryClient = new QueryClient()
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <ThemeProvider defaultTheme="system" storageKey="model-hub-theme">
-      <QueryClientProvider client={queryClient}>
-        <BrowserRouter>
-          <App />
-        </BrowserRouter>
-      </QueryClientProvider>
-    </ThemeProvider>
+    <RootErrorBoundary>
+      <ThemeProvider defaultTheme="system" storageKey="model-hub-theme">
+        <QueryClientProvider client={queryClient}>
+          <BrowserRouter>
+            <App />
+          </BrowserRouter>
+        </QueryClientProvider>
+      </ThemeProvider>
+    </RootErrorBoundary>
   </StrictMode>,
 )

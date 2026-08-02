@@ -27,6 +27,21 @@ export function fetchProject(id: number): Promise<ProjectDetail> {
   return request<ProjectDetail>(`/api/projects/${id}`)
 }
 
+export function updateProject(
+  id: number,
+  patch: { title?: string; description?: string },
+): Promise<Project> {
+  return request<Project>(`/api/projects/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  })
+}
+
+export function forgetProject(id: number): Promise<void> {
+  return request<void>(`/api/projects/${id}`, { method: "DELETE" })
+}
+
 export interface UploadResult {
   ok: true
   committed: boolean

@@ -5,10 +5,12 @@ import {
   fetchProject,
   fetchProjects,
   fetchTags,
+  forgetProject,
   logout,
   regenerateThumbnail,
   removeProjectTag,
   restoreProjectVersion,
+  updateProject,
   uploadProjectVersion,
   type ProjectFilters,
 } from "./api"
@@ -104,5 +106,23 @@ export function useRemoveTag(id: number) {
   return useMutation({
     mutationFn: (tagId: number) => removeProjectTag(id, tagId),
     onSuccess: invalidate,
+  })
+}
+
+export function useUpdateProject(id: number) {
+  const invalidate = useInvalidateProject(id)
+  return useMutation({
+    mutationFn: (patch: { title?: string; description?: string }) => updateProject(id, patch),
+    onSuccess: invalidate,
+  })
+}
+
+export function useForgetProject(id: number) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: () => forgetProject(id),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["projects"] })
+    },
   })
 }
