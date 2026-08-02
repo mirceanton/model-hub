@@ -1,5 +1,13 @@
 import type { GitLogEntry } from "@model-hub/shared"
-import { AlertCircle, ArrowLeft, File, GitCommitHorizontal, History, Loader2 } from "lucide-react"
+import {
+  AlertCircle,
+  ArrowLeft,
+  File,
+  GitCommitHorizontal,
+  History,
+  Loader2,
+  RefreshCw,
+} from "lucide-react"
 import { lazy, Suspense, useState } from "react"
 import { Link, useParams } from "react-router"
 import { ProjectThumbnail } from "@/components/project-thumbnail"
@@ -13,7 +21,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { UploadVersionDialog } from "@/components/upload-version-dialog"
 import { formatBytes, formatDateTime } from "@/lib/format"
 import { fileUrl, isViewableExtension } from "@/lib/model-loader"
-import { useProject, useRestoreVersion } from "@/lib/queries"
+import { useProject, useRegenerateThumbnail, useRestoreVersion } from "@/lib/queries"
 import { cn } from "@/lib/utils"
 
 const ModelViewer = lazy(() =>
@@ -64,7 +72,10 @@ export function ProjectDetailPage() {
           </div>
           <p className="break-all font-mono text-xs text-muted-foreground">{project.path}</p>
         </div>
-        <UploadVersionDialog projectId={project.id} />
+        <div className="flex items-center gap-2">
+          <RegenerateThumbnailButton projectId={project.id} />
+          <UploadVersionDialog projectId={project.id} />
+        </div>
       </div>
 
       {activeFile && isViewableExtension(activeFile.extension) ? (
@@ -197,6 +208,23 @@ function RestoreButton({ projectId, entry }: { projectId: number; entry: GitLogE
     >
       {restore.isPending ? <Loader2 className="size-4 animate-spin" /> : <History className="size-4" />}
       Restore
+    </Button>
+  )
+}
+
+function RegenerateThumbnailButton({ projectId }: { projectId: number }) {
+  const regenerate = useRegenerateThumbnail(projectId)
+
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      disabled={regenerate.isPending}
+      onClick={() => regenerate.mutate()}
+      title="Regenerate thumbnail"
+    >
+      <RefreshCw className={cn("size-4", regenerate.isPending && "animate-spin")} />
+      Thumbnail
     </Button>
   )
 }

@@ -1,12 +1,13 @@
 import { Box } from "lucide-react"
 import type { Project } from "@model-hub/shared"
+import { thumbnailUrl } from "@/lib/model-loader"
 import { cn } from "@/lib/utils"
 
 export function ProjectThumbnail({
   project,
   className,
 }: {
-  project: Pick<Project, "thumbnailPath" | "title">
+  project: Pick<Project, "id" | "thumbnailStatus" | "title" | "updatedAt">
   className?: string
 }) {
   return (
@@ -16,9 +17,9 @@ export function ProjectThumbnail({
         className,
       )}
     >
-      {project.thumbnailPath ? (
+      {project.thumbnailStatus === "ready" ? (
         <img
-          src={project.thumbnailPath}
+          src={thumbnailUrl(project.id, project.updatedAt)}
           alt={project.title}
           className="size-full rounded-md object-cover"
         />

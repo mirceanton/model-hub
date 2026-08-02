@@ -27,6 +27,8 @@ export const LOCAL_UPLOAD_IDENTITY: GitIdentity = {
 export interface ReconcileResult {
   status: "ok" | "error";
   committed: boolean;
+  /** The project's primaryFilePath after this reconcile, so callers (e.g. the thumbnail trigger) don't need a re-fetch. Undefined on error. */
+  primaryFilePath?: string | null;
   error?: string;
 }
 
@@ -124,7 +126,7 @@ export async function reconcileProjectCore(
         .run();
     });
 
-    return { status: "ok", committed: committedSha != null };
+    return { status: "ok", committed: committedSha != null, primaryFilePath };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     db.update(projectsTable)

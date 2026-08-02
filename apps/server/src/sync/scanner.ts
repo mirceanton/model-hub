@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import type { DbClient } from "../db/client.js";
 import { projects as projectsTable, type ProjectRow } from "../db/schema.js";
 import { ensureMarkerId } from "../lib/fs-utils.js";
+import { maybeEnqueueThumbnail } from "../thumbnails/trigger.js";
 import { reconcileProject } from "./reconcile.js";
 
 export interface ScanResult {
@@ -95,7 +96,8 @@ export async function scanLibraryRoot(db: DbClient, libraryRoot: string): Promis
   }
 
   for (const row of presentRows) {
-    await reconcileProject(db, row);
+    const result = await reconcileProject(db, row);
+    maybeEnqueueThumbnail(db, row, result);
   }
 
   return { scanned: presentRows.length, skipped: false };
