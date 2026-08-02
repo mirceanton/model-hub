@@ -51,4 +51,61 @@ describe("loadConfig", () => {
   it("fails fast with a clear error when DATABASE_PATH is missing", () => {
     expect(() => loadConfig({ LIBRARY_ROOT: "/library" })).toThrow(/DATABASE_PATH/);
   });
+
+  it("defaults to single-user mode (oidc: null) when no OIDC_* vars are set", () => {
+    const config = loadConfig(BASE_ENV);
+    expect(config.oidc).toBeNull();
+  });
+
+  const SESSION_SECRET = "x".repeat(32);
+
+  it("enables OIDC when all three required vars plus SESSION_SECRET are set", () => {
+    const config = loadConfig({
+      ...BASE_ENV,
+      OIDC_ISSUER_URL: "https://auth.example.com",
+      OIDC_CLIENT_ID: "model-hub",
+      OIDC_CLIENT_SECRET: "secret",
+      SESSION_SECRET,
+    });
+    expect(config.oidc).toEqual({
+      issuerUrl: "https://auth.example.com",
+      clientId: "model-hub",
+      clientSecret: "secret",
+      redirectUrl: `${config.webBaseUrl}/auth/callback`,
+    });
+  });
+
+  it("honors an explicit OIDC_REDIRECT_URL override", () => {
+    const config = loadConfig({
+      ...BASE_ENV,
+      OIDC_ISSUER_URL: "https://auth.example.com",
+      OIDC_CLIENT_ID: "model-hub",
+      OIDC_CLIENT_SECRET: "secret",
+      OIDC_REDIRECT_URL: "https://model-hub.example.com/auth/callback",
+      SESSION_SECRET,
+    });
+    expect(config.oidc?.redirectUrl).toBe("https://model-hub.example.com/auth/callback");
+  });
+
+  it("fails fast when only some OIDC_* vars are set", () => {
+    expect(() =>
+      loadConfig({
+        ...BASE_ENV,
+        OIDC_ISSUER_URL: "https://auth.example.com",
+        OIDC_CLIENT_ID: "model-hub",
+        SESSION_SECRET,
+      }),
+    ).toThrow(/OIDC_ISSUER_URL, OIDC_CLIENT_ID, and OIDC_CLIENT_SECRET must all be set together/);
+  });
+
+  it("fails fast when OIDC is configured but SESSION_SECRET is missing", () => {
+    expect(() =>
+      loadConfig({
+        ...BASE_ENV,
+        OIDC_ISSUER_URL: "https://auth.example.com",
+        OIDC_CLIENT_ID: "model-hub",
+        OIDC_CLIENT_SECRET: "secret",
+      }),
+    ).toThrow(/SESSION_SECRET is required/);
+  });
 });

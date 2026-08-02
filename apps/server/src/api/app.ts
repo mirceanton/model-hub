@@ -1,6 +1,9 @@
+import cookie from "@fastify/cookie";
 import Fastify, { type FastifyInstance } from "fastify";
-import type { DbClient } from "../db/client.js";
+import { registerAuthGuard } from "../auth/guard.js";
 import type { Config } from "../config.js";
+import type { DbClient } from "../db/client.js";
+import { registerAuthRoutes } from "./routes/auth.js";
 import { registerFileRoutes } from "./routes/files.js";
 import { registerHealthRoute } from "./routes/health.js";
 import { registerProjectRoutes } from "./routes/projects.js";
@@ -17,7 +20,11 @@ export function buildApp(db: DbClient, config: Config): FastifyInstance {
     },
   });
 
+  app.register(cookie, { secret: config.sessionSecret ?? undefined });
+
   registerHealthRoute(app);
+  registerAuthGuard(app, db, config);
+  registerAuthRoutes(app, db, config);
   registerProjectRoutes(app, db);
   registerFileRoutes(app, db);
   registerVersionRoutes(app, db);

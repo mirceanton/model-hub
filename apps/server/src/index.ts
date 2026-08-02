@@ -1,4 +1,5 @@
 import { buildApp } from "./api/app.js";
+import { initOidcClient } from "./auth/oidc.js";
 import { loadConfig } from "./config.js";
 import { createDbClient } from "./db/client.js";
 import { runMigrations } from "./db/migrate.js";
@@ -12,7 +13,12 @@ async function main(): Promise<void> {
   const db = createDbClient(config.databasePath);
   runMigrations(db);
 
+  if (config.oidc) {
+    await initOidcClient(config.oidc);
+  }
+
   const app = buildApp(db, config);
+  app.log.info(config.oidc ? `OIDC auth enabled (issuer: ${config.oidc.issuerUrl})` : "single-user mode (no OIDC configured)");
   app.addHook("onClose", async () => {
     await closeBrowser();
   });

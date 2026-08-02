@@ -14,12 +14,14 @@
     "db:generate": "drizzle-kit generate"
   },
   "dependencies": {
+    "@fastify/cookie": "^11.1.2",
     "@fastify/multipart": "^10.1.0",
     "@model-hub/shared": "workspace:*",
     "better-sqlite3": "^13.0.2",
     "chokidar": "^4.0.1",
     "drizzle-orm": "^0.36.4",
     "fastify": "^5.1.0",
+    "openid-client": "^6.8.4",
     "playwright": "^1.62.1",
     "simple-git": "^3.27.0",
     "zod": "^3.23.8"

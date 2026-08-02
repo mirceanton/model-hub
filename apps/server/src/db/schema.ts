@@ -69,8 +69,31 @@ export const projectTags = sqliteTable(
   }),
 );
 
+export const users = sqliteTable("users", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  // Null for the synthetic single-user-mode "local owner" row.
+  oidcSubject: text("oidc_subject").unique(),
+  email: text("email"),
+  name: text("name"),
+  isLocalOwner: integer("is_local_owner", { mode: "boolean" }).notNull().default(false),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+});
+
+export const sessions = sqliteTable("sessions", {
+  // Opaque random token; this value (not the row id) is what's stored in the session cookie.
+  id: text("id").primaryKey(),
+  userId: integer("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  expiresAt: integer("expires_at", { mode: "timestamp_ms" }).notNull(),
+});
+
 export type ProjectRow = typeof projects.$inferSelect;
 export type NewProjectRow = typeof projects.$inferInsert;
 export type FileRow = typeof files.$inferSelect;
 export type NewFileRow = typeof files.$inferInsert;
 export type TagRow = typeof tags.$inferSelect;
+export type UserRow = typeof users.$inferSelect;
+export type SessionRow = typeof sessions.$inferSelect;

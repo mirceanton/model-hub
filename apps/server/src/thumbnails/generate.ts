@@ -2,6 +2,7 @@ import { mkdir } from "node:fs/promises";
 import { extname, join } from "node:path";
 import { eq } from "drizzle-orm";
 import type { Page } from "playwright";
+import { INTERNAL_RENDER_HEADER, INTERNAL_RENDER_TOKEN } from "../auth/internal-token.js";
 import type { DbClient } from "../db/client.js";
 import { projects as projectsTable, type ProjectRow } from "../db/schema.js";
 import { MODEL_EXTENSIONS, THUMBNAILS_DIRNAME } from "../lib/fs-utils.js";
@@ -46,7 +47,10 @@ export async function generateThumbnail(
   let page: Page | undefined;
   try {
     const browser = await getBrowser();
-    page = await browser.newPage({ viewport: VIEWPORT });
+    page = await browser.newPage({
+      viewport: VIEWPORT,
+      extraHTTPHeaders: { [INTERNAL_RENDER_HEADER]: INTERNAL_RENDER_TOKEN },
+    });
 
     const params = new URLSearchParams({
       projectId: String(project.id),

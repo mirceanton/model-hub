@@ -1,9 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   addProjectTag,
+  fetchAuthMe,
   fetchProject,
   fetchProjects,
   fetchTags,
+  logout,
   regenerateThumbnail,
   removeProjectTag,
   restoreProjectVersion,
@@ -12,6 +14,23 @@ import {
 } from "./api"
 
 const REFETCH_INTERVAL_MS = 10_000
+
+export function useAuthMe() {
+  return useQuery({
+    queryKey: ["auth", "me"],
+    queryFn: fetchAuthMe,
+    retry: false,
+  })
+}
+
+export function useLogout() {
+  return useMutation({
+    mutationFn: logout,
+    onSuccess: () => {
+      window.location.href = "/auth/login"
+    },
+  })
+}
 
 export function useProjects(filters: ProjectFilters = {}) {
   return useQuery({
