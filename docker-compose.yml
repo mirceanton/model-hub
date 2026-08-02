@@ -1,0 +1,27 @@
+services:
+  model-hub:
+    build: .
+    # image: ghcr.io/<you>/model-hub:latest
+    ports:
+      - "4000:4000"
+    volumes:
+      # Your library: one subfolder per project, containing .stl/.3mf files.
+      - /path/to/your/3d-print-library:/library
+      # App state: the SQLite database.
+      - model-hub-data:/data
+    environment:
+      # For a network mount (NFS/SMB) where inotify events are unreliable:
+      # LIBRARY_WATCH_USE_POLLING: "true"
+
+      # OIDC login (Authelia, Authentik, Keycloak, etc.). Leave unset for
+      # single-user mode (no login screen). If set, all three below plus
+      # SESSION_SECRET are required — see apps/server/.env.example.
+      # OIDC_ISSUER_URL: https://auth.example.com
+      # OIDC_CLIENT_ID: model-hub
+      # OIDC_CLIENT_SECRET: changeme
+      # SESSION_SECRET: changeme-32-chars-minimum
+      LOG_LEVEL: info
+    restart: unless-stopped
+
+volumes:
+  model-hub-data:

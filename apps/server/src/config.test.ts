@@ -16,6 +16,12 @@ describe("loadConfig", () => {
     expect(config.libraryWatchUsePolling).toBe(false);
     expect(config.logLevel).toBe("info");
     expect(config.thumbnailConcurrency).toBe(1);
+    expect(config.staticWebDir).toBeNull();
+  });
+
+  it("honors STATIC_WEB_DIR when set", () => {
+    const config = loadConfig({ ...BASE_ENV, STATIC_WEB_DIR: "/app/web/dist" });
+    expect(config.staticWebDir).toBe("/app/web/dist");
   });
 
   it("coerces and honors overrides", () => {

@@ -11,6 +11,7 @@ import { registerSyncRoutes } from "./routes/sync.js";
 import { registerTagRoutes } from "./routes/tags.js";
 import { registerThumbnailRoutes } from "./routes/thumbnails.js";
 import { registerVersionRoutes } from "./routes/versions.js";
+import { registerStaticSpa } from "./static.js";
 
 export function buildApp(db: DbClient, config: Config): FastifyInstance {
   const app = Fastify({
@@ -31,6 +32,10 @@ export function buildApp(db: DbClient, config: Config): FastifyInstance {
   registerThumbnailRoutes(app, db);
   registerTagRoutes(app, db);
   registerSyncRoutes(app, db, config.libraryRoot);
+
+  if (config.staticWebDir) {
+    registerStaticSpa(app, config.staticWebDir);
+  }
 
   return app;
 }
