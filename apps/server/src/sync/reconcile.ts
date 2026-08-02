@@ -18,29 +18,55 @@ export const AUTO_SYNC_IDENTITY: GitIdentity = {
   email: "sync@model-hub.local",
 };
 
+/** Fixed identity for UI-driven commits (upload, restore) until OIDC (Phase 7) supplies a real user. */
+export const LOCAL_UPLOAD_IDENTITY: GitIdentity = {
+  name: "model-hub",
+  email: "model-hub@localhost",
+};
+
 export interface ReconcileResult {
   status: "ok" | "error";
   committed: boolean;
   error?: string;
 }
 
+export interface ReconcileOptions {
+  /** Identity for the commit created by THIS call, if one is needed. Defaults to the auto-sync identity. */
+  identity?: GitIdentity;
+  /** Commit message for the commit created by THIS call, if one is needed (ignored for the initial-import commit). */
+  commitMessage?: string;
+}
+
 type ReconcileInput = Pick<ProjectRow, "id" | "path" | "primaryFilePath">;
 
 /**
  * The single idempotent commit-decision function for a project. Callable from
- * the periodic full-library scan, the debounced watcher, and (in later
- * phases) the upload endpoint — always through the same per-path mutex, so
- * git operations for one project never overlap regardless of trigger.
+ * the periodic full-library scan, the debounced watcher, and the upload/restore
+ * endpoints — always through the same per-path mutex, so git operations for one
+ * project never overlap regardless of trigger.
  */
-export function reconcileProject(db: DbClient, project: ReconcileInput): Promise<ReconcileResult> {
-  return runExclusive(project.path, () => reconcileProjectInner(db, project));
-}
-
-async function reconcileProjectInner(
+export function reconcileProject(
   db: DbClient,
   project: ReconcileInput,
+  options?: ReconcileOptions,
+): Promise<ReconcileResult> {
+  return runExclusive(project.path, () => reconcileProjectCore(db, project, options));
+}
+
+/**
+ * The unlocked core of reconcileProject. Only call this directly if the caller
+ * already holds the per-project lock (e.g. the upload endpoint, which must write
+ * files and commit them as one atomic sequence under a single lock acquisition —
+ * calling the locked reconcileProject from inside an existing lock for the same
+ * path would deadlock against itself).
+ */
+export async function reconcileProjectCore(
+  db: DbClient,
+  project: ReconcileInput,
+  options?: ReconcileOptions,
 ): Promise<ReconcileResult> {
   const now = new Date();
+  const identity = options?.identity ?? AUTO_SYNC_IDENTITY;
 
   try {
     await ensureMarkerId(project.path);
@@ -56,8 +82,10 @@ async function reconcileProjectInner(
     const status = await getStatus(project.path);
     let committedSha: string | null = null;
     if (!status.isClean) {
-      const message = wasGitRepo ? generateAutoCommitMessage(status.changedPaths) : "Initial import";
-      committedSha = await addAllAndCommit(project.path, message, AUTO_SYNC_IDENTITY);
+      const message = !wasGitRepo
+        ? "Initial import"
+        : (options?.commitMessage ?? generateAutoCommitMessage(status.changedPaths));
+      committedSha = await addAllAndCommit(project.path, message, identity);
     }
 
     const fileEntries = await listProjectFiles(project.path);

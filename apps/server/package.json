@@ -14,6 +14,7 @@
     "db:generate": "drizzle-kit generate"
   },
   "dependencies": {
+    "@fastify/multipart": "^10.1.0",
     "@model-hub/shared": "workspace:*",
     "better-sqlite3": "^13.0.2",
     "chokidar": "^4.0.1",

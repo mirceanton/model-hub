@@ -1,16 +1,19 @@
-import { AlertCircle, ArrowLeft, File, GitCommitHorizontal } from "lucide-react"
+import type { GitLogEntry } from "@model-hub/shared"
+import { AlertCircle, ArrowLeft, File, GitCommitHorizontal, History, Loader2 } from "lucide-react"
 import { lazy, Suspense, useState } from "react"
 import { Link, useParams } from "react-router"
 import { ProjectThumbnail } from "@/components/project-thumbnail"
 import { SyncStatusBadge } from "@/components/sync-status-badge"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { UploadVersionDialog } from "@/components/upload-version-dialog"
 import { formatBytes, formatDateTime } from "@/lib/format"
 import { fileUrl, isViewableExtension } from "@/lib/model-loader"
-import { useProject } from "@/lib/queries"
+import { useProject, useRestoreVersion } from "@/lib/queries"
 import { cn } from "@/lib/utils"
 
 const ModelViewer = lazy(() =>
@@ -53,12 +56,15 @@ export function ProjectDetailPage() {
     <div className="flex flex-col gap-6">
       <BackLink />
 
-      <div className="flex flex-col gap-2">
-        <div className="flex flex-wrap items-center gap-2">
-          <h1 className="text-xl font-semibold">{project.title}</h1>
-          <SyncStatusBadge status={project.syncStatus} />
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex flex-col gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="text-xl font-semibold">{project.title}</h1>
+            <SyncStatusBadge status={project.syncStatus} />
+          </div>
+          <p className="break-all font-mono text-xs text-muted-foreground">{project.path}</p>
         </div>
-        <p className="break-all font-mono text-xs text-muted-foreground">{project.path}</p>
+        <UploadVersionDialog projectId={project.id} />
       </div>
 
       {activeFile && isViewableExtension(activeFile.extension) ? (
@@ -152,16 +158,17 @@ export function ProjectDetailPage() {
             <p className="text-sm text-muted-foreground">No commit history yet.</p>
           ) : (
             <ul className="flex flex-col gap-3">
-              {project.gitLog.map((entry) => (
-                <li key={entry.sha} className="flex gap-3 rounded-lg border px-3 py-2">
+              {project.gitLog.map((entry, index) => (
+                <li key={entry.sha} className="flex items-start gap-3 rounded-lg border px-3 py-2">
                   <GitCommitHorizontal className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-                  <div className="flex min-w-0 flex-col gap-0.5">
+                  <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                     <span className="text-sm">{entry.message}</span>
                     <span className="text-xs text-muted-foreground">
                       {entry.authorName} · {formatDateTime(entry.date)} ·{" "}
                       <span className="font-mono">{entry.sha.slice(0, 10)}</span>
                     </span>
                   </div>
+                  {index > 0 && <RestoreButton projectId={project.id} entry={entry} />}
                 </li>
               ))}
             </ul>
@@ -169,6 +176,28 @@ export function ProjectDetailPage() {
         </TabsContent>
       </Tabs>
     </div>
+  )
+}
+
+function RestoreButton({ projectId, entry }: { projectId: number; entry: GitLogEntry }) {
+  const restore = useRestoreVersion(projectId)
+
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      className="shrink-0"
+      disabled={restore.isPending}
+      onClick={() => {
+        if (!confirm(`Restore file contents from "${entry.message}"? This creates a new commit.`)) {
+          return
+        }
+        restore.mutate(entry.sha)
+      }}
+    >
+      {restore.isPending ? <Loader2 className="size-4 animate-spin" /> : <History className="size-4" />}
+      Restore
+    </Button>
   )
 }
 

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { readFile, readdir, stat, writeFile } from "node:fs/promises";
-import { extname, join, relative, sep } from "node:path";
+import { basename, extname, join, relative, sep } from "node:path";
 import type { FileEntry } from "@model-hub/shared";
 
 export const MARKER_FILENAME = ".modelhub-id";
@@ -116,4 +116,17 @@ export function pickPrimaryFile(files: FileEntry[]): string | null {
   });
 
   return sorted[0]?.relativePath ?? null;
+}
+
+/**
+ * Reduces an uploaded filename to a safe basename within the project dir, or
+ * null if it's not a usable model file. Strips any directory components
+ * (defends against path traversal in a crafted multipart filename) and
+ * rejects anything outside the .stl/.3mf allowlist.
+ */
+export function sanitizeUploadFilename(rawName: string): string | null {
+  const base = basename(rawName.replace(/\\/g, "/")).trim();
+  if (!base || base === "." || base === "..") return null;
+  if (!MODEL_EXTENSIONS.has(extensionOf(base))) return null;
+  return base;
 }
