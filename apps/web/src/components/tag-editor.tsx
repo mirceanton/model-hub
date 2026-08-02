@@ -1,20 +1,37 @@
 import type { Tag } from "@model-hub/shared"
-import { X } from "lucide-react"
-import { useState } from "react"
+import { Plus, X } from "lucide-react"
+import { useMemo, useState } from "react"
+import {
+  Autocomplete,
+  AutocompleteEmpty,
+  AutocompleteInput,
+  AutocompleteItem,
+  AutocompleteList,
+  AutocompletePopup,
+} from "@/components/ui/autocomplete"
 import { Badge } from "@/components/ui/badge"
-import { Input } from "@/components/ui/input"
-import { useAddTag, useRemoveTag } from "@/lib/queries"
+import { useAddTag, useRemoveTag, useTags } from "@/lib/queries"
 import { tagBadgeStyle } from "@/lib/tag-colors"
 
 export function TagEditor({ projectId, tags }: { projectId: number; tags: Tag[] }) {
-  const [newTag, setNewTag] = useState("")
+  const [query, setQuery] = useState("")
+  const { data: allTags } = useTags()
   const addTag = useAddTag(projectId)
   const removeTag = useRemoveTag(projectId)
 
-  function handleAdd() {
-    const name = newTag.trim()
-    if (!name) return
-    addTag.mutate(name, { onSuccess: () => setNewTag("") })
+  const suggestions = useMemo(() => {
+    const existing = new Set(tags.map((tag) => tag.name.toLowerCase()))
+    return (allTags ?? []).map((tag) => tag.name).filter((name) => !existing.has(name.toLowerCase()))
+  }, [allTags, tags])
+
+  const trimmed = query.trim()
+  const hasExactMatch = suggestions.some((name) => name.toLowerCase() === trimmed.toLowerCase())
+  const items = trimmed && !hasExactMatch ? [...suggestions, trimmed] : suggestions
+
+  function handleAdd(name: string) {
+    const value = name.trim()
+    if (!value) return
+    addTag.mutate(value, { onSuccess: () => setQuery("") })
   }
 
   return (
@@ -32,19 +49,40 @@ export function TagEditor({ projectId, tags }: { projectId: number; tags: Tag[] 
           </button>
         </Badge>
       ))}
-      <Input
-        value={newTag}
-        onChange={(e) => setNewTag(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") {
-            e.preventDefault()
-            handleAdd()
+      <Autocomplete
+        items={items}
+        value={query}
+        autoHighlight
+        onValueChange={(value, eventDetails) => {
+          if (eventDetails.reason === "item-press") {
+            handleAdd(value)
+          } else {
+            setQuery(value)
           }
         }}
-        onBlur={handleAdd}
-        placeholder="Add tag…"
-        className="h-6 w-24 border-dashed text-xs"
-      />
+      >
+        <AutocompleteInput placeholder="Add tag…" onBlur={() => handleAdd(query)} />
+        <AutocompletePopup>
+          <AutocompleteEmpty>No tags yet</AutocompleteEmpty>
+          <AutocompleteList>
+            {(item: string) => {
+              const isCreate = !suggestions.includes(item)
+              return (
+                <AutocompleteItem key={item} value={item}>
+                  {isCreate ? (
+                    <>
+                      <Plus className="size-3" />
+                      Create tag “{item}”
+                    </>
+                  ) : (
+                    item
+                  )}
+                </AutocompleteItem>
+              )
+            }}
+          </AutocompleteList>
+        </AutocompletePopup>
+      </Autocomplete>
     </div>
   )
 }
