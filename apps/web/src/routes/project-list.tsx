@@ -1,52 +1,104 @@
 import type { Project } from "@model-hub/shared"
-import { AlertCircle, FolderOpen } from "lucide-react"
+import { AlertCircle, FolderOpen, Search, X } from "lucide-react"
+import { useEffect, useState } from "react"
 import { Link } from "react-router"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Skeleton } from "@/components/ui/skeleton"
 import { ProjectThumbnail } from "@/components/project-thumbnail"
 import { SyncStatusBadge } from "@/components/sync-status-badge"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { Badge } from "@/components/ui/badge"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
+import { Skeleton } from "@/components/ui/skeleton"
 import { formatDateTime } from "@/lib/format"
-import { useProjects } from "@/lib/queries"
+import { useProjects, useTags } from "@/lib/queries"
+
+const SEARCH_DEBOUNCE_MS = 250
 
 export function ProjectListPage() {
-  const { data: projects, isPending, isError, error } = useProjects()
+  const [searchInput, setSearchInput] = useState("")
+  const [search, setSearch] = useState("")
+  const [activeTag, setActiveTag] = useState<string | null>(null)
 
-  if (isPending) {
-    return (
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-        {Array.from({ length: 8 }).map((_, i) => (
-          <Skeleton key={i} className="aspect-[4/5] w-full rounded-lg" />
-        ))}
-      </div>
-    )
-  }
+  useEffect(() => {
+    const timer = setTimeout(() => setSearch(searchInput), SEARCH_DEBOUNCE_MS)
+    return () => clearTimeout(timer)
+  }, [searchInput])
 
-  if (isError) {
-    return (
-      <Alert variant="destructive">
-        <AlertCircle />
-        <AlertTitle>Couldn't load your library</AlertTitle>
-        <AlertDescription>{error.message}</AlertDescription>
-      </Alert>
-    )
-  }
+  const { data: tags } = useTags()
+  const {
+    data: projects,
+    isPending,
+    isError,
+    error,
+  } = useProjects({ q: search || undefined, tag: activeTag ?? undefined })
 
-  if (projects.length === 0) {
-    return (
-      <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed py-24 text-center text-muted-foreground">
-        <FolderOpen className="size-8" />
-        <p className="font-medium text-foreground">No projects yet</p>
-        <p className="text-sm">Drop a folder into your library directory to get started.</p>
-      </div>
-    )
-  }
+  const isFiltered = search.trim().length > 0 || activeTag != null
 
   return (
-    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-      {projects.map((project) => (
-        <ProjectCard key={project.id} project={project} />
-      ))}
+    <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="relative w-full sm:max-w-xs">
+          <Search className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+            placeholder="Search by title…"
+            className="pl-8"
+          />
+        </div>
+        {tags && tags.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5">
+            {tags.map((tag) => (
+              <button key={tag.id} type="button" onClick={() => setActiveTag(activeTag === tag.name ? null : tag.name)}>
+                <Badge variant={activeTag === tag.name ? "default" : "outline"}>
+                  {tag.name} ({tag.projectCount})
+                </Badge>
+              </button>
+            ))}
+            {activeTag && (
+              <button
+                type="button"
+                onClick={() => setActiveTag(null)}
+                className="text-xs text-muted-foreground hover:text-foreground"
+              >
+                <X className="size-3.5" />
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
+      {isPending ? (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <Skeleton key={i} className="aspect-[4/5] w-full rounded-lg" />
+          ))}
+        </div>
+      ) : isError ? (
+        <Alert variant="destructive">
+          <AlertCircle />
+          <AlertTitle>Couldn't load your library</AlertTitle>
+          <AlertDescription>{error.message}</AlertDescription>
+        </Alert>
+      ) : projects.length === 0 ? (
+        <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed py-24 text-center text-muted-foreground">
+          <FolderOpen className="size-8" />
+          <p className="font-medium text-foreground">
+            {isFiltered ? "No projects match" : "No projects yet"}
+          </p>
+          <p className="text-sm">
+            {isFiltered
+              ? "Try a different search or tag."
+              : "Drop a folder into your library directory to get started."}
+          </p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          {projects.map((project) => (
+            <ProjectCard key={project.id} project={project} />
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -66,6 +118,15 @@ function ProjectCard({ project }: { project: Project }) {
           <p className="line-clamp-1 text-xs text-muted-foreground">
             {project.primaryFilePath ?? "No model files"}
           </p>
+          {project.tags.length > 0 && (
+            <div className="flex flex-wrap gap-1">
+              {project.tags.map((tag) => (
+                <Badge key={tag.id} variant="secondary" className="text-[10px]">
+                  {tag.name}
+                </Badge>
+              ))}
+            </div>
+          )}
           {project.lastSyncedAt && (
             <p className="text-xs text-muted-foreground/70">
               Synced {formatDateTime(project.lastSyncedAt)}

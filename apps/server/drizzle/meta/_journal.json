@@ -8,6 +8,13 @@
       "when": 1785663906131,
       "tag": "0000_cheerful_legion",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1785668024964,
+      "tag": "0001_lazy_chimera",
+      "breakpoints": true
     }
   ]
 }

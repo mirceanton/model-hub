@@ -1,4 +1,4 @@
-import type { Project, ProjectDetail } from "@model-hub/shared"
+import type { Project, ProjectDetail, Tag, TagWithCount } from "@model-hub/shared"
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, init)
@@ -6,11 +6,21 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     const body = (await res.json().catch(() => null)) as { error?: string } | null
     throw new Error(body?.error ?? `Request to ${path} failed with status ${res.status}`)
   }
+  if (res.status === 204) return undefined as T
   return res.json() as Promise<T>
 }
 
-export function fetchProjects(): Promise<Project[]> {
-  return request<Project[]>("/api/projects")
+export interface ProjectFilters {
+  q?: string
+  tag?: string
+}
+
+export function fetchProjects(filters: ProjectFilters = {}): Promise<Project[]> {
+  const params = new URLSearchParams()
+  if (filters.q) params.set("q", filters.q)
+  if (filters.tag) params.set("tag", filters.tag)
+  const query = params.toString()
+  return request<Project[]>(`/api/projects${query ? `?${query}` : ""}`)
 }
 
 export function fetchProject(id: number): Promise<ProjectDetail> {
@@ -57,4 +67,20 @@ export function regenerateThumbnail(id: number): Promise<RegenerateThumbnailResu
   return request<RegenerateThumbnailResult>(`/api/projects/${id}/thumbnail/regenerate`, {
     method: "POST",
   })
+}
+
+export function fetchTags(): Promise<TagWithCount[]> {
+  return request<TagWithCount[]>("/api/tags")
+}
+
+export function addProjectTag(projectId: number, name: string): Promise<Tag> {
+  return request<Tag>(`/api/projects/${projectId}/tags`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  })
+}
+
+export function removeProjectTag(projectId: number, tagId: number): Promise<void> {
+  return request<void>(`/api/projects/${projectId}/tags/${tagId}`, { method: "DELETE" })
 }

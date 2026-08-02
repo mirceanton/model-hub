@@ -1,4 +1,4 @@
-import { sqliteTable, integer, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { sqliteTable, integer, text, uniqueIndex, primaryKey, index } from "drizzle-orm/sqlite-core";
 
 export const projects = sqliteTable("projects", {
   id: integer("id").primaryKey({ autoIncrement: true }),
@@ -44,7 +44,33 @@ export const files = sqliteTable(
   }),
 );
 
+export const tags = sqliteTable("tags", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  // Uniqueness is enforced case-insensitively at the application layer (see
+  // tags.ts's getOrCreateTag) rather than via a DB collation, since that
+  // keeps the lookup portable and simple with Drizzle's standard API.
+  name: text("name").notNull().unique(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+});
+
+export const projectTags = sqliteTable(
+  "project_tags",
+  {
+    projectId: integer("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    tagId: integer("tag_id")
+      .notNull()
+      .references(() => tags.id, { onDelete: "cascade" }),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.projectId, table.tagId] }),
+    tagIdIdx: index("project_tags_tag_id_idx").on(table.tagId),
+  }),
+);
+
 export type ProjectRow = typeof projects.$inferSelect;
 export type NewProjectRow = typeof projects.$inferInsert;
 export type FileRow = typeof files.$inferSelect;
 export type NewFileRow = typeof files.$inferInsert;
+export type TagRow = typeof tags.$inferSelect;
