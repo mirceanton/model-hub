@@ -9,6 +9,11 @@
     "dev:web": "pnpm --filter @model-hub/web dev",
     "build": "pnpm --filter @model-hub/shared build && pnpm --filter @model-hub/server build && pnpm --filter @model-hub/web build",
     "test": "pnpm --filter @model-hub/server test",
-    "lint": "pnpm -r lint"
+    "lint": "pnpm -r lint",
+    "format": "prettier --write \"**/*.{yaml,yml}\"",
+    "format:check": "prettier --check \"**/*.{yaml,yml}\""
+  },
+  "devDependencies": {
+    "prettier": "^3.9.6"
   }
 }
