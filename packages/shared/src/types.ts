@@ -2,6 +2,15 @@ export type SyncStatus = "ok" | "error" | "missing";
 export type ThumbnailStatus = "pending" | "generating" | "ready" | "error";
 export type ModelExtension = "stl" | "3mf";
 
+export interface Tag {
+  id: number;
+  name: string;
+}
+
+export interface TagWithCount extends Tag {
+  projectCount: number;
+}
+
 export interface Project {
   id: number;
   fsId: string;
@@ -18,6 +27,7 @@ export interface Project {
   missingSince: number | null;
   createdAt: number;
   updatedAt: number;
+  tags: Tag[];
 }
 
 export interface FileEntry {

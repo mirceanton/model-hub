@@ -5,6 +5,7 @@ import { registerFileRoutes } from "./routes/files.js";
 import { registerHealthRoute } from "./routes/health.js";
 import { registerProjectRoutes } from "./routes/projects.js";
 import { registerSyncRoutes } from "./routes/sync.js";
+import { registerTagRoutes } from "./routes/tags.js";
 import { registerThumbnailRoutes } from "./routes/thumbnails.js";
 import { registerVersionRoutes } from "./routes/versions.js";
 
@@ -21,6 +22,7 @@ export function buildApp(db: DbClient, config: Config): FastifyInstance {
   registerFileRoutes(app, db);
   registerVersionRoutes(app, db);
   registerThumbnailRoutes(app, db);
+  registerTagRoutes(app, db);
   registerSyncRoutes(app, db, config.libraryRoot);
 
   return app;

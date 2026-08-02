@@ -12,6 +12,7 @@ import { lazy, Suspense, useState } from "react"
 import { Link, useParams } from "react-router"
 import { ProjectThumbnail } from "@/components/project-thumbnail"
 import { SyncStatusBadge } from "@/components/sync-status-badge"
+import { TagEditor } from "@/components/tag-editor"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -71,6 +72,7 @@ export function ProjectDetailPage() {
             <SyncStatusBadge status={project.syncStatus} />
           </div>
           <p className="break-all font-mono text-xs text-muted-foreground">{project.path}</p>
+          <TagEditor projectId={project.id} tags={project.tags} />
         </div>
         <div className="flex items-center gap-2">
           <RegenerateThumbnailButton projectId={project.id} />
