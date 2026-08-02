@@ -89,4 +89,61 @@ export function registerProjectRoutes(app: FastifyInstance, db: DbClient): void 
     };
     return detail;
   });
+
+  app.patch<{ Params: { id: string }; Body: { title?: string; description?: string } }>(
+    "/api/projects/:id",
+    async (request, reply) => {
+      const id = Number(request.params.id);
+      if (!Number.isInteger(id)) {
+        return reply.code(400).send({ error: "invalid project id" });
+      }
+
+      const row = db.select().from(projectsTable).where(eq(projectsTable.id, id)).get();
+      if (!row) {
+        return reply.code(404).send({ error: "project not found" });
+      }
+
+      const { title, description } = request.body ?? {};
+      if (title !== undefined && title.trim().length === 0) {
+        return reply.code(400).send({ error: "title cannot be empty" });
+      }
+
+      const updated = db
+        .update(projectsTable)
+        .set({
+          ...(title !== undefined ? { title: title.trim() } : {}),
+          ...(description !== undefined ? { description } : {}),
+          updatedAt: new Date(),
+        })
+        .where(eq(projectsTable.id, id))
+        .returning()
+        .get();
+
+      return toApiProject(updated, getTagsForProject(db, id));
+    },
+  );
+
+  app.delete<{ Params: { id: string } }>("/api/projects/:id", async (request, reply) => {
+    const id = Number(request.params.id);
+    if (!Number.isInteger(id)) {
+      return reply.code(400).send({ error: "invalid project id" });
+    }
+
+    const row = db.select().from(projectsTable).where(eq(projectsTable.id, id)).get();
+    if (!row) {
+      return reply.code(404).send({ error: "project not found" });
+    }
+    // Only ever removes DB bookkeeping for a project whose directory is
+    // already gone — never touches disk. A present project would just get
+    // rediscovered (with fresh, disconnected metadata) on the next scan,
+    // which is confusing enough to be worth blocking outright.
+    if (row.syncStatus !== "missing") {
+      return reply.code(409).send({
+        error: "only projects whose directory is missing can be forgotten",
+      });
+    }
+
+    db.delete(projectsTable).where(eq(projectsTable.id, id)).run();
+    return reply.code(204).send();
+  });
 }

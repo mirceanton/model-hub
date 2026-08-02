@@ -7,22 +7,31 @@ import {
   History,
   Loader2,
   RefreshCw,
+  Trash2,
 } from "lucide-react"
 import { lazy, Suspense, useState } from "react"
-import { Link, useParams } from "react-router"
+import { Link, useNavigate, useParams } from "react-router"
 import { ProjectThumbnail } from "@/components/project-thumbnail"
 import { SyncStatusBadge } from "@/components/sync-status-badge"
 import { TagEditor } from "@/components/tag-editor"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Textarea } from "@/components/ui/textarea"
 import { UploadVersionDialog } from "@/components/upload-version-dialog"
 import { formatBytes, formatDateTime } from "@/lib/format"
 import { fileUrl, isViewableExtension } from "@/lib/model-loader"
-import { useProject, useRegenerateThumbnail, useRestoreVersion } from "@/lib/queries"
+import {
+  useForgetProject,
+  useProject,
+  useRegenerateThumbnail,
+  useRestoreVersion,
+  useUpdateProject,
+} from "@/lib/queries"
 import { cn } from "@/lib/utils"
 
 const ModelViewer = lazy(() =>
@@ -66,15 +75,16 @@ export function ProjectDetailPage() {
       <BackLink />
 
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex flex-col gap-2">
+        <div className="flex min-w-0 flex-1 flex-col gap-2">
           <div className="flex flex-wrap items-center gap-2">
-            <h1 className="text-xl font-semibold">{project.title}</h1>
+            <EditableTitle projectId={project.id} title={project.title} />
             <SyncStatusBadge status={project.syncStatus} />
           </div>
           <p className="break-all font-mono text-xs text-muted-foreground">{project.path}</p>
           <TagEditor projectId={project.id} tags={project.tags} />
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex shrink-0 items-center gap-2">
+          {project.syncStatus === "missing" && <ForgetProjectButton projectId={project.id} />}
           <RegenerateThumbnailButton projectId={project.id} />
           <UploadVersionDialog projectId={project.id} />
         </div>
@@ -93,9 +103,7 @@ export function ProjectDetailPage() {
         <ProjectThumbnail project={project} className={viewerHeight} />
       )}
 
-      <p className="text-sm text-muted-foreground">
-        {project.description || "No description yet."}
-      </p>
+      <EditableDescription projectId={project.id} description={project.description} />
       {project.lastSyncedAt && (
         <p className="-mt-4 text-xs text-muted-foreground/70">
           Last synced {formatDateTime(project.lastSyncedAt)}
@@ -116,7 +124,7 @@ export function ProjectDetailPage() {
           <AlertTitle>Directory missing</AlertTitle>
           <AlertDescription>
             This project's directory could not be found on the last library scan. Its metadata
-            is kept in case it reappears.
+            is kept in case it reappears, or you can forget it below.
           </AlertDescription>
         </Alert>
       )}
@@ -189,6 +197,131 @@ export function ProjectDetailPage() {
         </TabsContent>
       </Tabs>
     </div>
+  )
+}
+
+function EditableTitle({ projectId, title }: { projectId: number; title: string }) {
+  const [editing, setEditing] = useState(false)
+  const [value, setValue] = useState(title)
+  const update = useUpdateProject(projectId)
+
+  if (!editing) {
+    return (
+      <button
+        type="button"
+        onClick={() => {
+          setValue(title)
+          setEditing(true)
+        }}
+        className="rounded text-left text-xl font-semibold hover:bg-muted/50"
+        title="Click to rename"
+      >
+        {title}
+      </button>
+    )
+  }
+
+  function commit() {
+    setEditing(false)
+    const trimmed = value.trim()
+    if (trimmed && trimmed !== title) {
+      update.mutate({ title: trimmed })
+    }
+  }
+
+  return (
+    <Input
+      autoFocus
+      value={value}
+      onChange={(e) => setValue(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") commit()
+        if (e.key === "Escape") {
+          setValue(title)
+          setEditing(false)
+        }
+      }}
+      className="h-8 max-w-sm text-xl font-semibold"
+    />
+  )
+}
+
+function EditableDescription({
+  projectId,
+  description,
+}: {
+  projectId: number
+  description: string
+}) {
+  const [editing, setEditing] = useState(false)
+  const [value, setValue] = useState(description)
+  const update = useUpdateProject(projectId)
+
+  if (!editing) {
+    return (
+      <button
+        type="button"
+        onClick={() => {
+          setValue(description)
+          setEditing(true)
+        }}
+        className="rounded px-1 py-0.5 text-left text-sm text-muted-foreground hover:bg-muted/50"
+        title="Click to edit"
+      >
+        {description || "No description yet. Click to add one."}
+      </button>
+    )
+  }
+
+  function commit() {
+    setEditing(false)
+    if (value !== description) {
+      update.mutate({ description: value })
+    }
+  }
+
+  return (
+    <Textarea
+      autoFocus
+      value={value}
+      onChange={(e) => setValue(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Escape") {
+          setValue(description)
+          setEditing(false)
+        }
+      }}
+      placeholder="What is this project?"
+      rows={3}
+    />
+  )
+}
+
+function ForgetProjectButton({ projectId }: { projectId: number }) {
+  const forget = useForgetProject(projectId)
+  const navigate = useNavigate()
+
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      disabled={forget.isPending}
+      onClick={() => {
+        if (
+          !confirm(
+            "Forget this project? This only removes its tags/description/history from model-hub — it never touches disk, and the directory is already gone.",
+          )
+        ) {
+          return
+        }
+        forget.mutate(undefined, { onSuccess: () => navigate("/") })
+      }}
+    >
+      {forget.isPending ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
+      Forget
+    </Button>
   )
 }
 

@@ -1,4 +1,5 @@
 import { createReadStream } from "node:fs";
+import { stat } from "node:fs/promises";
 import { resolve, sep } from "node:path";
 import { and, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
@@ -39,6 +40,17 @@ export function registerFileRoutes(app: FastifyInstance, db: DbClient): void {
       const absolutePath = resolve(projectRoot, relativePath);
       if (absolutePath !== projectRoot && !absolutePath.startsWith(projectRoot + sep)) {
         return reply.code(400).send({ error: "invalid path" });
+      }
+
+      // The `files` cache can lag reality — e.g. right after the project's
+      // whole directory has gone missing but before that's fully reflected
+      // — so confirm the file is actually still there rather than letting a
+      // mid-stream ENOENT surface as an unhandled 500.
+      const exists = await stat(absolutePath)
+        .then(() => true)
+        .catch(() => false);
+      if (!exists) {
+        return reply.code(404).send({ error: "file no longer exists on disk" });
       }
 
       reply.header("Content-Type", CONTENT_TYPE_BY_EXTENSION[fileRow.extension] ?? "application/octet-stream");

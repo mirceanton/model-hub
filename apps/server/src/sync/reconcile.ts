@@ -1,3 +1,4 @@
+import { stat } from "node:fs/promises";
 import { eq } from "drizzle-orm";
 import type { DbClient } from "../db/client.js";
 import { files as filesTable, projects as projectsTable, type ProjectRow } from "../db/schema.js";
@@ -129,6 +130,26 @@ export async function reconcileProjectCore(
     return { status: "ok", committed: committedSha != null, primaryFilePath };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+
+    // A watcher-triggered (or otherwise stale) reconcile can still be in
+    // flight after the directory has already vanished — e.g. the periodic
+    // scan already correctly marked this project "missing" moments earlier.
+    // Whatever operation actually threw (ensureMarkerId, git init, ...),
+    // if the directory itself is gone that's the real story, not some
+    // arbitrary ENOENT — don't clobber a correct "missing" with a
+    // confusing "error".
+    const directoryExists = await stat(project.path)
+      .then(() => true)
+      .catch(() => false);
+
+    if (!directoryExists) {
+      db.update(projectsTable)
+        .set({ syncStatus: "missing", syncError: null, missingSince: now, updatedAt: now })
+        .where(eq(projectsTable.id, project.id))
+        .run();
+      return { status: "error", committed: false, error: "directory no longer exists" };
+    }
+
     db.update(projectsTable)
       .set({ syncStatus: "error", syncError: message, updatedAt: now })
       .where(eq(projectsTable.id, project.id))
