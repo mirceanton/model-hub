@@ -15,6 +15,7 @@ describe("loadConfig", () => {
     expect(config.libraryWatchEnabled).toBe(true);
     expect(config.libraryWatchUsePolling).toBe(false);
     expect(config.logLevel).toBe("info");
+    expect(config.thumbnailConcurrency).toBe(1);
   });
 
   it("coerces and honors overrides", () => {
@@ -23,10 +24,22 @@ describe("loadConfig", () => {
       PORT: "5050",
       LIBRARY_WATCH_USE_POLLING: "true",
       LOG_LEVEL: "debug",
+      THUMBNAIL_CONCURRENCY: "3",
     });
     expect(config.port).toBe(5050);
     expect(config.libraryWatchUsePolling).toBe(true);
     expect(config.logLevel).toBe("debug");
+    expect(config.thumbnailConcurrency).toBe(3);
+  });
+
+  it("defaults webBaseUrl to its own origin, derived from PORT", () => {
+    const config = loadConfig({ ...BASE_ENV, PORT: "5050" });
+    expect(config.webBaseUrl).toBe("http://127.0.0.1:5050");
+  });
+
+  it("honors an explicit WEB_BASE_URL override", () => {
+    const config = loadConfig({ ...BASE_ENV, WEB_BASE_URL: "http://localhost:5173" });
+    expect(config.webBaseUrl).toBe("http://localhost:5173");
   });
 
   it("fails fast with a clear error when LIBRARY_ROOT is missing", () => {

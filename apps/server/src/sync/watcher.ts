@@ -3,6 +3,7 @@ import chokidar, { type FSWatcher } from "chokidar";
 import { eq } from "drizzle-orm";
 import type { DbClient } from "../db/client.js";
 import { projects as projectsTable } from "../db/schema.js";
+import { maybeEnqueueThumbnail } from "../thumbnails/trigger.js";
 import { reconcileProject } from "./reconcile.js";
 
 export interface WatcherOptions {
@@ -75,5 +76,6 @@ async function reconcileKnownProject(
     onLog(`watcher: no known project at ${projectPath} yet; next full scan will adopt it`);
     return;
   }
-  await reconcileProject(db, row);
+  const result = await reconcileProject(db, row);
+  maybeEnqueueThumbnail(db, row, result);
 }

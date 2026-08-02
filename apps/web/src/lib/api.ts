@@ -47,3 +47,14 @@ export function restoreProjectVersion(id: number, sha: string): Promise<RestoreR
     body: JSON.stringify({ sha }),
   })
 }
+
+export interface RegenerateThumbnailResult {
+  ok: true
+  thumbnailStatus: "pending"
+}
+
+export function regenerateThumbnail(id: number): Promise<RegenerateThumbnailResult> {
+  return request<RegenerateThumbnailResult>(`/api/projects/${id}/thumbnail/regenerate`, {
+    method: "POST",
+  })
+}

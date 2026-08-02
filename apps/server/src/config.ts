@@ -21,6 +21,11 @@ const envSchema = z.object({
   LOG_LEVEL: z
     .enum(["fatal", "error", "warn", "info", "debug", "trace"])
     .default("info"),
+  // Base URL the thumbnail renderer navigates Playwright to. Defaults to
+  // this server's own origin (correct once it serves the built SPA, per
+  // Phase 8); override for dev, where the Vite dev server runs separately.
+  WEB_BASE_URL: z.string().url().optional(),
+  THUMBNAIL_CONCURRENCY: z.coerce.number().int().positive().default(1),
 });
 
 export type Config = {
@@ -32,6 +37,8 @@ export type Config = {
   libraryWatchEnabled: boolean;
   libraryWatchUsePolling: boolean;
   logLevel: "fatal" | "error" | "warn" | "info" | "debug" | "trace";
+  webBaseUrl: string;
+  thumbnailConcurrency: number;
 };
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
@@ -53,5 +60,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     libraryWatchEnabled: parsed.LIBRARY_WATCH_ENABLED,
     libraryWatchUsePolling: parsed.LIBRARY_WATCH_USE_POLLING,
     logLevel: parsed.LOG_LEVEL,
+    webBaseUrl: parsed.WEB_BASE_URL ?? `http://127.0.0.1:${parsed.PORT}`,
+    thumbnailConcurrency: parsed.THUMBNAIL_CONCURRENCY,
   };
 }

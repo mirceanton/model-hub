@@ -4,6 +4,8 @@ import { createDbClient } from "./db/client.js";
 import { runMigrations } from "./db/migrate.js";
 import { scanLibraryRoot } from "./sync/scanner.js";
 import { startWatcher } from "./sync/watcher.js";
+import { closeBrowser } from "./thumbnails/browser.js";
+import { initThumbnailPipeline, sweepPendingThumbnails } from "./thumbnails/trigger.js";
 
 async function main(): Promise<void> {
   const config = loadConfig();
@@ -11,7 +13,14 @@ async function main(): Promise<void> {
   runMigrations(db);
 
   const app = buildApp(db, config);
+  app.addHook("onClose", async () => {
+    await closeBrowser();
+  });
 
+  // Thumbnail rendering fetches model file bytes back through this same API
+  // (the headless page hits /api/projects/:id/files/*), so the pipeline must
+  // not start dequeuing jobs until app.listen() below has actually bound the
+  // port — enqueue calls before that are harmless no-ops (see trigger.ts).
   const initialScan = await scanLibraryRoot(db, config.libraryRoot);
   if (initialScan.skipped) {
     app.log.warn(`initial scan skipped: ${initialScan.reason}`);
@@ -44,6 +53,9 @@ async function main(): Promise<void> {
   }
 
   await app.listen({ port: config.port, host: "0.0.0.0" });
+
+  initThumbnailPipeline(config.thumbnailConcurrency, config.webBaseUrl);
+  sweepPendingThumbnails(db);
 }
 
 main().catch((err) => {

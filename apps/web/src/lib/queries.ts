@@ -1,5 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { fetchProject, fetchProjects, restoreProjectVersion, uploadProjectVersion } from "./api"
+import {
+  fetchProject,
+  fetchProjects,
+  regenerateThumbnail,
+  restoreProjectVersion,
+  uploadProjectVersion,
+} from "./api"
 
 const REFETCH_INTERVAL_MS = 10_000
 
@@ -36,6 +42,17 @@ export function useRestoreVersion(id: number) {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (sha: string) => restoreProjectVersion(id, sha),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["projects", id] })
+      void queryClient.invalidateQueries({ queryKey: ["projects"] })
+    },
+  })
+}
+
+export function useRegenerateThumbnail(id: number) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: () => regenerateThumbnail(id),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["projects", id] })
       void queryClient.invalidateQueries({ queryKey: ["projects"] })
