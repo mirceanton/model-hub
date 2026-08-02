@@ -79,6 +79,11 @@ export async function addAllAndCommit(
   return result.commit;
 }
 
+/** Restores tracked file contents to their state at `sha`, leaving the change staged for the caller to commit. Never deletes files added since `sha`. */
+export async function restoreToCommit(projectDir: string, sha: string): Promise<void> {
+  await clientFor(projectDir).raw(["checkout", sha, "--", "."]);
+}
+
 export async function getLog(projectDir: string): Promise<GitLogEntry[]> {
   const git = clientFor(projectDir);
   const log = await git.log();

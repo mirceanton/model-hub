@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { FileEntry } from "@model-hub/shared";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { ensureGitignore, ensureMarkerId, pickPrimaryFile } from "./fs-utils.js";
+import { ensureGitignore, ensureMarkerId, pickPrimaryFile, sanitizeUploadFilename } from "./fs-utils.js";
 
 describe("pickPrimaryFile", () => {
   it("returns null when there are no files", () => {
@@ -92,5 +92,29 @@ describe("ensureGitignore", () => {
     const content = await readFile(join(dir, ".gitignore"), "utf8");
     expect(content).toContain("node_modules/");
     expect(content).toContain(".thumbnails/");
+  });
+});
+
+describe("sanitizeUploadFilename", () => {
+  it("accepts a plain model filename", () => {
+    expect(sanitizeUploadFilename("part.stl")).toBe("part.stl");
+    expect(sanitizeUploadFilename("model.3mf")).toBe("model.3mf");
+  });
+
+  it("strips directory components from a path-traversal attempt", () => {
+    expect(sanitizeUploadFilename("../../etc/passwd.stl")).toBe("passwd.stl");
+    expect(sanitizeUploadFilename("/etc/passwd.stl")).toBe("passwd.stl");
+    expect(sanitizeUploadFilename("..\\..\\windows\\evil.stl")).toBe("evil.stl");
+  });
+
+  it("rejects non-model extensions", () => {
+    expect(sanitizeUploadFilename("readme.txt")).toBeNull();
+    expect(sanitizeUploadFilename("archive.zip")).toBeNull();
+  });
+
+  it("rejects empty or dot-only names", () => {
+    expect(sanitizeUploadFilename("")).toBeNull();
+    expect(sanitizeUploadFilename(".")).toBeNull();
+    expect(sanitizeUploadFilename("..")).toBeNull();
   });
 });
