@@ -14,7 +14,13 @@ import { Textarea } from "@/components/ui/textarea"
 import { formatBytes } from "@/lib/format"
 import { useUploadVersion } from "@/lib/queries"
 
-export function UploadVersionDialog({ projectId }: { projectId: number }) {
+export function UploadVersionDialog({
+  projectId,
+  className,
+}: {
+  projectId: number
+  className?: string
+}) {
   const [open, setOpen] = useState(false)
   const [files, setFiles] = useState<File[]>([])
   const [message, setMessage] = useState("")
@@ -49,7 +55,7 @@ export function UploadVersionDialog({ projectId }: { projectId: number }) {
         if (!next) reset()
       }}
     >
-      <DialogTrigger render={<Button variant="outline" size="sm" />}>
+      <DialogTrigger render={<Button variant="outline" size="sm" className={className} />}>
         <Upload className="size-4" />
         Upload new version
       </DialogTrigger>
