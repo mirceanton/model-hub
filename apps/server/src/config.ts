@@ -26,6 +26,11 @@ const envSchema = z.object({
   // Phase 8); override for dev, where the Vite dev server runs separately.
   WEB_BASE_URL: z.string().url().optional(),
   THUMBNAIL_CONCURRENCY: z.coerce.number().int().positive().default(1),
+  // Absolute path to the built web SPA (apps/web/dist). When set, this
+  // server also serves the SPA (with client-side-routing fallback) at `/`,
+  // making it the single process a Docker deployment runs. Left unset in
+  // dev, where the Vite dev server serves the SPA instead.
+  STATIC_WEB_DIR: z.string().min(1).optional(),
   // OIDC: unset entirely -> single-user mode (no login). If any of these
   // three are set, all three (and SESSION_SECRET) are required.
   OIDC_ISSUER_URL: z.string().url().optional(),
@@ -53,6 +58,7 @@ export type Config = {
   logLevel: "fatal" | "error" | "warn" | "info" | "debug" | "trace";
   webBaseUrl: string;
   thumbnailConcurrency: number;
+  staticWebDir: string | null;
   /** null means single-user mode: no auth middleware is mounted at all. */
   oidc: OidcConfig | null;
   sessionSecret: string | null;
@@ -107,6 +113,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     logLevel: parsed.LOG_LEVEL,
     webBaseUrl,
     thumbnailConcurrency: parsed.THUMBNAIL_CONCURRENCY,
+    staticWebDir: parsed.STATIC_WEB_DIR ?? null,
     oidc,
     sessionSecret: parsed.SESSION_SECRET ?? null,
   };
