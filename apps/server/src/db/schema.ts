@@ -50,6 +50,10 @@ export const tags = sqliteTable("tags", {
   // tags.ts's getOrCreateTag) rather than via a DB collation, since that
   // keeps the lookup portable and simple with Drizzle's standard API.
   name: text("name").notNull().unique(),
+  // Hex color (e.g. "#3b82f6"), randomly assigned at creation (see
+  // tags.ts's randomTagColor) and editable afterwards. The column default
+  // only backfills tags that existed before this feature.
+  color: text("color").notNull().default("#6b7280"),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
 });
 

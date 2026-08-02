@@ -12,6 +12,7 @@ import {
   removeProjectTag,
   restoreProjectVersion,
   updateProject,
+  updateTag,
   uploadProjectVersion,
   type ProjectFilters,
 } from "./api"
@@ -66,6 +67,17 @@ export function useCreateTag() {
     mutationFn: (name: string) => createTag(name),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["tags"] })
+    },
+  })
+}
+
+export function useUpdateTag(id: number) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (patch: { name?: string; color?: string }) => updateTag(id, patch),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["tags"] })
+      void queryClient.invalidateQueries({ queryKey: ["projects"] })
     },
   })
 }

@@ -5,6 +5,7 @@ export type ModelExtension = "stl" | "3mf";
 export interface Tag {
   id: number;
   name: string;
+  color: string;
 }
 
 export interface TagWithCount extends Tag {

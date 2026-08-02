@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import { formatDateTime } from "@/lib/format"
 import { useProjects, useTags } from "@/lib/queries"
+import { tagBadgeStyle } from "@/lib/tag-colors"
 
 const SEARCH_DEBOUNCE_MS = 250
 
@@ -110,7 +111,12 @@ function ProjectCard({ project }: { project: Project }) {
           {project.tags.length > 0 && (
             <div className="flex flex-wrap gap-1">
               {project.tags.map((tag) => (
-                <Badge key={tag.id} variant="secondary" className="text-[10px]">
+                <Badge
+                  key={tag.id}
+                  variant="outline"
+                  className="text-[10px]"
+                  style={tagBadgeStyle(tag.color)}
+                >
                   {tag.name}
                 </Badge>
               ))}

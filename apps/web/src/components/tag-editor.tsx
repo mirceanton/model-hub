@@ -4,6 +4,7 @@ import { useState } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { useAddTag, useRemoveTag } from "@/lib/queries"
+import { tagBadgeStyle } from "@/lib/tag-colors"
 
 export function TagEditor({ projectId, tags }: { projectId: number; tags: Tag[] }) {
   const [newTag, setNewTag] = useState("")
@@ -19,7 +20,7 @@ export function TagEditor({ projectId, tags }: { projectId: number; tags: Tag[] 
   return (
     <div className="flex flex-wrap items-center gap-1.5">
       {tags.map((tag) => (
-        <Badge key={tag.id} variant="outline" className="gap-1 pr-1">
+        <Badge key={tag.id} variant="outline" className="gap-1 pr-1" style={tagBadgeStyle(tag.color)}>
           {tag.name}
           <button
             type="button"
