@@ -1,0 +1,13 @@
+{
+  "name": "model-hub",
+  "private": true,
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev:server": "pnpm --filter @model-hub/server dev",
+    "build": "pnpm --filter @model-hub/shared build && pnpm --filter @model-hub/server build",
+    "test": "pnpm --filter @model-hub/server test",
+    "lint": "pnpm -r lint"
+  }
+}
