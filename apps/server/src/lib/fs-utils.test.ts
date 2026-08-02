@@ -71,11 +71,12 @@ describe("ensureGitignore", () => {
     await rm(dir, { recursive: true, force: true });
   });
 
-  it("creates a .gitignore containing .thumbnails/ when none exists", async () => {
+  it("creates a .gitignore containing .thumbnails/ and .DS_Store when none exists", async () => {
     const result = await ensureGitignore(dir);
     expect(result.modified).toBe(true);
     const content = await readFile(join(dir, ".gitignore"), "utf8");
     expect(content).toContain(".thumbnails/");
+    expect(content).toContain(".DS_Store");
   });
 
   it("is idempotent once the managed entry is present", async () => {
