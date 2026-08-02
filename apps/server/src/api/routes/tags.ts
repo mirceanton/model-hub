@@ -3,7 +3,14 @@ import { and, eq, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { DbClient } from "../../db/client.js";
 import { projectTags as projectTagsTable, projects as projectsTable, tags as tagsTable } from "../../db/schema.js";
-import { deleteTagIfUnused, getOrCreateTag, InvalidTagNameError } from "../../lib/tags.js";
+import {
+  DuplicateTagNameError,
+  deleteTagIfUnused,
+  getOrCreateTag,
+  InvalidTagColorError,
+  InvalidTagNameError,
+  updateTag,
+} from "../../lib/tags.js";
 
 export function registerTagRoutes(app: FastifyInstance, db: DbClient): void {
   app.get("/api/tags", async () => {
@@ -11,6 +18,7 @@ export function registerTagRoutes(app: FastifyInstance, db: DbClient): void {
       .select({
         id: tagsTable.id,
         name: tagsTable.name,
+        color: tagsTable.color,
         projectCount: sql<number>`count(${projectTagsTable.projectId})`,
       })
       .from(tagsTable)
@@ -37,9 +45,45 @@ export function registerTagRoutes(app: FastifyInstance, db: DbClient): void {
       throw err;
     }
 
-    const result: Tag = { id: tag.id, name: tag.name };
+    const result: Tag = { id: tag.id, name: tag.name, color: tag.color };
     return reply.code(201).send(result);
   });
+
+  app.patch<{ Params: { id: string }; Body: { name?: string; color?: string } }>(
+    "/api/tags/:id",
+    async (request, reply) => {
+      const id = Number(request.params.id);
+      if (!Number.isInteger(id)) {
+        return reply.code(400).send({ error: "invalid tag id" });
+      }
+
+      const { name, color } = request.body ?? {};
+      if (name === undefined && color === undefined) {
+        return reply.code(400).send({ error: "name or color is required" });
+      }
+
+      let tag;
+      try {
+        tag = updateTag(db, id, { name, color });
+      } catch (err) {
+        if (
+          err instanceof InvalidTagNameError ||
+          err instanceof InvalidTagColorError ||
+          err instanceof DuplicateTagNameError
+        ) {
+          return reply.code(400).send({ error: err.message });
+        }
+        throw err;
+      }
+
+      if (!tag) {
+        return reply.code(404).send({ error: "tag not found" });
+      }
+
+      const result: Tag = { id: tag.id, name: tag.name, color: tag.color };
+      return reply.code(200).send(result);
+    },
+  );
 
   app.post<{ Params: { id: string }; Body: { name?: string } }>(
     "/api/projects/:id/tags",
@@ -74,7 +118,7 @@ export function registerTagRoutes(app: FastifyInstance, db: DbClient): void {
         .onConflictDoNothing()
         .run();
 
-      return reply.code(201).send({ id: tag.id, name: tag.name });
+      return reply.code(201).send({ id: tag.id, name: tag.name, color: tag.color });
     },
   );
 

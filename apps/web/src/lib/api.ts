@@ -96,6 +96,14 @@ export function createTag(name: string): Promise<Tag> {
   })
 }
 
+export function updateTag(id: number, patch: { name?: string; color?: string }): Promise<Tag> {
+  return request<Tag>(`/api/tags/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  })
+}
+
 export function addProjectTag(projectId: number, name: string): Promise<Tag> {
   return request<Tag>(`/api/projects/${projectId}/tags`, {
     method: "POST",

@@ -2,6 +2,7 @@ import type { TagWithCount } from "@model-hub/shared"
 import { ArrowDown, ArrowUp, ArrowUpDown, ChevronDown, Search, Tag as TagIcon, X } from "lucide-react"
 import { useMemo, useState } from "react"
 import { CreateTagDialog } from "@/components/create-tag-dialog"
+import { EditTagDialog } from "@/components/edit-tag-dialog"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import { cn } from "@/lib/utils"
@@ -105,18 +106,27 @@ export function TagPanel({ tags, isLoading, activeTag, onSelectTag, className }:
             ) : (
               <ul>
                 {visibleTags.map((tag) => (
-                  <li key={tag.id}>
+                  <li key={tag.id} className="group flex items-center">
                     <button
                       type="button"
                       onClick={() => onSelectTag(activeTag === tag.name ? null : tag.name)}
                       className={cn(
-                        "grid w-full grid-cols-[1fr_auto] items-center gap-x-2 px-3 py-1.5 text-left text-sm hover:bg-muted",
+                        "grid min-w-0 flex-1 grid-cols-[1fr_auto] items-center gap-x-2 px-3 py-1.5 text-left text-sm hover:bg-muted",
                         activeTag === tag.name && "bg-muted font-medium",
                       )}
                     >
-                      <span className="truncate">{tag.name}</span>
+                      <span className="flex min-w-0 items-center gap-1.5">
+                        <span
+                          className="size-2 shrink-0 rounded-full"
+                          style={{ backgroundColor: tag.color }}
+                        />
+                        <span className="truncate">{tag.name}</span>
+                      </span>
                       <span className="text-xs text-muted-foreground">{tag.projectCount}</span>
                     </button>
+                    <div className="pr-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100">
+                      <EditTagDialog tag={tag} />
+                    </div>
                   </li>
                 ))}
               </ul>
