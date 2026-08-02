@@ -31,8 +31,8 @@ function UserMenu() {
 export function AppShell() {
   return (
     <div className="min-h-svh bg-background text-foreground">
-      <header className="border-b">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
+      <header className="h-14 border-b">
+        <div className="mx-auto flex h-full max-w-6xl items-center justify-between px-4">
           <Link to="/" className="flex items-center gap-2 font-semibold">
             <Box className="size-5" />
             model-hub

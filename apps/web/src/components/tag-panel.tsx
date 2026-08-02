@@ -72,7 +72,9 @@ export function TagPanel({ tags, isLoading, activeTag, onSelectTag, className }:
 
       <div
         className={cn(
-          "mt-2 lg:sticky lg:top-4 lg:mt-0 lg:flex lg:max-h-[calc(100svh-2rem)] lg:flex-col",
+          // max-h leaves room for AppShell's h-14 header plus a top/bottom margin
+          // matching main's py-6; keep in sync if either of those change.
+          "mt-2 lg:sticky lg:top-6 lg:mt-0 lg:flex lg:max-h-[calc(100svh-6.5rem)] lg:flex-col",
           isOpen ? "block" : "hidden",
         )}
       >
