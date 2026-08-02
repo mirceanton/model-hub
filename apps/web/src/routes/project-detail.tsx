@@ -74,7 +74,7 @@ export function ProjectDetailPage() {
     <div className="flex flex-col gap-6">
       <BackLink />
 
-      <div className="flex flex-wrap items-start justify-between gap-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-start sm:justify-between">
         <div className="flex min-w-0 flex-1 flex-col gap-2">
           <div className="flex flex-wrap items-center gap-2">
             <EditableTitle projectId={project.id} title={project.title} />
@@ -83,10 +83,10 @@ export function ProjectDetailPage() {
           <p className="break-all font-mono text-xs text-muted-foreground">{project.path}</p>
           <TagEditor projectId={project.id} tags={project.tags} />
         </div>
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex w-full shrink-0 items-center gap-2 sm:w-auto">
           {project.syncStatus === "missing" && <ForgetProjectButton projectId={project.id} />}
-          <RegenerateThumbnailButton projectId={project.id} />
-          <UploadVersionDialog projectId={project.id} />
+          <RegenerateThumbnailButton projectId={project.id} className="flex-1 sm:flex-none" />
+          <UploadVersionDialog projectId={project.id} className="flex-1 sm:flex-none" />
         </div>
       </div>
 
@@ -347,7 +347,13 @@ function RestoreButton({ projectId, entry }: { projectId: number; entry: GitLogE
   )
 }
 
-function RegenerateThumbnailButton({ projectId }: { projectId: number }) {
+function RegenerateThumbnailButton({
+  projectId,
+  className,
+}: {
+  projectId: number
+  className?: string
+}) {
   const regenerate = useRegenerateThumbnail(projectId)
 
   return (
@@ -357,6 +363,7 @@ function RegenerateThumbnailButton({ projectId }: { projectId: number }) {
       disabled={regenerate.isPending}
       onClick={() => regenerate.mutate()}
       title="Regenerate thumbnail"
+      className={className}
     >
       <RefreshCw className={cn("size-4", regenerate.isPending && "animate-spin")} />
       Thumbnail
