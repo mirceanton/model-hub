@@ -26,7 +26,21 @@ const envSchema = z.object({
   // Phase 8); override for dev, where the Vite dev server runs separately.
   WEB_BASE_URL: z.string().url().optional(),
   THUMBNAIL_CONCURRENCY: z.coerce.number().int().positive().default(1),
+  // OIDC: unset entirely -> single-user mode (no login). If any of these
+  // three are set, all three (and SESSION_SECRET) are required.
+  OIDC_ISSUER_URL: z.string().url().optional(),
+  OIDC_CLIENT_ID: z.string().min(1).optional(),
+  OIDC_CLIENT_SECRET: z.string().min(1).optional(),
+  OIDC_REDIRECT_URL: z.string().url().optional(),
+  SESSION_SECRET: z.string().min(32, "SESSION_SECRET must be at least 32 characters").optional(),
 });
+
+export interface OidcConfig {
+  issuerUrl: string;
+  clientId: string;
+  clientSecret: string;
+  redirectUrl: string;
+}
 
 export type Config = {
   libraryRoot: string;
@@ -39,6 +53,9 @@ export type Config = {
   logLevel: "fatal" | "error" | "warn" | "info" | "debug" | "trace";
   webBaseUrl: string;
   thumbnailConcurrency: number;
+  /** null means single-user mode: no auth middleware is mounted at all. */
+  oidc: OidcConfig | null;
+  sessionSecret: string | null;
 };
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
@@ -51,6 +68,34 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   }
 
   const parsed = result.data;
+  const webBaseUrl = parsed.WEB_BASE_URL ?? `http://127.0.0.1:${parsed.PORT}`;
+
+  const oidcFieldsSet = [parsed.OIDC_ISSUER_URL, parsed.OIDC_CLIENT_ID, parsed.OIDC_CLIENT_SECRET];
+  const anyOidcFieldSet = oidcFieldsSet.some((v) => v != null);
+  const allOidcFieldsSet = oidcFieldsSet.every((v) => v != null);
+
+  if (anyOidcFieldSet && !allOidcFieldsSet) {
+    throw new Error(
+      "Invalid environment configuration:\n" +
+        "  - OIDC_ISSUER_URL, OIDC_CLIENT_ID, and OIDC_CLIENT_SECRET must all be set together, or all left unset for single-user mode",
+    );
+  }
+  if (anyOidcFieldSet && !parsed.SESSION_SECRET) {
+    throw new Error(
+      "Invalid environment configuration:\n" +
+        "  - SESSION_SECRET is required when OIDC_* is configured (at least 32 characters)",
+    );
+  }
+
+  const oidc: OidcConfig | null = allOidcFieldsSet
+    ? {
+        issuerUrl: parsed.OIDC_ISSUER_URL!,
+        clientId: parsed.OIDC_CLIENT_ID!,
+        clientSecret: parsed.OIDC_CLIENT_SECRET!,
+        redirectUrl: parsed.OIDC_REDIRECT_URL ?? `${webBaseUrl}/auth/callback`,
+      }
+    : null;
+
   return {
     libraryRoot: parsed.LIBRARY_ROOT,
     databasePath: parsed.DATABASE_PATH,
@@ -60,7 +105,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     libraryWatchEnabled: parsed.LIBRARY_WATCH_ENABLED,
     libraryWatchUsePolling: parsed.LIBRARY_WATCH_USE_POLLING,
     logLevel: parsed.LOG_LEVEL,
-    webBaseUrl: parsed.WEB_BASE_URL ?? `http://127.0.0.1:${parsed.PORT}`,
+    webBaseUrl,
     thumbnailConcurrency: parsed.THUMBNAIL_CONCURRENCY,
+    oidc,
+    sessionSecret: parsed.SESSION_SECRET ?? null,
   };
 }

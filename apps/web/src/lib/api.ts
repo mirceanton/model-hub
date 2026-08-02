@@ -84,3 +84,23 @@ export function addProjectTag(projectId: number, name: string): Promise<Tag> {
 export function removeProjectTag(projectId: number, tagId: number): Promise<void> {
   return request<void>(`/api/projects/${projectId}/tags/${tagId}`, { method: "DELETE" })
 }
+
+export interface AuthUser {
+  id: number
+  name: string | null
+  email: string | null
+}
+
+export interface AuthMe {
+  authenticated: boolean
+  user: AuthUser | null
+  oidcEnabled: boolean
+}
+
+export function fetchAuthMe(): Promise<AuthMe> {
+  return request<AuthMe>("/api/auth/me")
+}
+
+export function logout(): Promise<void> {
+  return request<void>("/auth/logout", { method: "POST" })
+}
