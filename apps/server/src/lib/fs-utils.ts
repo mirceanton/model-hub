@@ -8,7 +8,7 @@ export const GITIGNORE_FILENAME = ".gitignore";
 export const THUMBNAILS_DIRNAME = ".thumbnails";
 export const MODEL_EXTENSIONS = new Set(["stl", "3mf"]);
 
-const GITIGNORE_MANAGED_ENTRIES = [`${THUMBNAILS_DIRNAME}/`];
+const GITIGNORE_MANAGED_ENTRIES = [`${THUMBNAILS_DIRNAME}/`, ".DS_Store"];
 
 export interface EnsureMarkerResult {
   id: string;
