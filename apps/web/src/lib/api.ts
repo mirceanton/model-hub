@@ -88,6 +88,14 @@ export function fetchTags(): Promise<TagWithCount[]> {
   return request<TagWithCount[]>("/api/tags")
 }
 
+export function createTag(name: string): Promise<Tag> {
+  return request<Tag>("/api/tags", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  })
+}
+
 export function addProjectTag(projectId: number, name: string): Promise<Tag> {
   return request<Tag>(`/api/projects/${projectId}/tags`, {
     method: "POST",

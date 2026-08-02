@@ -1,9 +1,10 @@
 import type { Project } from "@model-hub/shared"
-import { AlertCircle, FolderOpen, Search, X } from "lucide-react"
+import { AlertCircle, FolderOpen, Search } from "lucide-react"
 import { useEffect, useState } from "react"
 import { Link } from "react-router"
 import { ProjectThumbnail } from "@/components/project-thumbnail"
 import { SyncStatusBadge } from "@/components/sync-status-badge"
+import { TagPanel } from "@/components/tag-panel"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -24,7 +25,7 @@ export function ProjectListPage() {
     return () => clearTimeout(timer)
   }, [searchInput])
 
-  const { data: tags } = useTags()
+  const { data: tags, isPending: tagsPending } = useTags()
   const {
     data: projects,
     isPending,
@@ -35,8 +36,8 @@ export function ProjectListPage() {
   const isFiltered = search.trim().length > 0 || activeTag != null
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:gap-6">
+      <div className="flex min-w-0 flex-1 flex-col gap-4">
         <div className="relative w-full sm:max-w-xs">
           <Search className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
@@ -46,59 +47,47 @@ export function ProjectListPage() {
             className="pl-8"
           />
         </div>
-        {tags && tags.length > 0 && (
-          <div className="flex flex-wrap items-center gap-1.5">
-            {tags.map((tag) => (
-              <button key={tag.id} type="button" onClick={() => setActiveTag(activeTag === tag.name ? null : tag.name)}>
-                <Badge variant={activeTag === tag.name ? "default" : "outline"}>
-                  {tag.name} ({tag.projectCount})
-                </Badge>
-              </button>
+
+        {isPending ? (
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            {Array.from({ length: 8 }).map((_, i) => (
+              <Skeleton key={i} className="aspect-[4/5] w-full rounded-lg" />
             ))}
-            {activeTag && (
-              <button
-                type="button"
-                onClick={() => setActiveTag(null)}
-                className="text-xs text-muted-foreground hover:text-foreground"
-              >
-                <X className="size-3.5" />
-              </button>
-            )}
+          </div>
+        ) : isError ? (
+          <Alert variant="destructive">
+            <AlertCircle />
+            <AlertTitle>Couldn't load your library</AlertTitle>
+            <AlertDescription>{error.message}</AlertDescription>
+          </Alert>
+        ) : projects.length === 0 ? (
+          <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed py-24 text-center text-muted-foreground">
+            <FolderOpen className="size-8" />
+            <p className="font-medium text-foreground">
+              {isFiltered ? "No projects match" : "No projects yet"}
+            </p>
+            <p className="text-sm">
+              {isFiltered
+                ? "Try a different search or tag."
+                : "Drop a folder into your library directory to get started."}
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            {projects.map((project) => (
+              <ProjectCard key={project.id} project={project} />
+            ))}
           </div>
         )}
       </div>
 
-      {isPending ? (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {Array.from({ length: 8 }).map((_, i) => (
-            <Skeleton key={i} className="aspect-[4/5] w-full rounded-lg" />
-          ))}
-        </div>
-      ) : isError ? (
-        <Alert variant="destructive">
-          <AlertCircle />
-          <AlertTitle>Couldn't load your library</AlertTitle>
-          <AlertDescription>{error.message}</AlertDescription>
-        </Alert>
-      ) : projects.length === 0 ? (
-        <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed py-24 text-center text-muted-foreground">
-          <FolderOpen className="size-8" />
-          <p className="font-medium text-foreground">
-            {isFiltered ? "No projects match" : "No projects yet"}
-          </p>
-          <p className="text-sm">
-            {isFiltered
-              ? "Try a different search or tag."
-              : "Drop a folder into your library directory to get started."}
-          </p>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {projects.map((project) => (
-            <ProjectCard key={project.id} project={project} />
-          ))}
-        </div>
-      )}
+      <TagPanel
+        tags={tags}
+        isLoading={tagsPending}
+        activeTag={activeTag}
+        onSelectTag={setActiveTag}
+        className="lg:w-72 lg:shrink-0"
+      />
     </div>
   )
 }
