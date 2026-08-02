@@ -118,6 +118,12 @@ export function deleteTagIfUnused(db: DbClient, tagId: number): void {
   }
 }
 
+/** Deletes a tag outright, detaching it from every project that had it. Returns false if the tag didn't exist. */
+export function deleteTag(db: DbClient, tagId: number): boolean {
+  const result = db.delete(tagsTable).where(eq(tagsTable.id, tagId)).run();
+  return result.changes > 0;
+}
+
 export function getTagsForProject(db: DbClient, projectId: number): Tag[] {
   const rows = db
     .select({ id: tagsTable.id, name: tagsTable.name, color: tagsTable.color })

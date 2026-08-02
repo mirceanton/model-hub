@@ -104,6 +104,10 @@ export function updateTag(id: number, patch: { name?: string; color?: string }):
   })
 }
 
+export function deleteTag(id: number): Promise<void> {
+  return request<void>(`/api/tags/${id}`, { method: "DELETE" })
+}
+
 export function addProjectTag(projectId: number, name: string): Promise<Tag> {
   return request<Tag>(`/api/projects/${projectId}/tags`, {
     method: "POST",

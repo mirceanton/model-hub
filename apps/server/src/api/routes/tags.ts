@@ -5,6 +5,7 @@ import type { DbClient } from "../../db/client.js";
 import { projectTags as projectTagsTable, projects as projectsTable, tags as tagsTable } from "../../db/schema.js";
 import {
   DuplicateTagNameError,
+  deleteTag,
   deleteTagIfUnused,
   getOrCreateTag,
   InvalidTagColorError,
@@ -84,6 +85,20 @@ export function registerTagRoutes(app: FastifyInstance, db: DbClient): void {
       return reply.code(200).send(result);
     },
   );
+
+  app.delete<{ Params: { id: string } }>("/api/tags/:id", async (request, reply) => {
+    const id = Number(request.params.id);
+    if (!Number.isInteger(id)) {
+      return reply.code(400).send({ error: "invalid tag id" });
+    }
+
+    const deleted = deleteTag(db, id);
+    if (!deleted) {
+      return reply.code(404).send({ error: "tag not found" });
+    }
+
+    return reply.code(204).send();
+  });
 
   app.post<{ Params: { id: string }; Body: { name?: string } }>(
     "/api/projects/:id/tags",
