@@ -1,10 +1,22 @@
 import type { TagWithCount } from "@model-hub/shared"
-import { ArrowDown, ArrowUp, ArrowUpDown, ChevronDown, Search, Tag as TagIcon, X } from "lucide-react"
+import {
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
+  ChevronDown,
+  Loader2,
+  Search,
+  Tag as TagIcon,
+  Trash2,
+  X,
+} from "lucide-react"
 import { useMemo, useState } from "react"
 import { CreateTagDialog } from "@/components/create-tag-dialog"
 import { EditTagDialog } from "@/components/edit-tag-dialog"
+import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
+import { useDeleteTag } from "@/lib/queries"
 import { cn } from "@/lib/utils"
 
 type SortKey = "name" | "count"
@@ -124,8 +136,14 @@ export function TagPanel({ tags, isLoading, activeTag, onSelectTag, className }:
                       </span>
                       <span className="text-xs text-muted-foreground">{tag.projectCount}</span>
                     </button>
-                    <div className="pr-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100">
+                    <div className="flex items-center pr-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100">
                       <EditTagDialog tag={tag} />
+                      <DeleteTagButton
+                        tag={tag}
+                        onDeleted={() => {
+                          if (activeTag === tag.name) onSelectTag(null)
+                        }}
+                      />
                     </div>
                   </li>
                 ))}
@@ -154,4 +172,31 @@ export function TagPanel({ tags, isLoading, activeTag, onSelectTag, className }:
 function SortIcon({ active, dir }: { active: boolean; dir: SortDir }) {
   if (!active) return <ArrowUpDown className="size-3" />
   return dir === "asc" ? <ArrowUp className="size-3" /> : <ArrowDown className="size-3" />
+}
+
+function DeleteTagButton({ tag, onDeleted }: { tag: TagWithCount; onDeleted: () => void }) {
+  const deleteTag = useDeleteTag()
+
+  return (
+    <Button
+      variant="ghost"
+      size="icon-sm"
+      aria-label={`Delete tag ${tag.name}`}
+      disabled={deleteTag.isPending}
+      onClick={() => {
+        const message =
+          tag.projectCount > 0
+            ? `Delete "${tag.name}"? It will be removed from ${tag.projectCount} ${tag.projectCount === 1 ? "project" : "projects"}.`
+            : `Delete "${tag.name}"?`
+        if (!confirm(message)) return
+        deleteTag.mutate(tag.id, { onSuccess: onDeleted })
+      }}
+    >
+      {deleteTag.isPending ? (
+        <Loader2 className="size-3.5 animate-spin" />
+      ) : (
+        <Trash2 className="size-3.5" />
+      )}
+    </Button>
+  )
 }

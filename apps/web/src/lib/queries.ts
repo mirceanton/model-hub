@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   addProjectTag,
   createTag,
+  deleteTag,
   fetchAuthMe,
   fetchProject,
   fetchProjects,
@@ -75,6 +76,17 @@ export function useUpdateTag(id: number) {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (patch: { name?: string; color?: string }) => updateTag(id, patch),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["tags"] })
+      void queryClient.invalidateQueries({ queryKey: ["projects"] })
+    },
+  })
+}
+
+export function useDeleteTag() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) => deleteTag(id),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["tags"] })
       void queryClient.invalidateQueries({ queryKey: ["projects"] })
