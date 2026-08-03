@@ -47,6 +47,11 @@ export interface GitLogEntry {
   date: string;
 }
 
+export interface ModelListResult {
+  data: Model[];
+  total: number;
+}
+
 export interface ModelDetail extends Model {
   files: FileEntry[];
   gitLog: GitLogEntry[];

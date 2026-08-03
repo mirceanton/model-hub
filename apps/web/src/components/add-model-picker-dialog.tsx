@@ -34,7 +34,7 @@ export function AddModelPickerDialog({
 
   const { data: models, isPending } = useModels({ q: search || undefined })
   const excluded = new Set(excludeModelIds)
-  const results = (models ?? []).filter((m) => !excluded.has(m.id))
+  const results = (models?.data ?? []).filter((m) => !excluded.has(m.id))
 
   return (
     <Dialog

@@ -1,6 +1,7 @@
 import type {
   Model,
   ModelDetail,
+  ModelListResult,
   PinnedModel,
   Project,
   ProjectDetail,
@@ -22,15 +23,19 @@ export interface ModelFilters {
   q?: string
   tag?: string
   favorite?: boolean
+  page?: number
+  perPage?: number
 }
 
-export function fetchModels(filters: ModelFilters = {}): Promise<Model[]> {
+export function fetchModels(filters: ModelFilters = {}): Promise<ModelListResult> {
   const params = new URLSearchParams()
   if (filters.q) params.set("q", filters.q)
   if (filters.tag) params.set("tag", filters.tag)
   if (filters.favorite) params.set("favorite", "true")
+  if (filters.perPage) params.set("perPage", String(filters.perPage))
+  if (filters.page) params.set("page", String(filters.page))
   const query = params.toString()
-  return request<Model[]>(`/api/models${query ? `?${query}` : ""}`)
+  return request<ModelListResult>(`/api/models${query ? `?${query}` : ""}`)
 }
 
 export function fetchModel(id: number): Promise<ModelDetail> {
