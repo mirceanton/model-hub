@@ -15,9 +15,9 @@ export interface EnsureMarkerResult {
   created: boolean;
 }
 
-/** Reads (or creates) the stable filesystem identity for a project directory. */
-export async function ensureMarkerId(projectDir: string): Promise<EnsureMarkerResult> {
-  const markerPath = join(projectDir, MARKER_FILENAME);
+/** Reads (or creates) the stable filesystem identity for a model directory. */
+export async function ensureMarkerId(modelDir: string): Promise<EnsureMarkerResult> {
+  const markerPath = join(modelDir, MARKER_FILENAME);
   try {
     const existing = (await readFile(markerPath, "utf8")).trim();
     if (existing.length > 0) {
@@ -37,8 +37,8 @@ export interface EnsureGitignoreResult {
 }
 
 /** Ensures generated artifacts (currently just .thumbnails/) are never committed. */
-export async function ensureGitignore(projectDir: string): Promise<EnsureGitignoreResult> {
-  const gitignorePath = join(projectDir, GITIGNORE_FILENAME);
+export async function ensureGitignore(modelDir: string): Promise<EnsureGitignoreResult> {
+  const gitignorePath = join(modelDir, GITIGNORE_FILENAME);
   let existingLines: string[] = [];
   let existed = false;
 
@@ -65,10 +65,10 @@ function extensionOf(filename: string): string {
 }
 
 /**
- * Recursively lists model files (.stl/.3mf) under a project directory.
+ * Recursively lists model files (.stl/.3mf) under a model directory.
  * Skips dotfiles/dot-directories (.git, .thumbnails, .modelhub-id, .gitignore).
  */
-export async function listProjectFiles(projectDir: string): Promise<FileEntry[]> {
+export async function listModelFiles(modelDir: string): Promise<FileEntry[]> {
   const results: FileEntry[] = [];
 
   async function walk(currentDir: string): Promise<void> {
@@ -88,7 +88,7 @@ export async function listProjectFiles(projectDir: string): Promise<FileEntry[]>
 
       const info = await stat(fullPath);
       results.push({
-        relativePath: relative(projectDir, fullPath).split(sep).join("/"),
+        relativePath: relative(modelDir, fullPath).split(sep).join("/"),
         sizeBytes: info.size,
         mtime: info.mtimeMs,
         extension,
@@ -96,12 +96,12 @@ export async function listProjectFiles(projectDir: string): Promise<FileEntry[]>
     }
   }
 
-  await walk(projectDir);
+  await walk(modelDir);
   return results;
 }
 
 /**
- * Picks the file to render for the project thumbnail: prefer .stl over .3mf,
+ * Picks the file to render for the model thumbnail: prefer .stl over .3mf,
  * then the largest file, breaking ties by path for determinism.
  */
 export function pickPrimaryFile(files: FileEntry[]): string | null {
@@ -119,7 +119,7 @@ export function pickPrimaryFile(files: FileEntry[]): string | null {
 }
 
 /**
- * Reduces an uploaded filename to a safe basename within the project dir, or
+ * Reduces an uploaded filename to a safe basename within the model dir, or
  * null if it's not a usable model file. Strips any directory components
  * (defends against path traversal in a crafted multipart filename) and
  * rejects anything outside the .stl/.3mf allowlist.

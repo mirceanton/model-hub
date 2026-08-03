@@ -55,7 +55,7 @@ class RenderErrorBoundary extends Component<{ children: ReactNode }, { hasError:
  */
 export function InternalRenderPage() {
   const [params] = useSearchParams()
-  const projectId = Number(params.get("projectId"))
+  const modelId = Number(params.get("modelId"))
   const file = params.get("file")
   const extension = params.get("ext") as ModelExtension | null
 
@@ -68,7 +68,7 @@ export function InternalRenderPage() {
     document.body.style.backgroundColor = "transparent"
   }, [])
 
-  if (!Number.isInteger(projectId) || !file || (extension !== "stl" && extension !== "3mf")) {
+  if (!Number.isInteger(modelId) || !file || (extension !== "stl" && extension !== "3mf")) {
     window.__modelHubRenderError = "invalid-params"
     return null
   }
@@ -91,7 +91,7 @@ export function InternalRenderPage() {
           */}
           <Suspense fallback={null}>
             <Bounds fit clip margin={1.3} maxDuration={FIT_DURATION_S}>
-              <ModelMesh url={fileUrl(projectId, file)} extension={extension} />
+              <ModelMesh url={fileUrl(modelId, file)} extension={extension} />
             </Bounds>
             <ReadySignal />
           </Suspense>

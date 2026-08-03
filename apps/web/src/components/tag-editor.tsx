@@ -13,11 +13,11 @@ import { Badge } from "@/components/ui/badge"
 import { useAddTag, useRemoveTag, useTags } from "@/lib/queries"
 import { tagBadgeStyle } from "@/lib/tag-colors"
 
-export function TagEditor({ projectId, tags }: { projectId: number; tags: Tag[] }) {
+export function TagEditor({ modelId, tags }: { modelId: number; tags: Tag[] }) {
   const [query, setQuery] = useState("")
   const { data: allTags } = useTags()
-  const addTag = useAddTag(projectId)
-  const removeTag = useRemoveTag(projectId)
+  const addTag = useAddTag(modelId)
+  const removeTag = useRemoveTag(modelId)
 
   const suggestions = useMemo(() => {
     const existing = new Set(tags.map((tag) => tag.name.toLowerCase()))

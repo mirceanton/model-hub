@@ -1,0 +1,141 @@
+import type { PinnedModel } from "@model-hub/shared";
+import { and, eq, inArray } from "drizzle-orm";
+import type { DbClient } from "../db/client.js";
+import {
+  models as modelsTable,
+  projectModelPins as projectModelPinsTable,
+  type ModelRow,
+  type ProjectModelPinRow,
+} from "../db/schema.js";
+import { getLog } from "../sync/git.js";
+
+export class InvalidCommitShaError extends Error {}
+export class ModelAlreadyPinnedError extends Error {}
+export class ModelHasNoCommitsError extends Error {}
+
+type PinnableModel = Pick<ModelRow, "path" | "lastSyncedCommitSha">;
+
+/**
+ * Validates `requestedSha` against the model's own git log — same pattern as
+ * versions.ts's /restore handler — or, when omitted, resolves to the model's
+ * current lastSyncedCommitSha ("pin to latest right now").
+ */
+export async function resolvePinTarget(
+  model: PinnableModel,
+  requestedSha: string | undefined,
+): Promise<{ sha: string; message: string }> {
+  const sha = requestedSha ?? model.lastSyncedCommitSha;
+  if (!sha) {
+    throw new ModelHasNoCommitsError("model has no commits yet to pin");
+  }
+
+  const log = await getLog(model.path);
+  const target = log.find((entry) => entry.sha === sha);
+  if (!target) {
+    throw new InvalidCommitShaError("sha is not a known commit for this model");
+  }
+  return { sha: target.sha, message: target.message };
+}
+
+/** The "submodule pointer" — a {model, pinned commit} pair — combined with the model's live state for API responses. */
+export function toPinnedModel(pin: ProjectModelPinRow, model: ModelRow): PinnedModel {
+  return {
+    modelId: model.id,
+    modelTitle: model.title,
+    thumbnailPath: model.thumbnailPath,
+    thumbnailStatus: model.thumbnailStatus,
+    modelSyncStatus: model.syncStatus,
+    pinnedCommitSha: pin.pinnedCommitSha,
+    pinnedCommitMessage: pin.pinnedCommitMessage,
+    pinnedAt: pin.pinnedAt.getTime(),
+    isOutdated: model.lastSyncedCommitSha != null && model.lastSyncedCommitSha !== pin.pinnedCommitSha,
+  };
+}
+
+export function addPin(
+  db: DbClient,
+  projectId: number,
+  modelId: number,
+  sha: string,
+  message: string,
+): ProjectModelPinRow {
+  const existing = db
+    .select()
+    .from(projectModelPinsTable)
+    .where(
+      and(eq(projectModelPinsTable.projectId, projectId), eq(projectModelPinsTable.modelId, modelId)),
+    )
+    .get();
+  if (existing) {
+    throw new ModelAlreadyPinnedError("model is already pinned to this project");
+  }
+
+  return db
+    .insert(projectModelPinsTable)
+    .values({
+      projectId,
+      modelId,
+      pinnedCommitSha: sha,
+      pinnedCommitMessage: message,
+      pinnedAt: new Date(),
+    })
+    .returning()
+    .get();
+}
+
+export function updatePin(
+  db: DbClient,
+  projectId: number,
+  modelId: number,
+  sha: string,
+  message: string,
+): ProjectModelPinRow | undefined {
+  return db
+    .update(projectModelPinsTable)
+    .set({ pinnedCommitSha: sha, pinnedCommitMessage: message, pinnedAt: new Date() })
+    .where(
+      and(eq(projectModelPinsTable.projectId, projectId), eq(projectModelPinsTable.modelId, modelId)),
+    )
+    .returning()
+    .get();
+}
+
+export function removePin(db: DbClient, projectId: number, modelId: number): void {
+  db.delete(projectModelPinsTable)
+    .where(
+      and(eq(projectModelPinsTable.projectId, projectId), eq(projectModelPinsTable.modelId, modelId)),
+    )
+    .run();
+}
+
+export function getPinsForProject(db: DbClient, projectId: number): PinnedModel[] {
+  const rows = db
+    .select({ pin: projectModelPinsTable, model: modelsTable })
+    .from(projectModelPinsTable)
+    .innerJoin(modelsTable, eq(projectModelPinsTable.modelId, modelsTable.id))
+    .where(eq(projectModelPinsTable.projectId, projectId))
+    .all();
+  return rows.map((r) => toPinnedModel(r.pin, r.model)).sort((a, b) => a.pinnedAt - b.pinnedAt);
+}
+
+export function getPinsForProjects(db: DbClient, projectIds: number[]): Map<number, PinnedModel[]> {
+  const result = new Map<number, PinnedModel[]>();
+  if (projectIds.length === 0) return result;
+
+  const rows = db
+    .select({ pin: projectModelPinsTable, model: modelsTable })
+    .from(projectModelPinsTable)
+    .innerJoin(modelsTable, eq(projectModelPinsTable.modelId, modelsTable.id))
+    .where(inArray(projectModelPinsTable.projectId, projectIds))
+    .all();
+
+  for (const row of rows) {
+    const list = result.get(row.pin.projectId) ?? [];
+    list.push(toPinnedModel(row.pin, row.model));
+    result.set(row.pin.projectId, list);
+  }
+  for (const list of result.values()) {
+    list.sort((a, b) => a.pinnedAt - b.pinnedAt);
+  }
+  return result;
+}

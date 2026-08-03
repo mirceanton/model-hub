@@ -1,7 +1,9 @@
 import { lazy, Suspense } from "react"
-import { Route, Routes } from "react-router"
+import { Navigate, Route, Routes } from "react-router"
 import { AppShell } from "@/components/app-shell"
 import { AuthGate } from "@/components/auth-gate"
+import { ModelDetailPage } from "@/routes/model-detail"
+import { ModelListPage } from "@/routes/model-list"
 import { ProjectDetailPage } from "@/routes/project-detail"
 import { ProjectListPage } from "@/routes/project-list"
 
@@ -35,7 +37,10 @@ export default function App() {
           </AuthGate>
         }
       >
-        <Route index element={<ProjectListPage />} />
+        <Route index element={<Navigate to="/models" replace />} />
+        <Route path="models" element={<ModelListPage />} />
+        <Route path="models/:id" element={<ModelDetailPage />} />
+        <Route path="projects" element={<ProjectListPage />} />
         <Route path="projects/:id" element={<ProjectDetailPage />} />
       </Route>
     </Routes>

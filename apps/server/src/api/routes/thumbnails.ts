@@ -3,24 +3,24 @@ import { resolve, sep } from "node:path";
 import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { DbClient } from "../../db/client.js";
-import { projects as projectsTable } from "../../db/schema.js";
+import { models as modelsTable } from "../../db/schema.js";
 import { enqueueThumbnail } from "../../thumbnails/trigger.js";
 
 export function registerThumbnailRoutes(app: FastifyInstance, db: DbClient): void {
-  app.get<{ Params: { id: string } }>("/api/projects/:id/thumbnail", async (request, reply) => {
+  app.get<{ Params: { id: string } }>("/api/models/:id/thumbnail", async (request, reply) => {
     const id = Number(request.params.id);
     if (!Number.isInteger(id)) {
-      return reply.code(400).send({ error: "invalid project id" });
+      return reply.code(400).send({ error: "invalid model id" });
     }
 
-    const project = db.select().from(projectsTable).where(eq(projectsTable.id, id)).get();
-    if (!project?.thumbnailPath) {
-      return reply.code(404).send({ error: "no thumbnail for this project" });
+    const model = db.select().from(modelsTable).where(eq(modelsTable.id, id)).get();
+    if (!model?.thumbnailPath) {
+      return reply.code(404).send({ error: "no thumbnail for this model" });
     }
 
-    const projectRoot = resolve(project.path);
-    const absolutePath = resolve(projectRoot, project.thumbnailPath);
-    if (absolutePath !== projectRoot && !absolutePath.startsWith(projectRoot + sep)) {
+    const modelRoot = resolve(model.path);
+    const absolutePath = resolve(modelRoot, model.thumbnailPath);
+    if (absolutePath !== modelRoot && !absolutePath.startsWith(modelRoot + sep)) {
       return reply.code(400).send({ error: "invalid thumbnail path" });
     }
 
@@ -30,26 +30,26 @@ export function registerThumbnailRoutes(app: FastifyInstance, db: DbClient): voi
   });
 
   app.post<{ Params: { id: string } }>(
-    "/api/projects/:id/thumbnail/regenerate",
+    "/api/models/:id/thumbnail/regenerate",
     async (request, reply) => {
       const id = Number(request.params.id);
       if (!Number.isInteger(id)) {
-        return reply.code(400).send({ error: "invalid project id" });
+        return reply.code(400).send({ error: "invalid model id" });
       }
 
-      const project = db.select().from(projectsTable).where(eq(projectsTable.id, id)).get();
-      if (!project) {
-        return reply.code(404).send({ error: "project not found" });
+      const model = db.select().from(modelsTable).where(eq(modelsTable.id, id)).get();
+      if (!model) {
+        return reply.code(404).send({ error: "model not found" });
       }
-      if (!project.primaryFilePath) {
-        return reply.code(400).send({ error: "project has no primary file to render" });
+      if (!model.primaryFilePath) {
+        return reply.code(400).send({ error: "model has no primary file to render" });
       }
 
-      db.update(projectsTable)
+      db.update(modelsTable)
         .set({ thumbnailStatus: "pending" })
-        .where(eq(projectsTable.id, id))
+        .where(eq(modelsTable.id, id))
         .run();
-      enqueueThumbnail(db, project);
+      enqueueThumbnail(db, model);
       return reply.code(202).send({ ok: true, thumbnailStatus: "pending" });
     },
   );

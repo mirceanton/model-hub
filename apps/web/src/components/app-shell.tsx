@@ -1,8 +1,28 @@
 import { Box, LogOut } from "lucide-react"
-import { Link, Outlet } from "react-router"
+import { Link, NavLink, Outlet } from "react-router"
 import { Button } from "@/components/ui/button"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { useAuthMe, useLogout } from "@/lib/queries"
+import { cn } from "@/lib/utils"
+
+function TopNav() {
+  const linkClass = ({ isActive }: { isActive: boolean }) =>
+    cn(
+      "rounded-md px-3 py-1 text-sm font-medium transition-colors",
+      isActive ? "bg-background shadow-sm" : "text-muted-foreground hover:text-foreground",
+    )
+
+  return (
+    <nav className="flex items-center gap-1 rounded-lg bg-muted p-[3px]">
+      <NavLink to="/models" className={linkClass}>
+        Models
+      </NavLink>
+      <NavLink to="/projects" className={linkClass}>
+        Projects
+      </NavLink>
+    </nav>
+  )
+}
 
 function UserMenu() {
   const { data } = useAuthMe()
@@ -37,6 +57,7 @@ export function AppShell() {
             <Box className="size-5" />
             model-hub
           </Link>
+          <TopNav />
           <div className="flex items-center gap-1">
             <UserMenu />
             <ThemeToggle />

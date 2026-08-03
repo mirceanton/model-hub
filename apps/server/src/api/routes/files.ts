@@ -4,7 +4,7 @@ import { resolve, sep } from "node:path";
 import { and, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { DbClient } from "../../db/client.js";
-import { files as filesTable, projects as projectsTable } from "../../db/schema.js";
+import { files as filesTable, models as modelsTable } from "../../db/schema.js";
 
 const CONTENT_TYPE_BY_EXTENSION: Record<string, string> = {
   stl: "model/stl",
@@ -14,35 +14,35 @@ const CONTENT_TYPE_BY_EXTENSION: Record<string, string> = {
 /** Streams raw model file bytes for the viewer/thumbnail renderer. Only serves files already indexed in the `files` table — never arbitrary paths. */
 export function registerFileRoutes(app: FastifyInstance, db: DbClient): void {
   app.get<{ Params: { id: string; "*": string } }>(
-    "/api/projects/:id/files/*",
+    "/api/models/:id/files/*",
     async (request, reply) => {
       const id = Number(request.params.id);
       if (!Number.isInteger(id)) {
-        return reply.code(400).send({ error: "invalid project id" });
+        return reply.code(400).send({ error: "invalid model id" });
       }
 
-      const project = db.select().from(projectsTable).where(eq(projectsTable.id, id)).get();
-      if (!project) {
-        return reply.code(404).send({ error: "project not found" });
+      const model = db.select().from(modelsTable).where(eq(modelsTable.id, id)).get();
+      if (!model) {
+        return reply.code(404).send({ error: "model not found" });
       }
 
       const relativePath = request.params["*"];
       const fileRow = db
         .select()
         .from(filesTable)
-        .where(and(eq(filesTable.projectId, id), eq(filesTable.relativePath, relativePath)))
+        .where(and(eq(filesTable.modelId, id), eq(filesTable.relativePath, relativePath)))
         .get();
       if (!fileRow) {
         return reply.code(404).send({ error: "file not found" });
       }
 
-      const projectRoot = resolve(project.path);
-      const absolutePath = resolve(projectRoot, relativePath);
-      if (absolutePath !== projectRoot && !absolutePath.startsWith(projectRoot + sep)) {
+      const modelRoot = resolve(model.path);
+      const absolutePath = resolve(modelRoot, relativePath);
+      if (absolutePath !== modelRoot && !absolutePath.startsWith(modelRoot + sep)) {
         return reply.code(400).send({ error: "invalid path" });
       }
 
-      // The `files` cache can lag reality — e.g. right after the project's
+      // The `files` cache can lag reality — e.g. right after the model's
       // whole directory has gone missing but before that's fully reflected
       // — so confirm the file is actually still there rather than letting a
       // mid-stream ENOENT surface as an unhandled 500.

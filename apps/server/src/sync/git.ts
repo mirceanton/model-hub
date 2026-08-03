@@ -15,16 +15,16 @@ export interface GitStatusSummary {
 
 const STALE_LOCK_THRESHOLD_MS = 60_000;
 
-function clientFor(projectDir: string, identity?: GitIdentity): SimpleGit {
+function clientFor(modelDir: string, identity?: GitIdentity): SimpleGit {
   return simpleGit({
-    baseDir: projectDir,
+    baseDir: modelDir,
     config: identity ? [`user.name=${identity.name}`, `user.email=${identity.email}`] : [],
   });
 }
 
-export async function isGitRepo(projectDir: string): Promise<boolean> {
+export async function isGitRepo(modelDir: string): Promise<boolean> {
   try {
-    const info = await stat(join(projectDir, ".git"));
+    const info = await stat(join(modelDir, ".git"));
     return info.isDirectory();
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") return false;
@@ -32,17 +32,17 @@ export async function isGitRepo(projectDir: string): Promise<boolean> {
   }
 }
 
-export async function initRepo(projectDir: string): Promise<void> {
-  await clientFor(projectDir).init(false);
+export async function initRepo(modelDir: string): Promise<void> {
+  await clientFor(modelDir).init(false);
 }
 
 /**
  * A crash mid-commit can leave `.git/index.lock` behind, permanently wedging
- * sync for that project. Safe to remove once it's older than the threshold —
+ * sync for that model. Safe to remove once it's older than the threshold —
  * no legitimate operation on a single-writer repo like this runs that long.
  */
-export async function clearStaleLock(projectDir: string): Promise<boolean> {
-  const lockPath = join(projectDir, ".git", "index.lock");
+export async function clearStaleLock(modelDir: string): Promise<boolean> {
+  const lockPath = join(modelDir, ".git", "index.lock");
   try {
     const info = await stat(lockPath);
     if (Date.now() - info.mtimeMs > STALE_LOCK_THRESHOLD_MS) {
@@ -56,8 +56,8 @@ export async function clearStaleLock(projectDir: string): Promise<boolean> {
   }
 }
 
-export async function getStatus(projectDir: string): Promise<GitStatusSummary> {
-  const status = await clientFor(projectDir).status();
+export async function getStatus(modelDir: string): Promise<GitStatusSummary> {
+  const status = await clientFor(modelDir).status();
   const paths = new Set<string>();
   for (const f of status.not_added) paths.add(f);
   for (const f of status.created) paths.add(f);
@@ -69,23 +69,23 @@ export async function getStatus(projectDir: string): Promise<GitStatusSummary> {
 
 /** Stages everything and commits under the given identity, passed via `-c` (never touches repo git config). */
 export async function addAllAndCommit(
-  projectDir: string,
+  modelDir: string,
   message: string,
   identity: GitIdentity,
 ): Promise<string> {
-  const git = clientFor(projectDir, identity);
+  const git = clientFor(modelDir, identity);
   await git.add(["-A"]);
   const result = await git.commit(message);
   return result.commit;
 }
 
 /** Restores tracked file contents to their state at `sha`, leaving the change staged for the caller to commit. Never deletes files added since `sha`. */
-export async function restoreToCommit(projectDir: string, sha: string): Promise<void> {
-  await clientFor(projectDir).raw(["checkout", sha, "--", "."]);
+export async function restoreToCommit(modelDir: string, sha: string): Promise<void> {
+  await clientFor(modelDir).raw(["checkout", sha, "--", "."]);
 }
 
-export async function getLog(projectDir: string): Promise<GitLogEntry[]> {
-  const git = clientFor(projectDir);
+export async function getLog(modelDir: string): Promise<GitLogEntry[]> {
+  const git = clientFor(modelDir);
   const log = await git.log();
   return log.all.map((entry) => ({
     sha: entry.hash,

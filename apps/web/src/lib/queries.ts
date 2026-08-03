@@ -1,20 +1,29 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
-  addProjectTag,
+  addModelTag,
+  addProjectPin,
+  createProject,
   createTag,
+  deleteProject,
   deleteTag,
   fetchAuthMe,
+  fetchModel,
+  fetchModels,
   fetchProject,
   fetchProjects,
   fetchTags,
-  forgetProject,
+  forgetModel,
   logout,
   regenerateThumbnail,
-  removeProjectTag,
-  restoreProjectVersion,
+  removeModelTag,
+  removeProjectPin,
+  restoreModelVersion,
+  updateModel,
   updateProject,
+  updateProjectPin,
   updateTag,
-  uploadProjectVersion,
+  uploadModelVersion,
+  type ModelFilters,
   type ProjectFilters,
 } from "./api"
 
@@ -37,18 +46,18 @@ export function useLogout() {
   })
 }
 
-export function useProjects(filters: ProjectFilters = {}) {
+export function useModels(filters: ModelFilters = {}) {
   return useQuery({
-    queryKey: ["projects", filters],
-    queryFn: () => fetchProjects(filters),
+    queryKey: ["models", filters],
+    queryFn: () => fetchModels(filters),
     refetchInterval: REFETCH_INTERVAL_MS,
   })
 }
 
-export function useProject(id: number) {
+export function useModel(id: number) {
   return useQuery({
-    queryKey: ["projects", id],
-    queryFn: () => fetchProject(id),
+    queryKey: ["models", id],
+    queryFn: () => fetchModel(id),
     enabled: Number.isFinite(id),
     refetchInterval: REFETCH_INTERVAL_MS,
   })
@@ -78,7 +87,7 @@ export function useUpdateTag(id: number) {
     mutationFn: (patch: { name?: string; color?: string }) => updateTag(id, patch),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["tags"] })
-      void queryClient.invalidateQueries({ queryKey: ["projects"] })
+      void queryClient.invalidateQueries({ queryKey: ["models"] })
     },
   })
 }
@@ -89,8 +98,94 @@ export function useDeleteTag() {
     mutationFn: (id: number) => deleteTag(id),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["tags"] })
-      void queryClient.invalidateQueries({ queryKey: ["projects"] })
+      void queryClient.invalidateQueries({ queryKey: ["models"] })
     },
+  })
+}
+
+function useInvalidateModel(id: number) {
+  const queryClient = useQueryClient()
+  return () => {
+    void queryClient.invalidateQueries({ queryKey: ["models", id] })
+    void queryClient.invalidateQueries({ queryKey: ["models"] })
+    void queryClient.invalidateQueries({ queryKey: ["tags"] })
+  }
+}
+
+export function useUploadVersion(id: number) {
+  const invalidate = useInvalidateModel(id)
+  return useMutation({
+    mutationFn: ({ files, message }: { files: File[]; message: string }) =>
+      uploadModelVersion(id, files, message),
+    onSuccess: invalidate,
+  })
+}
+
+export function useRestoreVersion(id: number) {
+  const invalidate = useInvalidateModel(id)
+  return useMutation({
+    mutationFn: (sha: string) => restoreModelVersion(id, sha),
+    onSuccess: invalidate,
+  })
+}
+
+export function useRegenerateThumbnail(id: number) {
+  const invalidate = useInvalidateModel(id)
+  return useMutation({
+    mutationFn: () => regenerateThumbnail(id),
+    onSuccess: invalidate,
+  })
+}
+
+export function useAddTag(id: number) {
+  const invalidate = useInvalidateModel(id)
+  return useMutation({
+    mutationFn: (name: string) => addModelTag(id, name),
+    onSuccess: invalidate,
+  })
+}
+
+export function useRemoveTag(id: number) {
+  const invalidate = useInvalidateModel(id)
+  return useMutation({
+    mutationFn: (tagId: number) => removeModelTag(id, tagId),
+    onSuccess: invalidate,
+  })
+}
+
+export function useUpdateModel(id: number) {
+  const invalidate = useInvalidateModel(id)
+  return useMutation({
+    mutationFn: (patch: { title?: string; description?: string; favorite?: boolean }) =>
+      updateModel(id, patch),
+    onSuccess: invalidate,
+  })
+}
+
+export function useForgetModel(id: number) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: () => forgetModel(id),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["models"] })
+    },
+  })
+}
+
+export function useProjects(filters: ProjectFilters = {}) {
+  return useQuery({
+    queryKey: ["projects", filters],
+    queryFn: () => fetchProjects(filters),
+    refetchInterval: REFETCH_INTERVAL_MS,
+  })
+}
+
+export function useProject(id: number) {
+  return useQuery({
+    queryKey: ["projects", id],
+    queryFn: () => fetchProject(id),
+    enabled: Number.isFinite(id),
+    refetchInterval: REFETCH_INTERVAL_MS,
   })
 }
 
@@ -99,48 +194,16 @@ function useInvalidateProject(id: number) {
   return () => {
     void queryClient.invalidateQueries({ queryKey: ["projects", id] })
     void queryClient.invalidateQueries({ queryKey: ["projects"] })
-    void queryClient.invalidateQueries({ queryKey: ["tags"] })
   }
 }
 
-export function useUploadVersion(id: number) {
-  const invalidate = useInvalidateProject(id)
+export function useCreateProject() {
+  const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({ files, message }: { files: File[]; message: string }) =>
-      uploadProjectVersion(id, files, message),
-    onSuccess: invalidate,
-  })
-}
-
-export function useRestoreVersion(id: number) {
-  const invalidate = useInvalidateProject(id)
-  return useMutation({
-    mutationFn: (sha: string) => restoreProjectVersion(id, sha),
-    onSuccess: invalidate,
-  })
-}
-
-export function useRegenerateThumbnail(id: number) {
-  const invalidate = useInvalidateProject(id)
-  return useMutation({
-    mutationFn: () => regenerateThumbnail(id),
-    onSuccess: invalidate,
-  })
-}
-
-export function useAddTag(id: number) {
-  const invalidate = useInvalidateProject(id)
-  return useMutation({
-    mutationFn: (name: string) => addProjectTag(id, name),
-    onSuccess: invalidate,
-  })
-}
-
-export function useRemoveTag(id: number) {
-  const invalidate = useInvalidateProject(id)
-  return useMutation({
-    mutationFn: (tagId: number) => removeProjectTag(id, tagId),
-    onSuccess: invalidate,
+    mutationFn: (input: { title: string; description?: string }) => createProject(input),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["projects"] })
+    },
   })
 }
 
@@ -152,12 +215,37 @@ export function useUpdateProject(id: number) {
   })
 }
 
-export function useForgetProject(id: number) {
+export function useDeleteProject() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: () => forgetProject(id),
+    mutationFn: (id: number) => deleteProject(id),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["projects"] })
     },
+  })
+}
+
+export function useAddPin(projectId: number) {
+  const invalidate = useInvalidateProject(projectId)
+  return useMutation({
+    mutationFn: (input: { modelId: number; commitSha?: string }) => addProjectPin(projectId, input),
+    onSuccess: invalidate,
+  })
+}
+
+export function useUpdatePin(projectId: number) {
+  const invalidate = useInvalidateProject(projectId)
+  return useMutation({
+    mutationFn: ({ modelId, commitSha }: { modelId: number; commitSha?: string }) =>
+      updateProjectPin(projectId, modelId, commitSha),
+    onSuccess: invalidate,
+  })
+}
+
+export function useRemovePin(projectId: number) {
+  const invalidate = useInvalidateProject(projectId)
+  return useMutation({
+    mutationFn: (modelId: number) => removeProjectPin(projectId, modelId),
+    onSuccess: invalidate,
   })
 }

@@ -1,7 +1,7 @@
 import type { Tag } from "@model-hub/shared";
 import { eq, inArray, sql } from "drizzle-orm";
 import type { DbClient } from "../db/client.js";
-import { projectTags as projectTagsTable, tags as tagsTable, type TagRow } from "../db/schema.js";
+import { modelTags as modelTagsTable, tags as tagsTable, type TagRow } from "../db/schema.js";
 
 const MAX_TAG_NAME_LENGTH = 50;
 
@@ -106,54 +106,54 @@ export function updateTag(
   return db.update(tagsTable).set(updates).where(eq(tagsTable.id, tagId)).returning().get();
 }
 
-/** Removes the tag row if no project references it anymore — keeps the tag list free of dead entries. */
+/** Removes the tag row if no model references it anymore — keeps the tag list free of dead entries. */
 export function deleteTagIfUnused(db: DbClient, tagId: number): void {
   const stillUsed = db
     .select()
-    .from(projectTagsTable)
-    .where(eq(projectTagsTable.tagId, tagId))
+    .from(modelTagsTable)
+    .where(eq(modelTagsTable.tagId, tagId))
     .get();
   if (!stillUsed) {
     db.delete(tagsTable).where(eq(tagsTable.id, tagId)).run();
   }
 }
 
-/** Deletes a tag outright, detaching it from every project that had it. Returns false if the tag didn't exist. */
+/** Deletes a tag outright, detaching it from every model that had it. Returns false if the tag didn't exist. */
 export function deleteTag(db: DbClient, tagId: number): boolean {
   const result = db.delete(tagsTable).where(eq(tagsTable.id, tagId)).run();
   return result.changes > 0;
 }
 
-export function getTagsForProject(db: DbClient, projectId: number): Tag[] {
+export function getTagsForModel(db: DbClient, modelId: number): Tag[] {
   const rows = db
     .select({ id: tagsTable.id, name: tagsTable.name, color: tagsTable.color })
-    .from(projectTagsTable)
-    .innerJoin(tagsTable, eq(projectTagsTable.tagId, tagsTable.id))
-    .where(eq(projectTagsTable.projectId, projectId))
+    .from(modelTagsTable)
+    .innerJoin(tagsTable, eq(modelTagsTable.tagId, tagsTable.id))
+    .where(eq(modelTagsTable.modelId, modelId))
     .all();
   return rows.sort((a, b) => a.name.localeCompare(b.name));
 }
 
-export function getTagsForProjects(db: DbClient, projectIds: number[]): Map<number, Tag[]> {
+export function getTagsForModels(db: DbClient, modelIds: number[]): Map<number, Tag[]> {
   const result = new Map<number, Tag[]>();
-  if (projectIds.length === 0) return result;
+  if (modelIds.length === 0) return result;
 
   const rows = db
     .select({
-      projectId: projectTagsTable.projectId,
+      modelId: modelTagsTable.modelId,
       id: tagsTable.id,
       name: tagsTable.name,
       color: tagsTable.color,
     })
-    .from(projectTagsTable)
-    .innerJoin(tagsTable, eq(projectTagsTable.tagId, tagsTable.id))
-    .where(inArray(projectTagsTable.projectId, projectIds))
+    .from(modelTagsTable)
+    .innerJoin(tagsTable, eq(modelTagsTable.tagId, tagsTable.id))
+    .where(inArray(modelTagsTable.modelId, modelIds))
     .all();
 
   for (const row of rows) {
-    const list = result.get(row.projectId) ?? [];
+    const list = result.get(row.modelId) ?? [];
     list.push({ id: row.id, name: row.name, color: row.color });
-    result.set(row.projectId, list);
+    result.set(row.modelId, list);
   }
   for (const list of result.values()) {
     list.sort((a, b) => a.name.localeCompare(b.name));

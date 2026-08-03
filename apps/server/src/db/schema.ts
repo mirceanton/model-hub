@@ -1,6 +1,6 @@
 import { sqliteTable, integer, text, uniqueIndex, primaryKey, index } from "drizzle-orm/sqlite-core";
 
-export const projects = sqliteTable("projects", {
+export const models = sqliteTable("models", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   fsId: text("fs_id").notNull().unique(),
   path: text("path").notNull().unique(),
@@ -20,6 +20,8 @@ export const projects = sqliteTable("projects", {
     .default("ok"),
   syncError: text("sync_error"),
   missingSince: integer("missing_since", { mode: "timestamp_ms" }),
+  // Pins a model to the top of the library list — see api/routes/models.ts's default sort.
+  favorite: integer("favorite", { mode: "boolean" }).notNull().default(false),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
 });
@@ -28,17 +30,17 @@ export const files = sqliteTable(
   "files",
   {
     id: integer("id").primaryKey({ autoIncrement: true }),
-    projectId: integer("project_id")
+    modelId: integer("model_id")
       .notNull()
-      .references(() => projects.id, { onDelete: "cascade" }),
+      .references(() => models.id, { onDelete: "cascade" }),
     relativePath: text("relative_path").notNull(),
     sizeBytes: integer("size_bytes").notNull(),
     mtime: integer("mtime", { mode: "timestamp_ms" }).notNull(),
     extension: text("extension").notNull(),
   },
   (table) => ({
-    projectRelativePathUnique: uniqueIndex("files_project_id_relative_path_unique").on(
-      table.projectId,
+    modelRelativePathUnique: uniqueIndex("files_model_id_relative_path_unique").on(
+      table.modelId,
       table.relativePath,
     ),
   }),
@@ -57,19 +59,57 @@ export const tags = sqliteTable("tags", {
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
 });
 
-export const projectTags = sqliteTable(
-  "project_tags",
+export const modelTags = sqliteTable(
+  "model_tags",
   {
-    projectId: integer("project_id")
+    modelId: integer("model_id")
       .notNull()
-      .references(() => projects.id, { onDelete: "cascade" }),
+      .references(() => models.id, { onDelete: "cascade" }),
     tagId: integer("tag_id")
       .notNull()
       .references(() => tags.id, { onDelete: "cascade" }),
   },
   (table) => ({
-    pk: primaryKey({ columns: [table.projectId, table.tagId] }),
-    tagIdIdx: index("project_tags_tag_id_idx").on(table.tagId),
+    pk: primaryKey({ columns: [table.modelId, table.tagId] }),
+    tagIdIdx: index("model_tags_tag_id_idx").on(table.tagId),
+  }),
+);
+
+/** A user-created grouping that pins several models at specific commits — DB-only, no filesystem/git of its own. */
+export const projects = sqliteTable("projects", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  title: text("title").notNull(),
+  description: text("description").notNull().default(""),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+});
+
+/**
+ * One {model, pinned commit} pair within a project — the "submodule pointer."
+ * pinnedCommitMessage is a denormalized snapshot captured at pin/repin time:
+ * safe to denormalize because reconcile only ever *appends* commits (no
+ * rewrite/rebase in this app), so a given sha's message never changes.
+ * modelId cascades on delete: forgetting a model (only possible once its
+ * directory is already gone, per the existing DELETE /api/models/:id guard)
+ * silently drops the pin — matches the submodule analogy of the pointed-at
+ * repo ceasing to exist. No orphan/placeholder row is kept.
+ */
+export const projectModelPins = sqliteTable(
+  "project_model_pins",
+  {
+    projectId: integer("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    modelId: integer("model_id")
+      .notNull()
+      .references(() => models.id, { onDelete: "cascade" }),
+    pinnedCommitSha: text("pinned_commit_sha").notNull(),
+    pinnedCommitMessage: text("pinned_commit_message").notNull(),
+    pinnedAt: integer("pinned_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.projectId, table.modelId] }),
+    modelIdIdx: index("project_model_pins_model_id_idx").on(table.modelId),
   }),
 );
 
@@ -94,10 +134,14 @@ export const sessions = sqliteTable("sessions", {
   expiresAt: integer("expires_at", { mode: "timestamp_ms" }).notNull(),
 });
 
-export type ProjectRow = typeof projects.$inferSelect;
-export type NewProjectRow = typeof projects.$inferInsert;
+export type ModelRow = typeof models.$inferSelect;
+export type NewModelRow = typeof models.$inferInsert;
 export type FileRow = typeof files.$inferSelect;
 export type NewFileRow = typeof files.$inferInsert;
 export type TagRow = typeof tags.$inferSelect;
+export type ProjectRow = typeof projects.$inferSelect;
+export type NewProjectRow = typeof projects.$inferInsert;
+export type ProjectModelPinRow = typeof projectModelPins.$inferSelect;
+export type NewProjectModelPinRow = typeof projectModelPins.$inferInsert;
 export type UserRow = typeof users.$inferSelect;
 export type SessionRow = typeof sessions.$inferSelect;

@@ -26,7 +26,7 @@ interface PendingAuth {
 // In-memory is fine: these are short-lived (minutes), single-process, and
 // losing them across a restart just means an in-flight login has to restart
 // too — no data loss, matching the pattern used elsewhere in this app
-// (sync/queue.ts's per-project mutex) for process-local coordination state.
+// (sync/queue.ts's per-model mutex) for process-local coordination state.
 const PENDING_AUTH_TTL_MS = 10 * 60 * 1000;
 const pendingAuthRequests = new Map<string, PendingAuth>();
 

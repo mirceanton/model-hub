@@ -6,7 +6,7 @@ const SPA_FALLBACK_EXEMPT_PREFIXES = ["/api/", "/auth/", "/healthz"];
 /**
  * Serves the built web SPA (apps/web/dist) at `/`, with a client-side-
  * routing fallback: any unmatched GET that isn't an API/auth/health route
- * gets index.html instead of a 404, so refreshing e.g. /projects/3 works.
+ * gets index.html instead of a 404, so refreshing e.g. /models/3 works.
  * Only registered when STATIC_WEB_DIR is set (production/Docker) — dev
  * relies on the Vite dev server instead.
  */

@@ -48,7 +48,7 @@ export function CreateTagDialog() {
         <DialogHeader>
           <DialogTitle>Create tag</DialogTitle>
           <DialogDescription>
-            Add a new tag to your library. You can apply it to projects afterwards.
+            Add a new tag to your library. You can apply it to models afterwards.
           </DialogDescription>
         </DialogHeader>
 

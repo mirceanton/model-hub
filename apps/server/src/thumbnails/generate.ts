@@ -4,7 +4,7 @@ import { eq } from "drizzle-orm";
 import type { Page } from "playwright";
 import { INTERNAL_RENDER_HEADER, INTERNAL_RENDER_TOKEN } from "../auth/internal-token.js";
 import type { DbClient } from "../db/client.js";
-import { projects as projectsTable, type ProjectRow } from "../db/schema.js";
+import { models as modelsTable, type ModelRow } from "../db/schema.js";
 import { MODEL_EXTENSIONS, THUMBNAILS_DIRNAME } from "../lib/fs-utils.js";
 import { getBrowser } from "./browser.js";
 
@@ -22,27 +22,27 @@ export interface ThumbnailContext {
   webBaseUrl: string;
 }
 
-type ThumbnailInput = Pick<ProjectRow, "id" | "path" | "primaryFilePath">;
+type ThumbnailInput = Pick<ModelRow, "id" | "path" | "primaryFilePath">;
 
-function markStatus(db: DbClient, projectId: number, status: "generating" | "ready" | "error"): void {
-  db.update(projectsTable).set({ thumbnailStatus: status }).where(eq(projectsTable.id, projectId)).run();
+function markStatus(db: DbClient, modelId: number, status: "generating" | "ready" | "error"): void {
+  db.update(modelsTable).set({ thumbnailStatus: status }).where(eq(modelsTable.id, modelId)).run();
 }
 
-/** Renders `project`'s primary file headlessly and writes it to `.thumbnails/thumb.png`. Never throws — failures are recorded via thumbnailStatus. */
+/** Renders `model`'s primary file headlessly and writes it to `.thumbnails/thumb.png`. Never throws — failures are recorded via thumbnailStatus. */
 export async function generateThumbnail(
   db: DbClient,
-  project: ThumbnailInput,
+  model: ThumbnailInput,
   context: ThumbnailContext,
 ): Promise<void> {
-  const extension = project.primaryFilePath
-    ? extname(project.primaryFilePath).slice(1).toLowerCase()
+  const extension = model.primaryFilePath
+    ? extname(model.primaryFilePath).slice(1).toLowerCase()
     : "";
-  if (!project.primaryFilePath || !MODEL_EXTENSIONS.has(extension)) {
-    markStatus(db, project.id, "error");
+  if (!model.primaryFilePath || !MODEL_EXTENSIONS.has(extension)) {
+    markStatus(db, model.id, "error");
     return;
   }
 
-  markStatus(db, project.id, "generating");
+  markStatus(db, model.id, "generating");
 
   let page: Page | undefined;
   try {
@@ -53,8 +53,8 @@ export async function generateThumbnail(
     });
 
     const params = new URLSearchParams({
-      projectId: String(project.id),
-      file: project.primaryFilePath,
+      modelId: String(model.id),
+      file: model.primaryFilePath,
       ext: extension,
     });
     await page.goto(`${context.webBaseUrl}/internal/render?${params.toString()}`, {
@@ -68,22 +68,22 @@ export async function generateThumbnail(
       throw new Error(renderError);
     }
 
-    const thumbnailsDir = join(project.path, THUMBNAILS_DIRNAME);
+    const thumbnailsDir = join(model.path, THUMBNAILS_DIRNAME);
     await mkdir(thumbnailsDir, { recursive: true });
     const thumbnailAbsolutePath = join(thumbnailsDir, THUMBNAIL_FILENAME);
     await page.locator("canvas").screenshot({ path: thumbnailAbsolutePath, omitBackground: true });
 
-    db.update(projectsTable)
+    db.update(modelsTable)
       .set({
         thumbnailPath: `${THUMBNAILS_DIRNAME}/${THUMBNAIL_FILENAME}`,
         thumbnailStatus: "ready",
       })
-      .where(eq(projectsTable.id, project.id))
+      .where(eq(modelsTable.id, model.id))
       .run();
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.error(`thumbnail generation failed for project ${project.id}: ${message}`);
-    markStatus(db, project.id, "error");
+    console.error(`thumbnail generation failed for model ${model.id}: ${message}`);
+    markStatus(db, model.id, "error");
   } finally {
     await page?.close();
   }
