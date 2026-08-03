@@ -59,7 +59,7 @@ async function pickModelDirPath(libraryRoot: string, db: DbClient, base: string)
 }
 
 export function registerModelRoutes(app: FastifyInstance, db: DbClient, libraryRoot: string): void {
-  app.get<{ Querystring: { q?: string; tag?: string; favorite?: string } }>(
+  app.get<{ Querystring: { q?: string; tag?: string; favorite?: string; page?: string; perPage?: string } }>(
     "/api/models",
     async (request) => {
       let rows = db
@@ -91,11 +91,23 @@ export function registerModelRoutes(app: FastifyInstance, db: DbClient, libraryR
         rows = rows.filter((row) => row.favorite);
       }
 
+      const total = rows.length;
+
+      const perPage = Number(request.query.perPage);
+      if (Number.isInteger(perPage) && perPage > 0) {
+        const page = Math.max(1, Number(request.query.page) || 1);
+        const offset = (page - 1) * perPage;
+        rows = rows.slice(offset, offset + perPage);
+      }
+
       const tagsByModel = getTagsForModels(
         db,
         rows.map((row) => row.id),
       );
-      return rows.map((row) => toApiModel(row, tagsByModel.get(row.id) ?? []));
+      return {
+        data: rows.map((row) => toApiModel(row, tagsByModel.get(row.id) ?? [])),
+        total,
+      };
     },
   );
 

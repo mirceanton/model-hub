@@ -1,5 +1,5 @@
 import type { Model } from "@model-hub/shared"
-import { AlertCircle, FolderOpen, Search, Star } from "lucide-react"
+import { AlertCircle, ChevronLeft, ChevronRight, FolderOpen, Search, Star } from "lucide-react"
 import { useEffect, useState } from "react"
 import { Link } from "react-router"
 import { CreateModelDialog } from "@/components/create-model-dialog"
@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
 import { formatDateTime } from "@/lib/format"
 import { useModels, useTags, useUpdateModel } from "@/lib/queries"
@@ -19,17 +20,25 @@ import { tagBadgeStyle } from "@/lib/tag-colors"
 import { cn } from "@/lib/utils"
 
 const SEARCH_DEBOUNCE_MS = 250
+const PER_PAGE_OPTIONS = [12, 24, 48, 96]
+const DEFAULT_PER_PAGE = 12
 
 export function ModelListPage() {
   const [searchInput, setSearchInput] = useState("")
   const [search, setSearch] = useState("")
   const [activeTag, setActiveTag] = useState<string | null>(null)
   const [favoritesOnly, setFavoritesOnly] = useState(false)
+  const [perPage, setPerPage] = useState(DEFAULT_PER_PAGE)
+  const [page, setPage] = useState(1)
 
   useEffect(() => {
     const timer = setTimeout(() => setSearch(searchInput), SEARCH_DEBOUNCE_MS)
     return () => clearTimeout(timer)
   }, [searchInput])
+
+  useEffect(() => {
+    setPage(1)
+  }, [search, activeTag, favoritesOnly, perPage])
 
   const { data: tags, isPending: tagsPending } = useTags()
   const {
@@ -37,9 +46,17 @@ export function ModelListPage() {
     isPending,
     isError,
     error,
-  } = useModels({ q: search || undefined, tag: activeTag ?? undefined, favorite: favoritesOnly || undefined })
+  } = useModels({
+    q: search || undefined,
+    tag: activeTag ?? undefined,
+    favorite: favoritesOnly || undefined,
+    page,
+    perPage,
+  })
 
   const isFiltered = search.trim().length > 0 || activeTag != null || favoritesOnly
+  const total = models?.total ?? 0
+  const totalPages = Math.max(1, Math.ceil(total / perPage))
 
   return (
     <div className="grid grid-cols-1 gap-y-4 [grid-template-areas:'search'_'tags'_'content'] lg:grid-cols-[minmax(0,1fr)_18rem] lg:gap-x-6 lg:[grid-template-areas:'search_tags'_'content_tags']">
@@ -65,6 +82,21 @@ export function ModelListPage() {
             <Star className={cn("size-3.5", favoritesOnly && "fill-current")} />
             Favorites
           </Button>
+          <Select
+            value={String(perPage)}
+            onValueChange={(value) => setPerPage(Number(value))}
+          >
+            <SelectTrigger size="sm" aria-label="Items per page">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {PER_PAGE_OPTIONS.map((option) => (
+                <SelectItem key={option} value={String(option)}>
+                  {option} per page
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
         <CreateModelDialog />
       </div>
@@ -82,7 +114,7 @@ export function ModelListPage() {
             <AlertTitle>Couldn't load your library</AlertTitle>
             <AlertDescription>{error.message}</AlertDescription>
           </Alert>
-        ) : models.length === 0 ? (
+        ) : models.data.length === 0 ? (
           <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed py-24 text-center text-muted-foreground">
             <FolderOpen className="size-8" />
             <p className="font-medium text-foreground">
@@ -95,11 +127,40 @@ export function ModelListPage() {
             </p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-            {models.map((model) => (
-              <ModelCard key={model.id} model={model} />
-            ))}
-          </div>
+          <>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+              {models.data.map((model) => (
+                <ModelCard key={model.id} model={model} />
+              ))}
+            </div>
+            {totalPages > 1 && (
+              <div className="mt-4 flex items-center justify-center gap-3">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={page <= 1}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                >
+                  <ChevronLeft className="size-3.5" />
+                  Previous
+                </Button>
+                <span className="text-sm text-muted-foreground">
+                  Page {page} of {totalPages}
+                </span>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={page >= totalPages}
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                >
+                  Next
+                  <ChevronRight className="size-3.5" />
+                </Button>
+              </div>
+            )}
+          </>
         )}
       </div>
 
