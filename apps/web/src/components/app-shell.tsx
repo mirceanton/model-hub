@@ -55,7 +55,7 @@ export function AppShell() {
         <div className="mx-auto flex h-full max-w-6xl items-center justify-between px-4">
           <Link to="/" className="flex items-center gap-2 font-semibold">
             <Box className="size-5" />
-            model-hub
+            ModelHub
           </Link>
           <TopNav />
           <div className="flex items-center gap-1">
