@@ -84,6 +84,16 @@ export async function restoreToCommit(modelDir: string, sha: string): Promise<vo
   await clientFor(modelDir).raw(["checkout", sha, "--", "."]);
 }
 
+/** Returns the SHA of HEAD, or null when the repo has no commits yet. */
+export async function getHeadSha(modelDir: string): Promise<string | null> {
+  try {
+    const sha = await clientFor(modelDir).revparse(["HEAD"]);
+    return sha.trim() || null;
+  } catch {
+    return null;
+  }
+}
+
 export async function getLog(modelDir: string): Promise<GitLogEntry[]> {
   const git = clientFor(modelDir);
   const log = await git.log();
