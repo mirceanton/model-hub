@@ -2,10 +2,10 @@ import { readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { eq } from "drizzle-orm";
 import type { DbClient } from "../db/client.js";
-import { projects as projectsTable, type ProjectRow } from "../db/schema.js";
+import { models as modelsTable, type ModelRow } from "../db/schema.js";
 import { ensureMarkerId } from "../lib/fs-utils.js";
 import { maybeEnqueueThumbnail } from "../thumbnails/trigger.js";
-import { reconcileProject } from "./reconcile.js";
+import { reconcileModel } from "./reconcile.js";
 
 export interface ScanResult {
   scanned: number;
@@ -19,11 +19,11 @@ async function listTopLevelDirNames(libraryRoot: string): Promise<string[]> {
 }
 
 /**
- * Full-library reconciliation pass: discovers project directories one level
+ * Full-library reconciliation pass: discovers model directories one level
  * deep under `libraryRoot`, resolves each to a stable DB row via its
- * `.modelhub-id` marker (surviving renames), marks vanished projects as
+ * `.modelhub-id` marker (surviving renames), marks vanished models as
  * missing without deleting their metadata, then reconciles every present
- * project's git/files state.
+ * model's git/files state.
  */
 export async function scanLibraryRoot(db: DbClient, libraryRoot: string): Promise<ScanResult> {
   let dirNames: string[];
@@ -34,48 +34,48 @@ export async function scanLibraryRoot(db: DbClient, libraryRoot: string): Promis
     return { scanned: 0, skipped: true, reason: `Cannot read LIBRARY_ROOT: ${message}` };
   }
 
-  const existingProjects = db.select().from(projectsTable).all();
-  const knownPresentCount = existingProjects.filter((p) => p.missingSince == null).length;
+  const existingModels = db.select().from(modelsTable).all();
+  const knownPresentCount = existingModels.filter((m) => m.missingSince == null).length;
 
   // A network mount hiccup can make LIBRARY_ROOT briefly look empty; never let
-  // that mass-mark every known project as missing.
+  // that mass-mark every known model as missing.
   if (dirNames.length === 0 && knownPresentCount > 0) {
     return {
       scanned: 0,
       skipped: true,
-      reason: `LIBRARY_ROOT listed 0 directories but ${knownPresentCount} known project(s) exist; skipping this pass`,
+      reason: `LIBRARY_ROOT listed 0 directories but ${knownPresentCount} known model(s) exist; skipping this pass`,
     };
   }
 
   const now = new Date();
   const presentFsIds = new Set<string>();
-  const presentRows: ProjectRow[] = [];
+  const presentRows: ModelRow[] = [];
 
   for (const dirName of dirNames) {
-    const projectPath = join(libraryRoot, dirName);
-    const info = await stat(projectPath).catch(() => null);
+    const modelPath = join(libraryRoot, dirName);
+    const info = await stat(modelPath).catch(() => null);
     if (!info?.isDirectory()) continue;
 
-    const { id: fsId } = await ensureMarkerId(projectPath);
+    const { id: fsId } = await ensureMarkerId(modelPath);
     presentFsIds.add(fsId);
 
-    const existing = existingProjects.find((p) => p.fsId === fsId);
+    const existing = existingModels.find((m) => m.fsId === fsId);
     if (existing) {
-      if (existing.path !== projectPath || existing.missingSince != null) {
-        db.update(projectsTable)
-          .set({ path: projectPath, missingSince: null, updatedAt: now })
-          .where(eq(projectsTable.id, existing.id))
+      if (existing.path !== modelPath || existing.missingSince != null) {
+        db.update(modelsTable)
+          .set({ path: modelPath, missingSince: null, updatedAt: now })
+          .where(eq(modelsTable.id, existing.id))
           .run();
       }
-      presentRows.push({ ...existing, path: projectPath, missingSince: null });
+      presentRows.push({ ...existing, path: modelPath, missingSince: null });
       continue;
     }
 
     const inserted = db
-      .insert(projectsTable)
+      .insert(modelsTable)
       .values({
         fsId,
-        path: projectPath,
+        path: modelPath,
         title: dirName,
         createdAt: now,
         updatedAt: now,
@@ -85,18 +85,18 @@ export async function scanLibraryRoot(db: DbClient, libraryRoot: string): Promis
     presentRows.push(inserted);
   }
 
-  const missingRows = existingProjects.filter(
-    (p) => !presentFsIds.has(p.fsId) && p.missingSince == null,
+  const missingRows = existingModels.filter(
+    (m) => !presentFsIds.has(m.fsId) && m.missingSince == null,
   );
   for (const row of missingRows) {
-    db.update(projectsTable)
+    db.update(modelsTable)
       .set({ missingSince: now, syncStatus: "missing", updatedAt: now })
-      .where(eq(projectsTable.id, row.id))
+      .where(eq(modelsTable.id, row.id))
       .run();
   }
 
   for (const row of presentRows) {
-    const result = await reconcileProject(db, row);
+    const result = await reconcileModel(db, row);
     maybeEnqueueThumbnail(db, row, result);
   }
 

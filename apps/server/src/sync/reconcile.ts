@@ -1,8 +1,8 @@
 import { stat } from "node:fs/promises";
 import { eq } from "drizzle-orm";
 import type { DbClient } from "../db/client.js";
-import { files as filesTable, projects as projectsTable, type ProjectRow } from "../db/schema.js";
-import { ensureGitignore, ensureMarkerId, listProjectFiles, pickPrimaryFile } from "../lib/fs-utils.js";
+import { files as filesTable, models as modelsTable, type ModelRow } from "../db/schema.js";
+import { ensureGitignore, ensureMarkerId, listModelFiles, pickPrimaryFile } from "../lib/fs-utils.js";
 import { generateAutoCommitMessage } from "./commit-message.js";
 import {
   addAllAndCommit,
@@ -28,7 +28,7 @@ export const LOCAL_UPLOAD_IDENTITY: GitIdentity = {
 export interface ReconcileResult {
   status: "ok" | "error";
   committed: boolean;
-  /** The project's primaryFilePath after this reconcile, so callers (e.g. the thumbnail trigger) don't need a re-fetch. Undefined on error. */
+  /** The model's primaryFilePath after this reconcile, so callers (e.g. the thumbnail trigger) don't need a re-fetch. Undefined on error. */
   primaryFilePath?: string | null;
   error?: string;
 }
@@ -40,70 +40,70 @@ export interface ReconcileOptions {
   commitMessage?: string;
 }
 
-type ReconcileInput = Pick<ProjectRow, "id" | "path" | "primaryFilePath">;
+type ReconcileInput = Pick<ModelRow, "id" | "path" | "primaryFilePath">;
 
 /**
- * The single idempotent commit-decision function for a project. Callable from
+ * The single idempotent commit-decision function for a model. Callable from
  * the periodic full-library scan, the debounced watcher, and the upload/restore
  * endpoints — always through the same per-path mutex, so git operations for one
- * project never overlap regardless of trigger.
+ * model never overlap regardless of trigger.
  */
-export function reconcileProject(
+export function reconcileModel(
   db: DbClient,
-  project: ReconcileInput,
+  model: ReconcileInput,
   options?: ReconcileOptions,
 ): Promise<ReconcileResult> {
-  return runExclusive(project.path, () => reconcileProjectCore(db, project, options));
+  return runExclusive(model.path, () => reconcileModelCore(db, model, options));
 }
 
 /**
- * The unlocked core of reconcileProject. Only call this directly if the caller
- * already holds the per-project lock (e.g. the upload endpoint, which must write
+ * The unlocked core of reconcileModel. Only call this directly if the caller
+ * already holds the per-model lock (e.g. the upload endpoint, which must write
  * files and commit them as one atomic sequence under a single lock acquisition —
- * calling the locked reconcileProject from inside an existing lock for the same
+ * calling the locked reconcileModel from inside an existing lock for the same
  * path would deadlock against itself).
  */
-export async function reconcileProjectCore(
+export async function reconcileModelCore(
   db: DbClient,
-  project: ReconcileInput,
+  model: ReconcileInput,
   options?: ReconcileOptions,
 ): Promise<ReconcileResult> {
   const now = new Date();
   const identity = options?.identity ?? AUTO_SYNC_IDENTITY;
 
   try {
-    await ensureMarkerId(project.path);
-    await ensureGitignore(project.path);
+    await ensureMarkerId(model.path);
+    await ensureGitignore(model.path);
 
-    const wasGitRepo = await isGitRepo(project.path);
+    const wasGitRepo = await isGitRepo(model.path);
     if (!wasGitRepo) {
-      await initRepo(project.path);
+      await initRepo(model.path);
     } else {
-      await clearStaleLock(project.path);
+      await clearStaleLock(model.path);
     }
 
-    const status = await getStatus(project.path);
+    const status = await getStatus(model.path);
     let committedSha: string | null = null;
     if (!status.isClean) {
       const message = !wasGitRepo
         ? "Initial import"
         : (options?.commitMessage ?? generateAutoCommitMessage(status.changedPaths));
-      committedSha = await addAllAndCommit(project.path, message, identity);
+      committedSha = await addAllAndCommit(model.path, message, identity);
     }
 
-    const fileEntries = await listProjectFiles(project.path);
+    const fileEntries = await listModelFiles(model.path);
     const stillValidPrimary =
-      project.primaryFilePath != null &&
-      fileEntries.some((f) => f.relativePath === project.primaryFilePath);
-    const primaryFilePath = stillValidPrimary ? project.primaryFilePath : pickPrimaryFile(fileEntries);
+      model.primaryFilePath != null &&
+      fileEntries.some((f) => f.relativePath === model.primaryFilePath);
+    const primaryFilePath = stillValidPrimary ? model.primaryFilePath : pickPrimaryFile(fileEntries);
 
     db.transaction((tx) => {
-      tx.delete(filesTable).where(eq(filesTable.projectId, project.id)).run();
+      tx.delete(filesTable).where(eq(filesTable.modelId, model.id)).run();
       if (fileEntries.length > 0) {
         tx.insert(filesTable)
           .values(
             fileEntries.map((f) => ({
-              projectId: project.id,
+              modelId: model.id,
               relativePath: f.relativePath,
               sizeBytes: f.sizeBytes,
               mtime: new Date(f.mtime),
@@ -113,7 +113,7 @@ export async function reconcileProjectCore(
           .run();
       }
 
-      tx.update(projectsTable)
+      tx.update(modelsTable)
         .set({
           primaryFilePath,
           ...(committedSha != null ? { lastSyncedCommitSha: committedSha } : {}),
@@ -123,7 +123,7 @@ export async function reconcileProjectCore(
           missingSince: null,
           updatedAt: now,
         })
-        .where(eq(projectsTable.id, project.id))
+        .where(eq(modelsTable.id, model.id))
         .run();
     });
 
@@ -133,26 +133,26 @@ export async function reconcileProjectCore(
 
     // A watcher-triggered (or otherwise stale) reconcile can still be in
     // flight after the directory has already vanished — e.g. the periodic
-    // scan already correctly marked this project "missing" moments earlier.
+    // scan already correctly marked this model "missing" moments earlier.
     // Whatever operation actually threw (ensureMarkerId, git init, ...),
     // if the directory itself is gone that's the real story, not some
     // arbitrary ENOENT — don't clobber a correct "missing" with a
     // confusing "error".
-    const directoryExists = await stat(project.path)
+    const directoryExists = await stat(model.path)
       .then(() => true)
       .catch(() => false);
 
     if (!directoryExists) {
-      db.update(projectsTable)
+      db.update(modelsTable)
         .set({ syncStatus: "missing", syncError: null, missingSince: now, updatedAt: now })
-        .where(eq(projectsTable.id, project.id))
+        .where(eq(modelsTable.id, model.id))
         .run();
       return { status: "error", committed: false, error: "directory no longer exists" };
     }
 
-    db.update(projectsTable)
+    db.update(modelsTable)
       .set({ syncStatus: "error", syncError: message, updatedAt: now })
-      .where(eq(projectsTable.id, project.id))
+      .where(eq(modelsTable.id, model.id))
       .run();
     return { status: "error", committed: false, error: message };
   }

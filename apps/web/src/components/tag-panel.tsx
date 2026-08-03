@@ -40,7 +40,7 @@ export function TagPanel({ tags, isLoading, activeTag, onSelectTag, className }:
     const q = search.trim().toLowerCase()
     const filtered = q ? (tags ?? []).filter((tag) => tag.name.toLowerCase().includes(q)) : (tags ?? [])
     const sorted = [...filtered].sort((a, b) => {
-      const cmp = sortKey === "name" ? a.name.localeCompare(b.name) : a.projectCount - b.projectCount
+      const cmp = sortKey === "name" ? a.name.localeCompare(b.name) : a.modelCount - b.modelCount
       return sortDir === "asc" ? cmp : -cmp
     })
     return sorted
@@ -141,7 +141,7 @@ export function TagPanel({ tags, isLoading, activeTag, onSelectTag, className }:
                         />
                         <span className="truncate">{tag.name}</span>
                       </span>
-                      <span className="text-xs text-muted-foreground">{tag.projectCount}</span>
+                      <span className="text-xs text-muted-foreground">{tag.modelCount}</span>
                     </button>
                     <div className="flex items-center pr-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100">
                       <EditTagDialog tag={tag} />
@@ -192,8 +192,8 @@ function DeleteTagButton({ tag, onDeleted }: { tag: TagWithCount; onDeleted: () 
       disabled={deleteTag.isPending}
       onClick={() => {
         const message =
-          tag.projectCount > 0
-            ? `Delete "${tag.name}"? It will be removed from ${tag.projectCount} ${tag.projectCount === 1 ? "project" : "projects"}.`
+          tag.modelCount > 0
+            ? `Delete "${tag.name}"? It will be removed from ${tag.modelCount} ${tag.modelCount === 1 ? "model" : "models"}.`
             : `Delete "${tag.name}"?`
         if (!confirm(message)) return
         deleteTag.mutate(tag.id, { onSuccess: onDeleted })

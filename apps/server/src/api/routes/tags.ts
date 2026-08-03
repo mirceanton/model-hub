@@ -2,7 +2,7 @@ import type { Tag, TagWithCount } from "@model-hub/shared";
 import { and, eq, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { DbClient } from "../../db/client.js";
-import { projectTags as projectTagsTable, projects as projectsTable, tags as tagsTable } from "../../db/schema.js";
+import { modelTags as modelTagsTable, models as modelsTable, tags as tagsTable } from "../../db/schema.js";
 import {
   DuplicateTagNameError,
   deleteTag,
@@ -20,10 +20,10 @@ export function registerTagRoutes(app: FastifyInstance, db: DbClient): void {
         id: tagsTable.id,
         name: tagsTable.name,
         color: tagsTable.color,
-        projectCount: sql<number>`count(${projectTagsTable.projectId})`,
+        modelCount: sql<number>`count(${modelTagsTable.modelId})`,
       })
       .from(tagsTable)
-      .leftJoin(projectTagsTable, eq(projectTagsTable.tagId, tagsTable.id))
+      .leftJoin(modelTagsTable, eq(modelTagsTable.tagId, tagsTable.id))
       .groupBy(tagsTable.id)
       .orderBy(tagsTable.name)
       .all();
@@ -101,16 +101,16 @@ export function registerTagRoutes(app: FastifyInstance, db: DbClient): void {
   });
 
   app.post<{ Params: { id: string }; Body: { name?: string } }>(
-    "/api/projects/:id/tags",
+    "/api/models/:id/tags",
     async (request, reply) => {
       const id = Number(request.params.id);
       if (!Number.isInteger(id)) {
-        return reply.code(400).send({ error: "invalid project id" });
+        return reply.code(400).send({ error: "invalid model id" });
       }
 
-      const project = db.select().from(projectsTable).where(eq(projectsTable.id, id)).get();
-      if (!project) {
-        return reply.code(404).send({ error: "project not found" });
+      const model = db.select().from(modelsTable).where(eq(modelsTable.id, id)).get();
+      if (!model) {
+        return reply.code(404).send({ error: "model not found" });
       }
 
       const rawName = request.body?.name;
@@ -128,8 +128,8 @@ export function registerTagRoutes(app: FastifyInstance, db: DbClient): void {
         throw err;
       }
 
-      db.insert(projectTagsTable)
-        .values({ projectId: id, tagId: tag.id })
+      db.insert(modelTagsTable)
+        .values({ modelId: id, tagId: tag.id })
         .onConflictDoNothing()
         .run();
 
@@ -138,7 +138,7 @@ export function registerTagRoutes(app: FastifyInstance, db: DbClient): void {
   );
 
   app.delete<{ Params: { id: string; tagId: string } }>(
-    "/api/projects/:id/tags/:tagId",
+    "/api/models/:id/tags/:tagId",
     async (request, reply) => {
       const id = Number(request.params.id);
       const tagId = Number(request.params.tagId);
@@ -146,8 +146,8 @@ export function registerTagRoutes(app: FastifyInstance, db: DbClient): void {
         return reply.code(400).send({ error: "invalid id" });
       }
 
-      db.delete(projectTagsTable)
-        .where(and(eq(projectTagsTable.projectId, id), eq(projectTagsTable.tagId, tagId)))
+      db.delete(modelTagsTable)
+        .where(and(eq(modelTagsTable.modelId, id), eq(modelTagsTable.tagId, tagId)))
         .run();
       deleteTagIfUnused(db, tagId);
 

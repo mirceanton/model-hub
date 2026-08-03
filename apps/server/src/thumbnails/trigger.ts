@@ -1,7 +1,7 @@
 import { extname } from "node:path";
 import { eq, inArray } from "drizzle-orm";
 import type { DbClient } from "../db/client.js";
-import { projects as projectsTable, type ProjectRow } from "../db/schema.js";
+import { models as modelsTable, type ModelRow } from "../db/schema.js";
 import { MODEL_EXTENSIONS } from "../lib/fs-utils.js";
 import type { ReconcileResult } from "../sync/reconcile.js";
 import { generateThumbnail, type ThumbnailContext } from "./generate.js";
@@ -21,23 +21,23 @@ function isViewablePrimaryFile(primaryFilePath: string | null | undefined): bool
   return MODEL_EXTENSIONS.has(extname(primaryFilePath).slice(1).toLowerCase());
 }
 
-type ThumbnailProject = Pick<ProjectRow, "id" | "path" | "primaryFilePath">;
+type ThumbnailModel = Pick<ModelRow, "id" | "path" | "primaryFilePath">;
 
-export function enqueueThumbnail(db: DbClient, project: ThumbnailProject): void {
+export function enqueueThumbnail(db: DbClient, model: ThumbnailModel): void {
   if (!queue || !context) return;
-  if (!isViewablePrimaryFile(project.primaryFilePath)) return;
+  if (!isViewablePrimaryFile(model.primaryFilePath)) return;
   const ctx = context;
-  queue.enqueue(() => generateThumbnail(db, project, ctx));
+  queue.enqueue(() => generateThumbnail(db, model, ctx));
 }
 
 /** Enqueues a thumbnail render only when the reconcile actually produced a new commit — i.e. content changed. */
 export function maybeEnqueueThumbnail(
   db: DbClient,
-  project: ThumbnailProject,
+  model: ThumbnailModel,
   result: ReconcileResult,
 ): void {
   if (result.status === "ok" && result.committed) {
-    enqueueThumbnail(db, { ...project, primaryFilePath: result.primaryFilePath ?? null });
+    enqueueThumbnail(db, { ...model, primaryFilePath: result.primaryFilePath ?? null });
   }
 }
 
@@ -49,17 +49,17 @@ export function maybeEnqueueThumbnail(
 export function sweepPendingThumbnails(db: DbClient): void {
   const stale = db
     .select()
-    .from(projectsTable)
-    .where(inArray(projectsTable.thumbnailStatus, ["pending", "generating"]))
+    .from(modelsTable)
+    .where(inArray(modelsTable.thumbnailStatus, ["pending", "generating"]))
     .all();
 
-  for (const project of stale) {
-    if (project.thumbnailStatus === "generating") {
-      db.update(projectsTable)
+  for (const model of stale) {
+    if (model.thumbnailStatus === "generating") {
+      db.update(modelsTable)
         .set({ thumbnailStatus: "pending" })
-        .where(eq(projectsTable.id, project.id))
+        .where(eq(modelsTable.id, model.id))
         .run();
     }
-    enqueueThumbnail(db, project);
+    enqueueThumbnail(db, model);
   }
 }

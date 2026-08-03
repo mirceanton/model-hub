@@ -5,11 +5,11 @@ import multipart from "@fastify/multipart";
 import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { DbClient } from "../../db/client.js";
-import { projects as projectsTable } from "../../db/schema.js";
+import { models as modelsTable } from "../../db/schema.js";
 import { sanitizeUploadFilename } from "../../lib/fs-utils.js";
 import { getLog, restoreToCommit } from "../../sync/git.js";
 import { runExclusive } from "../../sync/queue.js";
-import { LOCAL_UPLOAD_IDENTITY, reconcileProjectCore } from "../../sync/reconcile.js";
+import { LOCAL_UPLOAD_IDENTITY, reconcileModelCore } from "../../sync/reconcile.js";
 import { maybeEnqueueThumbnail } from "../../thumbnails/trigger.js";
 
 const MAX_UPLOAD_FILE_BYTES = 1024 * 1024 * 1024; // 1GB — generous for large/multi-plate sliced files
@@ -19,15 +19,15 @@ export function registerVersionRoutes(app: FastifyInstance, db: DbClient): void 
     limits: { fileSize: MAX_UPLOAD_FILE_BYTES },
   });
 
-  app.post<{ Params: { id: string } }>("/api/projects/:id/upload", async (request, reply) => {
+  app.post<{ Params: { id: string } }>("/api/models/:id/upload", async (request, reply) => {
     const id = Number(request.params.id);
     if (!Number.isInteger(id)) {
-      return reply.code(400).send({ error: "invalid project id" });
+      return reply.code(400).send({ error: "invalid model id" });
     }
 
-    const project = db.select().from(projectsTable).where(eq(projectsTable.id, id)).get();
-    if (!project) {
-      return reply.code(404).send({ error: "project not found" });
+    const model = db.select().from(modelsTable).where(eq(modelsTable.id, id)).get();
+    if (!model) {
+      return reply.code(404).send({ error: "model not found" });
     }
 
     let message: string | undefined;
@@ -42,7 +42,7 @@ export function registerVersionRoutes(app: FastifyInstance, db: DbClient): void 
           skippedFiles.push(part.filename);
           continue;
         }
-        const dest = join(project.path, safeName);
+        const dest = join(model.path, safeName);
         await pipeline(part.file, createWriteStream(dest));
         writtenFiles.push(safeName);
       } else if (part.fieldname === "message" && typeof part.value === "string") {
@@ -58,8 +58,8 @@ export function registerVersionRoutes(app: FastifyInstance, db: DbClient): void 
     }
 
     const commitMessage = message?.trim() || `Uploaded ${writtenFiles.join(", ")}`;
-    const result = await runExclusive(project.path, () =>
-      reconcileProjectCore(db, project, {
+    const result = await runExclusive(model.path, () =>
+      reconcileModelCore(db, model, {
         identity: LOCAL_UPLOAD_IDENTITY,
         commitMessage,
       }),
@@ -68,21 +68,21 @@ export function registerVersionRoutes(app: FastifyInstance, db: DbClient): void 
     if (result.status === "error") {
       return reply.code(500).send({ error: result.error });
     }
-    maybeEnqueueThumbnail(db, project, result);
+    maybeEnqueueThumbnail(db, model, result);
     return { ok: true, committed: result.committed, writtenFiles, skippedFiles };
   });
 
   app.post<{ Params: { id: string }; Body: { sha?: string } }>(
-    "/api/projects/:id/restore",
+    "/api/models/:id/restore",
     async (request, reply) => {
       const id = Number(request.params.id);
       if (!Number.isInteger(id)) {
-        return reply.code(400).send({ error: "invalid project id" });
+        return reply.code(400).send({ error: "invalid model id" });
       }
 
-      const project = db.select().from(projectsTable).where(eq(projectsTable.id, id)).get();
-      if (!project) {
-        return reply.code(404).send({ error: "project not found" });
+      const model = db.select().from(modelsTable).where(eq(modelsTable.id, id)).get();
+      if (!model) {
+        return reply.code(404).send({ error: "model not found" });
       }
 
       const sha = request.body?.sha;
@@ -90,15 +90,15 @@ export function registerVersionRoutes(app: FastifyInstance, db: DbClient): void 
         return reply.code(400).send({ error: "sha is required" });
       }
 
-      const log = await getLog(project.path);
+      const log = await getLog(model.path);
       const target = log.find((entry) => entry.sha === sha);
       if (!target) {
-        return reply.code(400).send({ error: "sha is not a known commit for this project" });
+        return reply.code(400).send({ error: "sha is not a known commit for this model" });
       }
 
-      const result = await runExclusive(project.path, async () => {
-        await restoreToCommit(project.path, sha);
-        return reconcileProjectCore(db, project, {
+      const result = await runExclusive(model.path, async () => {
+        await restoreToCommit(model.path, sha);
+        return reconcileModelCore(db, model, {
           identity: LOCAL_UPLOAD_IDENTITY,
           commitMessage: `Restored to ${sha.slice(0, 10)}: ${target.message}`,
         });
@@ -107,7 +107,7 @@ export function registerVersionRoutes(app: FastifyInstance, db: DbClient): void 
       if (result.status === "error") {
         return reply.code(500).send({ error: result.error });
       }
-      maybeEnqueueThumbnail(db, project, result);
+      maybeEnqueueThumbnail(db, model, result);
       return { ok: true, committed: result.committed };
     },
   );

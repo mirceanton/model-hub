@@ -9,10 +9,10 @@ export interface Tag {
 }
 
 export interface TagWithCount extends Tag {
-  projectCount: number;
+  modelCount: number;
 }
 
-export interface Project {
+export interface Model {
   id: number;
   fsId: string;
   path: string;
@@ -26,6 +26,7 @@ export interface Project {
   syncStatus: SyncStatus;
   syncError: string | null;
   missingSince: number | null;
+  favorite: boolean;
   createdAt: number;
   updatedAt: number;
   tags: Tag[];
@@ -46,7 +47,37 @@ export interface GitLogEntry {
   date: string;
 }
 
-export interface ProjectDetail extends Project {
+export interface ModelDetail extends Model {
   files: FileEntry[];
   gitLog: GitLogEntry[];
+}
+
+/** One {model, pinned commit} pair within a Project — the "submodule pointer." */
+export interface PinnedModel {
+  modelId: number;
+  modelTitle: string;
+  thumbnailPath: string | null;
+  thumbnailStatus: ThumbnailStatus;
+  // Lets the Project UI flag a pinned model whose directory has gone missing.
+  modelSyncStatus: SyncStatus;
+  pinnedCommitSha: string;
+  pinnedCommitMessage: string;
+  pinnedAt: number;
+  // True when pinnedCommitSha no longer matches the model's current lastSyncedCommitSha.
+  isOutdated: boolean;
+}
+
+export interface Project {
+  id: number;
+  title: string;
+  description: string;
+  pinCount: number;
+  // First few pins, for a list-view thumbnail mosaic without an extra fetch per project.
+  previewPins: Pick<PinnedModel, "modelId" | "thumbnailPath" | "thumbnailStatus">[];
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface ProjectDetail extends Project {
+  pins: PinnedModel[];
 }

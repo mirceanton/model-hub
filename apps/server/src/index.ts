@@ -24,14 +24,14 @@ async function main(): Promise<void> {
   });
 
   // Thumbnail rendering fetches model file bytes back through this same API
-  // (the headless page hits /api/projects/:id/files/*), so the pipeline must
+  // (the headless page hits /api/models/:id/files/*), so the pipeline must
   // not start dequeuing jobs until app.listen() below has actually bound the
   // port — enqueue calls before that are harmless no-ops (see trigger.ts).
   const initialScan = await scanLibraryRoot(db, config.libraryRoot);
   if (initialScan.skipped) {
     app.log.warn(`initial scan skipped: ${initialScan.reason}`);
   } else {
-    app.log.info(`initial scan reconciled ${initialScan.scanned} project(s)`);
+    app.log.info(`initial scan reconciled ${initialScan.scanned} model(s)`);
   }
 
   const scanInterval = setInterval(() => {

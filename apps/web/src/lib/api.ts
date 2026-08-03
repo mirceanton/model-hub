@@ -1,4 +1,12 @@
-import type { Project, ProjectDetail, Tag, TagWithCount } from "@model-hub/shared"
+import type {
+  Model,
+  ModelDetail,
+  PinnedModel,
+  Project,
+  ProjectDetail,
+  Tag,
+  TagWithCount,
+} from "@model-hub/shared"
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, init)
@@ -10,36 +18,38 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json() as Promise<T>
 }
 
-export interface ProjectFilters {
+export interface ModelFilters {
   q?: string
   tag?: string
+  favorite?: boolean
 }
 
-export function fetchProjects(filters: ProjectFilters = {}): Promise<Project[]> {
+export function fetchModels(filters: ModelFilters = {}): Promise<Model[]> {
   const params = new URLSearchParams()
   if (filters.q) params.set("q", filters.q)
   if (filters.tag) params.set("tag", filters.tag)
+  if (filters.favorite) params.set("favorite", "true")
   const query = params.toString()
-  return request<Project[]>(`/api/projects${query ? `?${query}` : ""}`)
+  return request<Model[]>(`/api/models${query ? `?${query}` : ""}`)
 }
 
-export function fetchProject(id: number): Promise<ProjectDetail> {
-  return request<ProjectDetail>(`/api/projects/${id}`)
+export function fetchModel(id: number): Promise<ModelDetail> {
+  return request<ModelDetail>(`/api/models/${id}`)
 }
 
-export function updateProject(
+export function updateModel(
   id: number,
-  patch: { title?: string; description?: string },
-): Promise<Project> {
-  return request<Project>(`/api/projects/${id}`, {
+  patch: { title?: string; description?: string; favorite?: boolean },
+): Promise<Model> {
+  return request<Model>(`/api/models/${id}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(patch),
   })
 }
 
-export function forgetProject(id: number): Promise<void> {
-  return request<void>(`/api/projects/${id}`, { method: "DELETE" })
+export function forgetModel(id: number): Promise<void> {
+  return request<void>(`/api/models/${id}`, { method: "DELETE" })
 }
 
 export interface UploadResult {
@@ -49,7 +59,7 @@ export interface UploadResult {
   skippedFiles: string[]
 }
 
-export function uploadProjectVersion(
+export function uploadModelVersion(
   id: number,
   files: File[],
   message: string,
@@ -57,7 +67,7 @@ export function uploadProjectVersion(
   const formData = new FormData()
   for (const file of files) formData.append("files", file, file.name)
   formData.append("message", message)
-  return request<UploadResult>(`/api/projects/${id}/upload`, { method: "POST", body: formData })
+  return request<UploadResult>(`/api/models/${id}/upload`, { method: "POST", body: formData })
 }
 
 export interface RestoreResult {
@@ -65,8 +75,8 @@ export interface RestoreResult {
   committed: boolean
 }
 
-export function restoreProjectVersion(id: number, sha: string): Promise<RestoreResult> {
-  return request<RestoreResult>(`/api/projects/${id}/restore`, {
+export function restoreModelVersion(id: number, sha: string): Promise<RestoreResult> {
+  return request<RestoreResult>(`/api/models/${id}/restore`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ sha }),
@@ -79,7 +89,7 @@ export interface RegenerateThumbnailResult {
 }
 
 export function regenerateThumbnail(id: number): Promise<RegenerateThumbnailResult> {
-  return request<RegenerateThumbnailResult>(`/api/projects/${id}/thumbnail/regenerate`, {
+  return request<RegenerateThumbnailResult>(`/api/models/${id}/thumbnail/regenerate`, {
     method: "POST",
   })
 }
@@ -108,16 +118,81 @@ export function deleteTag(id: number): Promise<void> {
   return request<void>(`/api/tags/${id}`, { method: "DELETE" })
 }
 
-export function addProjectTag(projectId: number, name: string): Promise<Tag> {
-  return request<Tag>(`/api/projects/${projectId}/tags`, {
+export function addModelTag(modelId: number, name: string): Promise<Tag> {
+  return request<Tag>(`/api/models/${modelId}/tags`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ name }),
   })
 }
 
-export function removeProjectTag(projectId: number, tagId: number): Promise<void> {
-  return request<void>(`/api/projects/${projectId}/tags/${tagId}`, { method: "DELETE" })
+export function removeModelTag(modelId: number, tagId: number): Promise<void> {
+  return request<void>(`/api/models/${modelId}/tags/${tagId}`, { method: "DELETE" })
+}
+
+export interface ProjectFilters {
+  q?: string
+}
+
+export function fetchProjects(filters: ProjectFilters = {}): Promise<Project[]> {
+  const params = new URLSearchParams()
+  if (filters.q) params.set("q", filters.q)
+  const query = params.toString()
+  return request<Project[]>(`/api/projects${query ? `?${query}` : ""}`)
+}
+
+export function fetchProject(id: number): Promise<ProjectDetail> {
+  return request<ProjectDetail>(`/api/projects/${id}`)
+}
+
+export function createProject(input: { title: string; description?: string }): Promise<Project> {
+  return request<Project>("/api/projects", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  })
+}
+
+export function updateProject(
+  id: number,
+  patch: { title?: string; description?: string },
+): Promise<Project> {
+  return request<Project>(`/api/projects/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  })
+}
+
+export function deleteProject(id: number): Promise<void> {
+  return request<void>(`/api/projects/${id}`, { method: "DELETE" })
+}
+
+export function addProjectPin(
+  projectId: number,
+  input: { modelId: number; commitSha?: string },
+): Promise<PinnedModel> {
+  return request<PinnedModel>(`/api/projects/${projectId}/pins`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  })
+}
+
+export function updateProjectPin(
+  projectId: number,
+  modelId: number,
+  commitSha?: string,
+): Promise<PinnedModel> {
+  return request<PinnedModel>(`/api/projects/${projectId}/pins/${modelId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ commitSha }),
+  })
+}
+
+export function removeProjectPin(projectId: number, modelId: number): Promise<void> {
+  return request<void>(`/api/projects/${projectId}/pins/${modelId}`, { method: "DELETE" })
 }
 
 export interface AuthUser {

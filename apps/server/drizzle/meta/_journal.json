@@ -5,29 +5,8 @@
     {
       "idx": 0,
       "version": "6",
-      "when": 1785663906131,
-      "tag": "0000_cheerful_legion",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "6",
-      "when": 1785668024964,
-      "tag": "0001_lazy_chimera",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "6",
-      "when": 1785668582969,
-      "tag": "0002_fancy_hemingway",
-      "breakpoints": true
-    },
-    {
-      "idx": 3,
-      "version": "6",
-      "when": 1785691078017,
-      "tag": "0003_bitter_ikaris",
+      "when": 1785707972000,
+      "tag": "0000_initial_schema",
       "breakpoints": true
     }
   ]

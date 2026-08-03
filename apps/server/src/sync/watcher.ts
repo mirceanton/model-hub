@@ -2,9 +2,9 @@ import { join, relative, sep } from "node:path";
 import chokidar, { type FSWatcher } from "chokidar";
 import { eq } from "drizzle-orm";
 import type { DbClient } from "../db/client.js";
-import { projects as projectsTable } from "../db/schema.js";
+import { models as modelsTable } from "../db/schema.js";
 import { maybeEnqueueThumbnail } from "../thumbnails/trigger.js";
-import { reconcileProject } from "./reconcile.js";
+import { reconcileModel } from "./reconcile.js";
 
 export interface WatcherOptions {
   libraryRoot: string;
@@ -14,8 +14,8 @@ export interface WatcherOptions {
 
 /**
  * Snappier local-feedback accelerator, secondary to the periodic scan (the
- * real backstop — see scanner.ts). Debounces per top-level project directory
- * and only reconciles projects already known to the DB; a brand new
+ * real backstop — see scanner.ts). Debounces per top-level model directory
+ * and only reconciles models already known to the DB; a brand new
  * directory is picked up by the next full scan instead of duplicating the
  * scanner's identity-adoption logic here.
  */
@@ -48,7 +48,7 @@ export function startWatcher(
       topLevelDir,
       setTimeout(() => {
         timers.delete(topLevelDir);
-        void reconcileKnownProject(db, options.libraryRoot, topLevelDir, onLog);
+        void reconcileKnownModel(db, options.libraryRoot, topLevelDir, onLog);
       }, options.debounceMs),
     );
   }
@@ -64,18 +64,18 @@ export function startWatcher(
   return watcher;
 }
 
-async function reconcileKnownProject(
+async function reconcileKnownModel(
   db: DbClient,
   libraryRoot: string,
   topLevelDir: string,
   onLog: (message: string) => void,
 ): Promise<void> {
-  const projectPath = join(libraryRoot, topLevelDir);
-  const row = db.select().from(projectsTable).where(eq(projectsTable.path, projectPath)).get();
+  const modelPath = join(libraryRoot, topLevelDir);
+  const row = db.select().from(modelsTable).where(eq(modelsTable.path, modelPath)).get();
   if (!row) {
-    onLog(`watcher: no known project at ${projectPath} yet; next full scan will adopt it`);
+    onLog(`watcher: no known model at ${modelPath} yet; next full scan will adopt it`);
     return;
   }
-  const result = await reconcileProject(db, row);
+  const result = await reconcileModel(db, row);
   maybeEnqueueThumbnail(db, row, result);
 }

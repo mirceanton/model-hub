@@ -15,17 +15,17 @@ import { formatBytes } from "@/lib/format"
 import { useUploadVersion } from "@/lib/queries"
 
 export function UploadVersionDialog({
-  projectId,
+  modelId,
   className,
 }: {
-  projectId: number
+  modelId: number
   className?: string
 }) {
   const [open, setOpen] = useState(false)
   const [files, setFiles] = useState<File[]>([])
   const [message, setMessage] = useState("")
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const upload = useUploadVersion(projectId)
+  const upload = useUploadVersion(modelId)
 
   function reset() {
     setFiles([])
