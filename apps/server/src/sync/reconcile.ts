@@ -7,6 +7,7 @@ import { generateAutoCommitMessage } from "./commit-message.js";
 import {
   addAllAndCommit,
   clearStaleLock,
+  getHeadSha,
   getStatus,
   type GitIdentity,
   initRepo,
@@ -40,7 +41,7 @@ export interface ReconcileOptions {
   commitMessage?: string;
 }
 
-type ReconcileInput = Pick<ModelRow, "id" | "path" | "primaryFilePath">;
+type ReconcileInput = Pick<ModelRow, "id" | "path" | "primaryFilePath" | "lastSyncedCommitSha">;
 
 /**
  * The single idempotent commit-decision function for a model. Callable from
@@ -91,6 +92,14 @@ export async function reconcileModelCore(
       committedSha = await addAllAndCommit(model.path, message, identity);
     }
 
+    // When the repo is clean but lastSyncedCommitSha was never populated (e.g.
+    // the repo pre-existed with commits before model-hub started tracking it),
+    // read HEAD so pin-target resolution has something to work with.
+    let headSha: string | null = null;
+    if (committedSha == null && model.lastSyncedCommitSha == null) {
+      headSha = await getHeadSha(model.path);
+    }
+
     const fileEntries = await listModelFiles(model.path);
     const stillValidPrimary =
       model.primaryFilePath != null &&
@@ -116,7 +125,7 @@ export async function reconcileModelCore(
       tx.update(modelsTable)
         .set({
           primaryFilePath,
-          ...(committedSha != null ? { lastSyncedCommitSha: committedSha } : {}),
+          ...((committedSha ?? headSha) != null ? { lastSyncedCommitSha: committedSha ?? headSha } : {}),
           lastSyncedAt: now,
           syncStatus: "ok",
           syncError: null,

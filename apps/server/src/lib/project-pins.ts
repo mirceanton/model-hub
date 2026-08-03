@@ -26,7 +26,15 @@ export async function resolvePinTarget(
 ): Promise<{ sha: string; message: string }> {
   const sha = requestedSha ?? model.lastSyncedCommitSha;
   if (!sha) {
-    throw new ModelHasNoCommitsError("model has no commits yet to pin");
+    // lastSyncedCommitSha may be null when the repo pre-existed with commits
+    // but reconcile never populated the field. Fall back to reading HEAD
+    // before giving up.
+    const log = await getLog(model.path);
+    const latest = log[0];
+    if (!latest) {
+      throw new ModelHasNoCommitsError("model has no commits yet to pin");
+    }
+    return { sha: latest.sha, message: latest.message };
   }
 
   const log = await getLog(model.path);
