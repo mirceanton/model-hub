@@ -3,7 +3,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { FileEntry } from "@model-hub/shared";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { ensureGitignore, ensureMarkerId, pickPrimaryFile, sanitizeUploadFilename } from "./fs-utils.js";
+import {
+  ensureGitignore,
+  ensureMarkerId,
+  pickPrimaryFile,
+  sanitizeModelDirName,
+  sanitizeUploadFilename,
+} from "./fs-utils.js";
 
 describe("pickPrimaryFile", () => {
   it("returns null when there are no files", () => {
@@ -116,5 +122,37 @@ describe("sanitizeUploadFilename", () => {
     expect(sanitizeUploadFilename("")).toBeNull();
     expect(sanitizeUploadFilename(".")).toBeNull();
     expect(sanitizeUploadFilename("..")).toBeNull();
+  });
+});
+
+describe("sanitizeModelDirName", () => {
+  it("passes through a plain title unchanged", () => {
+    expect(sanitizeModelDirName("Benchy")).toBe("Benchy");
+  });
+
+  it("collapses internal whitespace", () => {
+    expect(sanitizeModelDirName("  a   weird    title  ")).toBe("a weird title");
+  });
+
+  it("replaces slashes and other forbidden characters instead of erroring", () => {
+    expect(sanitizeModelDirName("Robot/Arm v2?*")).toBe("Robot Arm v2");
+    expect(sanitizeModelDirName("a\\b:c\"d<e>f|g")).toBe("a b c d e f g");
+  });
+
+  it("strips leading/trailing dots and spaces", () => {
+    expect(sanitizeModelDirName("...hidden...")).toBe("hidden");
+    expect(sanitizeModelDirName(" . Benchy . ")).toBe("Benchy");
+  });
+
+  it("returns null when nothing usable remains", () => {
+    expect(sanitizeModelDirName("")).toBeNull();
+    expect(sanitizeModelDirName("   ")).toBeNull();
+    expect(sanitizeModelDirName("...")).toBeNull();
+    expect(sanitizeModelDirName("///")).toBeNull();
+  });
+
+  it("truncates very long titles", () => {
+    const result = sanitizeModelDirName("x".repeat(200));
+    expect(result?.length).toBe(100);
   });
 });

@@ -2,8 +2,10 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   addModelTag,
   addProjectPin,
+  createModel,
   createProject,
   createTag,
+  deleteModel,
   deleteProject,
   deleteTag,
   fetchAuthMe,
@@ -12,7 +14,6 @@ import {
   fetchProject,
   fetchProjects,
   fetchTags,
-  forgetModel,
   logout,
   regenerateThumbnail,
   removeModelTag,
@@ -162,12 +163,25 @@ export function useUpdateModel(id: number) {
   })
 }
 
-export function useForgetModel(id: number) {
+export function useCreateModel() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: () => forgetModel(id),
+    mutationFn: (input: { title: string; tags: string[]; files: File[] }) => createModel(input),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["models"] })
+      void queryClient.invalidateQueries({ queryKey: ["tags"] })
+    },
+  })
+}
+
+export function useDeleteModel(id: number) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: () => deleteModel(id),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["models"] })
+      void queryClient.invalidateQueries({ queryKey: ["tags"] })
+      void queryClient.invalidateQueries({ queryKey: ["projects"] })
     },
   })
 }

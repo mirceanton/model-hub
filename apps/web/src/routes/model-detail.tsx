@@ -27,7 +27,7 @@ import { UploadVersionDialog } from "@/components/upload-version-dialog"
 import { formatBytes, formatDateTime } from "@/lib/format"
 import { fileUrl, isViewableExtension } from "@/lib/model-loader"
 import {
-  useForgetModel,
+  useDeleteModel,
   useModel,
   useRegenerateThumbnail,
   useRestoreVersion,
@@ -86,7 +86,7 @@ export function ModelDetailPage() {
           <TagEditor modelId={model.id} tags={model.tags} />
         </div>
         <div className="flex w-full shrink-0 items-center gap-2 sm:w-auto">
-          {model.syncStatus === "missing" && <ForgetModelButton modelId={model.id} />}
+          <DeleteModelButton modelId={model.id} />
           <RegenerateThumbnailButton modelId={model.id} className="flex-1 sm:flex-none" />
           <UploadVersionDialog modelId={model.id} className="flex-1 sm:flex-none" />
         </div>
@@ -126,7 +126,7 @@ export function ModelDetailPage() {
           <AlertTitle>Directory missing</AlertTitle>
           <AlertDescription>
             This model's directory could not be found on the last library scan. Its metadata
-            is kept in case it reappears, or you can forget it below.
+            is kept in case it reappears, or you can delete it above.
           </AlertDescription>
         </Alert>
       )}
@@ -308,28 +308,33 @@ function EditableDescription({
   )
 }
 
-function ForgetModelButton({ modelId }: { modelId: number }) {
-  const forget = useForgetModel(modelId)
+function DeleteModelButton({ modelId }: { modelId: number }) {
+  const deleteModel = useDeleteModel(modelId)
   const navigate = useNavigate()
 
   return (
     <Button
       variant="ghost"
       size="sm"
-      disabled={forget.isPending}
+      className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+      disabled={deleteModel.isPending}
       onClick={() => {
         if (
           !confirm(
-            "Forget this model? This only removes its tags/description/history from model-hub — it never touches disk, and the directory is already gone.",
+            "Delete this model? This permanently removes its directory (files and history) from disk and cannot be undone.",
           )
         ) {
           return
         }
-        forget.mutate(undefined, { onSuccess: () => navigate("/") })
+        deleteModel.mutate(undefined, { onSuccess: () => navigate("/") })
       }}
     >
-      {forget.isPending ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
-      Forget
+      {deleteModel.isPending ? (
+        <Loader2 className="size-4 animate-spin" />
+      ) : (
+        <Trash2 className="size-4" />
+      )}
+      Delete
     </Button>
   )
 }

@@ -1,7 +1,6 @@
 import { createWriteStream } from "node:fs";
 import { join } from "node:path";
 import { pipeline } from "node:stream/promises";
-import multipart from "@fastify/multipart";
 import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { DbClient } from "../../db/client.js";
@@ -12,12 +11,7 @@ import { runExclusive } from "../../sync/queue.js";
 import { LOCAL_UPLOAD_IDENTITY, reconcileModelCore } from "../../sync/reconcile.js";
 import { maybeEnqueueThumbnail } from "../../thumbnails/trigger.js";
 
-const MAX_UPLOAD_FILE_BYTES = 1024 * 1024 * 1024; // 1GB — generous for large/multi-plate sliced files
-
 export function registerVersionRoutes(app: FastifyInstance, db: DbClient): void {
-  app.register(multipart, {
-    limits: { fileSize: MAX_UPLOAD_FILE_BYTES },
-  });
 
   app.post<{ Params: { id: string } }>("/api/models/:id/upload", async (request, reply) => {
     const id = Number(request.params.id);

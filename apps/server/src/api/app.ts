@@ -1,4 +1,5 @@
 import cookie from "@fastify/cookie";
+import multipart from "@fastify/multipart";
 import Fastify, { type FastifyInstance } from "fastify";
 import { registerAuthGuard } from "../auth/guard.js";
 import type { Config } from "../config.js";
@@ -14,6 +15,10 @@ import { registerThumbnailRoutes } from "./routes/thumbnails.js";
 import { registerVersionRoutes } from "./routes/versions.js";
 import { registerStaticSpa } from "./static.js";
 
+// Generous for large/multi-plate sliced files — shared by both the create-model
+// and upload-new-version routes, which both accept raw .stl/.3mf uploads.
+const MAX_UPLOAD_FILE_BYTES = 1024 * 1024 * 1024; // 1GB
+
 export function buildApp(db: DbClient, config: Config): FastifyInstance {
   const app = Fastify({
     logger: {
@@ -23,11 +28,12 @@ export function buildApp(db: DbClient, config: Config): FastifyInstance {
   });
 
   app.register(cookie, { secret: config.sessionSecret ?? undefined });
+  app.register(multipart, { limits: { fileSize: MAX_UPLOAD_FILE_BYTES } });
 
   registerHealthRoute(app);
   registerAuthGuard(app, db, config);
   registerAuthRoutes(app, db, config);
-  registerModelRoutes(app, db);
+  registerModelRoutes(app, db, config.libraryRoot);
   registerProjectRoutes(app, db);
   registerFileRoutes(app, db);
   registerVersionRoutes(app, db);

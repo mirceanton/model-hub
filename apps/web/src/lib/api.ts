@@ -48,7 +48,17 @@ export function updateModel(
   })
 }
 
-export function forgetModel(id: number): Promise<void> {
+export function createModel(input: { title: string; tags: string[]; files: File[] }): Promise<Model> {
+  const formData = new FormData()
+  // Server derives the library directory from "title" before it can stream
+  // "files" parts in, so title (and tags) must be appended before files.
+  formData.append("title", input.title)
+  for (const tag of input.tags) formData.append("tags", tag)
+  for (const file of input.files) formData.append("files", file, file.name)
+  return request<Model>("/api/models", { method: "POST", body: formData })
+}
+
+export function deleteModel(id: number): Promise<void> {
   return request<void>(`/api/models/${id}`, { method: "DELETE" })
 }
 

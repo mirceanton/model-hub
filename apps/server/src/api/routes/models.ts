@@ -1,3 +1,7 @@
+import { createWriteStream } from "node:fs";
+import { mkdir, rm, stat } from "node:fs/promises";
+import { join } from "node:path";
+import { pipeline } from "node:stream/promises";
 import type { Model, ModelDetail, Tag } from "@model-hub/shared";
 import { asc, desc, eq, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
@@ -9,8 +13,12 @@ import {
   tags as tagsTable,
   type ModelRow,
 } from "../../db/schema.js";
-import { getTagsForModel, getTagsForModels } from "../../lib/tags.js";
+import { ensureMarkerId, sanitizeModelDirName, sanitizeUploadFilename } from "../../lib/fs-utils.js";
+import { getOrCreateTag, getTagsForModel, getTagsForModels, InvalidTagNameError } from "../../lib/tags.js";
 import { getLog } from "../../sync/git.js";
+import { runExclusive } from "../../sync/queue.js";
+import { LOCAL_UPLOAD_IDENTITY, reconcileModelCore } from "../../sync/reconcile.js";
+import { maybeEnqueueThumbnail } from "../../thumbnails/trigger.js";
 
 function toApiModel(row: ModelRow, tags: Tag[]): Model {
   return {
@@ -34,7 +42,23 @@ function toApiModel(row: ModelRow, tags: Tag[]): Model {
   };
 }
 
-export function registerModelRoutes(app: FastifyInstance, db: DbClient): void {
+/** Finds a directory name under libraryRoot not already used on disk or by another model row, appending " (2)", " (3)", ... on collision. */
+async function pickModelDirPath(libraryRoot: string, db: DbClient, base: string): Promise<string> {
+  let candidateName = base;
+  for (let suffix = 2; ; suffix++) {
+    const candidatePath = join(libraryRoot, candidateName);
+    const existsOnDisk = await stat(candidatePath)
+      .then(() => true)
+      .catch(() => false);
+    const existsInDb =
+      db.select({ id: modelsTable.id }).from(modelsTable).where(eq(modelsTable.path, candidatePath)).get() !=
+      null;
+    if (!existsOnDisk && !existsInDb) return candidatePath;
+    candidateName = `${base} (${suffix})`;
+  }
+}
+
+export function registerModelRoutes(app: FastifyInstance, db: DbClient, libraryRoot: string): void {
   app.get<{ Querystring: { q?: string; tag?: string; favorite?: string } }>(
     "/api/models",
     async (request) => {
@@ -74,6 +98,114 @@ export function registerModelRoutes(app: FastifyInstance, db: DbClient): void {
       return rows.map((row) => toApiModel(row, tagsByModel.get(row.id) ?? []));
     },
   );
+
+  // Client must send the "title" field before any "files" parts — the
+  // library-root directory (derived from the title) has to exist before
+  // uploaded files can be streamed into it.
+  app.post("/api/models", async (request, reply) => {
+    let title: string | undefined;
+    const tagNames: string[] = [];
+    const writtenFiles: string[] = [];
+    const skippedFiles: string[] = [];
+    let dirPath: string | null = null;
+    let titleError: string | null = null;
+
+    try {
+      for await (const part of request.parts()) {
+        if (part.type === "field") {
+          if (part.fieldname === "title" && typeof part.value === "string") {
+            title = part.value;
+          } else if (part.fieldname === "tags" && typeof part.value === "string") {
+            tagNames.push(part.value);
+          }
+          continue;
+        }
+
+        if (dirPath == null && titleError == null) {
+          const trimmedTitle = title?.trim();
+          if (!trimmedTitle) {
+            titleError = "title is required and must be sent before any files";
+          } else {
+            const base = sanitizeModelDirName(trimmedTitle);
+            if (!base) {
+              titleError = "title must contain at least one valid character";
+            } else {
+              dirPath = await pickModelDirPath(libraryRoot, db, base);
+              await mkdir(dirPath, { recursive: true });
+            }
+          }
+        }
+
+        if (titleError != null) {
+          part.file.resume();
+          continue;
+        }
+
+        const safeName = sanitizeUploadFilename(part.filename);
+        if (!safeName) {
+          part.file.resume();
+          skippedFiles.push(part.filename);
+          continue;
+        }
+        const dest = join(dirPath!, safeName);
+        await pipeline(part.file, createWriteStream(dest));
+        writtenFiles.push(safeName);
+      }
+    } catch (err) {
+      if (dirPath) await rm(dirPath, { recursive: true, force: true }).catch(() => {});
+      throw err;
+    }
+
+    if (titleError != null) {
+      if (dirPath) await rm(dirPath, { recursive: true, force: true }).catch(() => {});
+      return reply.code(400).send({ error: titleError });
+    }
+
+    if (!dirPath || writtenFiles.length === 0) {
+      if (dirPath) await rm(dirPath, { recursive: true, force: true }).catch(() => {});
+      return reply.code(400).send({
+        error: "at least one valid model file (.stl/.3mf) is required",
+        skippedFiles,
+      });
+    }
+
+    const now = new Date();
+    let modelRow: ModelRow;
+    try {
+      const { id: fsId } = await ensureMarkerId(dirPath);
+      modelRow = db
+        .insert(modelsTable)
+        .values({ fsId, path: dirPath, title: title!.trim(), createdAt: now, updatedAt: now })
+        .returning()
+        .get();
+    } catch (err) {
+      await rm(dirPath, { recursive: true, force: true }).catch(() => {});
+      throw err;
+    }
+
+    const result = await runExclusive(dirPath, () =>
+      reconcileModelCore(db, modelRow, {
+        identity: LOCAL_UPLOAD_IDENTITY,
+        commitMessage: "Initial import",
+      }),
+    );
+
+    for (const rawName of tagNames) {
+      let tag;
+      try {
+        tag = getOrCreateTag(db, rawName);
+      } catch (err) {
+        if (err instanceof InvalidTagNameError) continue;
+        throw err;
+      }
+      db.insert(modelTagsTable).values({ modelId: modelRow.id, tagId: tag.id }).onConflictDoNothing().run();
+    }
+
+    const updatedRow = db.select().from(modelsTable).where(eq(modelsTable.id, modelRow.id)).get()!;
+    maybeEnqueueThumbnail(db, updatedRow, result);
+
+    return reply.code(201).send(toApiModel(updatedRow, getTagsForModel(db, modelRow.id)));
+  });
 
   app.get<{ Params: { id: string } }>("/api/models/:id", async (request, reply) => {
     const id = Number(request.params.id);
@@ -146,16 +278,13 @@ export function registerModelRoutes(app: FastifyInstance, db: DbClient): void {
     if (!row) {
       return reply.code(404).send({ error: "model not found" });
     }
-    // Only ever removes DB bookkeeping for a model whose directory is
-    // already gone — never touches disk. A present model would just get
-    // rediscovered (with fresh, disconnected metadata) on the next scan,
-    // which is confusing enough to be worth blocking outright.
-    if (row.syncStatus !== "missing") {
-      return reply.code(409).send({
-        error: "only models whose directory is missing can be forgotten",
-      });
-    }
 
+    // Irreversible: deletes the model's entire directory (repo included) from
+    // disk, then the DB row — cascading (via FK) to its files/tags/project
+    // pins. Runs under the same per-path lock as sync so it can't race an
+    // in-flight commit for this model. force:true makes it a safe no-op if
+    // the directory is already gone (e.g. syncStatus "missing").
+    await runExclusive(row.path, () => rm(row.path, { recursive: true, force: true }));
     db.delete(modelsTable).where(eq(modelsTable.id, id)).run();
     return reply.code(204).send();
   });

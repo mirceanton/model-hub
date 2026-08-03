@@ -89,10 +89,10 @@ export const projects = sqliteTable("projects", {
  * pinnedCommitMessage is a denormalized snapshot captured at pin/repin time:
  * safe to denormalize because reconcile only ever *appends* commits (no
  * rewrite/rebase in this app), so a given sha's message never changes.
- * modelId cascades on delete: forgetting a model (only possible once its
- * directory is already gone, per the existing DELETE /api/models/:id guard)
- * silently drops the pin — matches the submodule analogy of the pointed-at
- * repo ceasing to exist. No orphan/placeholder row is kept.
+ * modelId cascades on delete: deleting a model (DELETE /api/models/:id,
+ * which also removes its directory from disk) silently drops the pin —
+ * matches the submodule analogy of the pointed-at repo ceasing to exist.
+ * No orphan/placeholder row is kept.
  */
 export const projectModelPins = sqliteTable(
   "project_model_pins",
