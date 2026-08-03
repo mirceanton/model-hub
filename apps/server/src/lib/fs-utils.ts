@@ -130,3 +130,30 @@ export function sanitizeUploadFilename(rawName: string): string | null {
   if (!MODEL_EXTENSIONS.has(extensionOf(base))) return null;
   return base;
 }
+
+const FORBIDDEN_DIR_NAME_CHARS = /[<>:"/\\|?*\x00-\x1f]/g;
+const MAX_MODEL_DIR_NAME_LENGTH = 100;
+
+/**
+ * Reduces a user-supplied model title to a directory name safe to create
+ * directly under LIBRARY_ROOT, or null if nothing usable is left. Strips
+ * path separators and other Windows-incompatible characters (the library
+ * root may be an SMB/NFS mount) rather than fully slugifying, so the
+ * directory stays recognizable next to the title.
+ */
+export function sanitizeModelDirName(rawTitle: string): string | null {
+  const collapsed = rawTitle
+    .replace(FORBIDDEN_DIR_NAME_CHARS, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^[.\s]+|[.\s]+$/g, "");
+
+  if (!collapsed) return null;
+
+  const truncated =
+    collapsed.length > MAX_MODEL_DIR_NAME_LENGTH
+      ? collapsed.slice(0, MAX_MODEL_DIR_NAME_LENGTH).trim()
+      : collapsed;
+
+  return truncated || null;
+}

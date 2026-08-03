@@ -2,6 +2,7 @@ import type { Model } from "@model-hub/shared"
 import { AlertCircle, FolderOpen, Search, Star } from "lucide-react"
 import { useEffect, useState } from "react"
 import { Link } from "react-router"
+import { CreateModelDialog } from "@/components/create-model-dialog"
 import { FavoriteToggle } from "@/components/favorite-toggle"
 import { ModelThumbnail } from "@/components/model-thumbnail"
 import { SyncStatusBadge } from "@/components/sync-status-badge"
@@ -42,27 +43,30 @@ export function ModelListPage() {
 
   return (
     <div className="grid grid-cols-1 gap-y-4 [grid-template-areas:'search'_'tags'_'content'] lg:grid-cols-[minmax(0,1fr)_18rem] lg:gap-x-6 lg:[grid-template-areas:'search_tags'_'content_tags']">
-      <div className="flex flex-wrap items-center gap-2 [grid-area:search]">
-        <div className="relative w-full sm:max-w-xs">
-          <Search className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
-            placeholder="Search by title…"
-            className="pl-8"
-          />
+      <div className="flex flex-wrap items-center justify-between gap-2 [grid-area:search]">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative w-full sm:max-w-xs">
+            <Search className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              placeholder="Search by title…"
+              className="pl-8"
+            />
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            aria-pressed={favoritesOnly}
+            onClick={() => setFavoritesOnly((v) => !v)}
+            className={cn(favoritesOnly && "border-amber-400/50 bg-amber-400/10 text-amber-600 dark:text-amber-400")}
+          >
+            <Star className={cn("size-3.5", favoritesOnly && "fill-current")} />
+            Favorites
+          </Button>
         </div>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          aria-pressed={favoritesOnly}
-          onClick={() => setFavoritesOnly((v) => !v)}
-          className={cn(favoritesOnly && "border-amber-400/50 bg-amber-400/10 text-amber-600 dark:text-amber-400")}
-        >
-          <Star className={cn("size-3.5", favoritesOnly && "fill-current")} />
-          Favorites
-        </Button>
+        <CreateModelDialog />
       </div>
 
       <div className="min-w-0 [grid-area:content]">
