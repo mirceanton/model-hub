@@ -37,18 +37,18 @@ export function ProjectListPage() {
   const isFiltered = search.trim().length > 0 || activeTag != null
 
   return (
-    <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:gap-6">
-      <div className="flex min-w-0 flex-1 flex-col gap-4">
-        <div className="relative w-full sm:max-w-xs">
-          <Search className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
-            placeholder="Search by title…"
-            className="pl-8"
-          />
-        </div>
+    <div className="grid grid-cols-1 gap-y-4 [grid-template-areas:'search'_'tags'_'content'] lg:grid-cols-[minmax(0,1fr)_18rem] lg:gap-x-6 lg:[grid-template-areas:'search_tags'_'content_tags']">
+      <div className="relative w-full [grid-area:search] sm:max-w-xs">
+        <Search className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          value={searchInput}
+          onChange={(e) => setSearchInput(e.target.value)}
+          placeholder="Search by title…"
+          className="pl-8"
+        />
+      </div>
 
+      <div className="min-w-0 [grid-area:content]">
         {isPending ? (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
             {Array.from({ length: 8 }).map((_, i) => (
@@ -87,7 +87,7 @@ export function ProjectListPage() {
         isLoading={tagsPending}
         activeTag={activeTag}
         onSelectTag={setActiveTag}
-        className="lg:w-72 lg:shrink-0"
+        className="[grid-area:tags]"
       />
     </div>
   )
