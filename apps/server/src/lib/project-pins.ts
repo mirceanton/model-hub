@@ -56,7 +56,10 @@ export function toPinnedModel(pin: ProjectModelPinRow, model: ModelRow): PinnedM
     pinnedCommitSha: pin.pinnedCommitSha,
     pinnedCommitMessage: pin.pinnedCommitMessage,
     pinnedAt: pin.pinnedAt.getTime(),
-    isOutdated: model.lastSyncedCommitSha != null && model.lastSyncedCommitSha !== pin.pinnedCommitSha,
+    // Falsy (empty string, same as null) means "no known synced commit yet" —
+    // matches resolvePinTarget's own `!sha` check above, so a model whose
+    // lastSyncedCommitSha hasn't been populated never shows as outdated.
+    isOutdated: !!model.lastSyncedCommitSha && model.lastSyncedCommitSha !== pin.pinnedCommitSha,
   };
 }
 

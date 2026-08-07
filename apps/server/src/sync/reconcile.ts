@@ -93,10 +93,12 @@ export async function reconcileModelCore(
     }
 
     // When the repo is clean but lastSyncedCommitSha was never populated (e.g.
-    // the repo pre-existed with commits before model-hub started tracking it),
-    // read HEAD so pin-target resolution has something to work with.
+    // the repo pre-existed with commits before model-hub started tracking it,
+    // or an earlier bug left it as an empty string), read HEAD so pin-target
+    // resolution has something to work with. Falsy, not just `== null`: an
+    // empty-string sha is never a valid commit reference either.
     let headSha: string | null = null;
-    if (committedSha == null && model.lastSyncedCommitSha == null) {
+    if (!committedSha && !model.lastSyncedCommitSha) {
       headSha = await getHeadSha(model.path);
     }
 
@@ -122,10 +124,11 @@ export async function reconcileModelCore(
           .run();
       }
 
+      const resolvedSha = committedSha || headSha;
       tx.update(modelsTable)
         .set({
           primaryFilePath,
-          ...((committedSha ?? headSha) != null ? { lastSyncedCommitSha: committedSha ?? headSha } : {}),
+          ...(resolvedSha ? { lastSyncedCommitSha: resolvedSha } : {}),
           lastSyncedAt: now,
           syncStatus: "ok",
           syncError: null,
