@@ -24,6 +24,16 @@ describe("pickPrimaryFile", () => {
     expect(pickPrimaryFile(files)).toBe("small.stl");
   });
 
+  it("prefers .stl over .obj, and .obj over .3mf, regardless of size", () => {
+    const files: FileEntry[] = [
+      { relativePath: "big.3mf", sizeBytes: 10_000, mtime: 0, extension: "3mf" },
+      { relativePath: "mid.obj", sizeBytes: 1_000, mtime: 0, extension: "obj" },
+      { relativePath: "small.stl", sizeBytes: 10, mtime: 0, extension: "stl" },
+    ];
+    expect(pickPrimaryFile(files)).toBe("small.stl");
+    expect(pickPrimaryFile(files.filter((f) => f.extension !== "stl"))).toBe("mid.obj");
+  });
+
   it("picks the largest file among same-extension candidates", () => {
     const files: FileEntry[] = [
       { relativePath: "part-a.stl", sizeBytes: 100, mtime: 0, extension: "stl" },
@@ -105,6 +115,7 @@ describe("sanitizeUploadFilename", () => {
   it("accepts a plain model filename", () => {
     expect(sanitizeUploadFilename("part.stl")).toBe("part.stl");
     expect(sanitizeUploadFilename("model.3mf")).toBe("model.3mf");
+    expect(sanitizeUploadFilename("mesh.obj")).toBe("mesh.obj");
   });
 
   it("strips directory components from a path-traversal attempt", () => {

@@ -9,6 +9,7 @@ import { files as filesTable, models as modelsTable } from "../../db/schema.js";
 const CONTENT_TYPE_BY_EXTENSION: Record<string, string> = {
   stl: "model/stl",
   "3mf": "model/3mf",
+  obj: "model/obj",
 };
 
 /** Streams raw model file bytes for the viewer/thumbnail renderer. Only serves files already indexed in the `files` table — never arbitrary paths. */

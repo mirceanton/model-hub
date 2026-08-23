@@ -1,6 +1,6 @@
 export type SyncStatus = "ok" | "error" | "missing";
 export type ThumbnailStatus = "pending" | "generating" | "ready" | "error";
-export type ModelExtension = "stl" | "3mf";
+export type ModelExtension = "stl" | "3mf" | "obj";
 
 export interface Tag {
   id: number;

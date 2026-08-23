@@ -72,7 +72,7 @@ export function UploadVersionDialog({
             ref={fileInputRef}
             type="file"
             multiple
-            accept=".stl,.3mf"
+            accept=".stl,.3mf,.obj"
             onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
             className="text-sm file:mr-3 file:rounded-md file:border file:bg-muted file:px-2 file:py-1 file:text-xs file:font-medium"
           />
