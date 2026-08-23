@@ -3,7 +3,7 @@ import { mkdir, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { pipeline } from "node:stream/promises";
 import type { Model, ModelDetail, Tag } from "@model-hub/shared";
-import { asc, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { DbClient } from "../../db/client.js";
 import {
@@ -18,7 +18,7 @@ import { getOrCreateTag, getTagsForModel, getTagsForModels, InvalidTagNameError 
 import { getLog } from "../../sync/git.js";
 import { runExclusive } from "../../sync/queue.js";
 import { LOCAL_UPLOAD_IDENTITY, reconcileModelCore } from "../../sync/reconcile.js";
-import { maybeEnqueueThumbnail } from "../../thumbnails/trigger.js";
+import { enqueueThumbnail, maybeEnqueueThumbnail } from "../../thumbnails/trigger.js";
 
 function toApiModel(row: ModelRow, tags: Tag[]): Model {
   return {
@@ -248,7 +248,7 @@ export function registerModelRoutes(app: FastifyInstance, db: DbClient, libraryR
 
   app.patch<{
     Params: { id: string };
-    Body: { title?: string; description?: string; favorite?: boolean };
+    Body: { title?: string; description?: string; favorite?: boolean; primaryFilePath?: string };
   }>("/api/models/:id", async (request, reply) => {
     const id = Number(request.params.id);
     if (!Number.isInteger(id)) {
@@ -260,10 +260,23 @@ export function registerModelRoutes(app: FastifyInstance, db: DbClient, libraryR
       return reply.code(404).send({ error: "model not found" });
     }
 
-    const { title, description, favorite } = request.body ?? {};
+    const { title, description, favorite, primaryFilePath } = request.body ?? {};
     if (title !== undefined && title.trim().length === 0) {
       return reply.code(400).send({ error: "title cannot be empty" });
     }
+
+    if (primaryFilePath !== undefined) {
+      const fileRow = db
+        .select({ relativePath: filesTable.relativePath })
+        .from(filesTable)
+        .where(and(eq(filesTable.modelId, id), eq(filesTable.relativePath, primaryFilePath)))
+        .get();
+      if (!fileRow) {
+        return reply.code(400).send({ error: "primaryFilePath does not match a known file for this model" });
+      }
+    }
+
+    const primaryFileChanged = primaryFilePath !== undefined && primaryFilePath !== row.primaryFilePath;
 
     const updated = db
       .update(modelsTable)
@@ -271,11 +284,17 @@ export function registerModelRoutes(app: FastifyInstance, db: DbClient, libraryR
         ...(title !== undefined ? { title: title.trim() } : {}),
         ...(description !== undefined ? { description } : {}),
         ...(favorite !== undefined ? { favorite } : {}),
+        ...(primaryFilePath !== undefined ? { primaryFilePath } : {}),
+        ...(primaryFileChanged ? { thumbnailStatus: "pending" as const } : {}),
         updatedAt: new Date(),
       })
       .where(eq(modelsTable.id, id))
       .returning()
       .get();
+
+    if (primaryFileChanged) {
+      enqueueThumbnail(db, updated);
+    }
 
     return toApiModel(updated, getTagsForModel(db, id));
   });

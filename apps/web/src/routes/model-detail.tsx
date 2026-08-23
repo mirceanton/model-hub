@@ -7,6 +7,7 @@ import {
   History,
   Loader2,
   RefreshCw,
+  Star,
   Trash2,
 } from "lucide-react"
 import { lazy, Suspense, useState } from "react"
@@ -16,7 +17,6 @@ import { ModelThumbnail } from "@/components/model-thumbnail"
 import { SyncStatusBadge } from "@/components/sync-status-badge"
 import { TagEditor } from "@/components/tag-editor"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
@@ -145,31 +145,32 @@ export function ModelDetailPage() {
           ) : (
             <ul className="flex flex-col divide-y rounded-lg border">
               {model.files.map((file) => (
-                <li key={file.relativePath}>
+                <li
+                  key={file.relativePath}
+                  className={cn(
+                    "flex items-center gap-1 pr-2 transition-colors hover:bg-muted/50",
+                    file.relativePath === activePath && "bg-muted/70",
+                  )}
+                >
                   <button
                     type="button"
                     onClick={() => setSelectedPath(file.relativePath)}
                     disabled={!isViewableExtension(file.extension)}
-                    className={cn(
-                      "flex w-full items-center justify-between gap-3 px-3 py-2 text-left transition-colors hover:bg-muted/50 disabled:cursor-default disabled:hover:bg-transparent",
-                      file.relativePath === activePath && "bg-muted/70",
-                    )}
+                    className="flex min-w-0 flex-1 items-center justify-between gap-3 px-3 py-2 text-left disabled:cursor-default"
                   >
                     <div className="flex min-w-0 items-center gap-2">
                       <File className="size-4 shrink-0 text-muted-foreground" />
-                      <span className="truncate text-sm">
-                        {file.relativePath}
-                        {file.relativePath === model.primaryFilePath && (
-                          <Badge variant="outline" className="ml-2">
-                            primary
-                          </Badge>
-                        )}
-                      </span>
+                      <span className="truncate text-sm">{file.relativePath}</span>
                     </div>
                     <span className="shrink-0 text-xs text-muted-foreground">
                       {formatBytes(file.sizeBytes)}
                     </span>
                   </button>
+                  <SetPrimaryFileButton
+                    modelId={model.id}
+                    isPrimary={file.relativePath === model.primaryFilePath}
+                    relativePath={file.relativePath}
+                  />
                 </li>
               ))}
             </ul>
@@ -206,6 +207,37 @@ function ModelFavoriteToggle({ modelId, favorite }: { modelId: number; favorite:
   const update = useUpdateModel(modelId)
   return (
     <FavoriteToggle favorite={favorite} onToggle={() => update.mutate({ favorite: !favorite })} />
+  )
+}
+
+function SetPrimaryFileButton({
+  modelId,
+  isPrimary,
+  relativePath,
+}: {
+  modelId: number
+  isPrimary: boolean
+  relativePath: string
+}) {
+  const update = useUpdateModel(modelId)
+
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="icon-sm"
+      className="shrink-0"
+      disabled={isPrimary || update.isPending}
+      aria-label={isPrimary ? "Primary file for thumbnails" : "Set as primary file for thumbnails"}
+      aria-pressed={isPrimary}
+      title={isPrimary ? "Primary file for thumbnails" : "Set as primary file for thumbnails"}
+      onClick={(e) => {
+        e.stopPropagation()
+        update.mutate({ primaryFilePath: relativePath })
+      }}
+    >
+      <Star className={cn("size-4", isPrimary && "fill-amber-400 text-amber-400")} />
+    </Button>
   )
 }
 

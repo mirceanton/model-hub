@@ -44,7 +44,7 @@ export function fetchModel(id: number): Promise<ModelDetail> {
 
 export function updateModel(
   id: number,
-  patch: { title?: string; description?: string; favorite?: boolean },
+  patch: { title?: string; description?: string; favorite?: boolean; primaryFilePath?: string },
 ): Promise<Model> {
   return request<Model>(`/api/models/${id}`, {
     method: "PATCH",
