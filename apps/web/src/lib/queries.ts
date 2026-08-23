@@ -157,7 +157,7 @@ export function useRemoveTag(id: number) {
 export function useUpdateModel(id: number) {
   const invalidate = useInvalidateModel(id)
   return useMutation({
-    mutationFn: (patch: { title?: string; description?: string; favorite?: boolean }) =>
+    mutationFn: (patch: { title?: string; description?: string; favorite?: boolean; primaryFilePath?: string }) =>
       updateModel(id, patch),
     onSuccess: invalidate,
   })
