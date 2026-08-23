@@ -2,6 +2,7 @@ import type { GitLogEntry } from "@model-hub/shared"
 import {
   AlertCircle,
   ArrowLeft,
+  Camera,
   File,
   GitCommitHorizontal,
   History,
@@ -19,6 +20,7 @@ import { ModelThumbnail } from "@/components/model-thumbnail"
 import { SyncStatusBadge } from "@/components/sync-status-badge"
 import { TagEditor } from "@/components/tag-editor"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
@@ -29,6 +31,7 @@ import { UploadVersionDialog } from "@/components/upload-version-dialog"
 import { formatBytes, formatDateTime } from "@/lib/format"
 import { fileUrl, isViewableExtension } from "@/lib/model-loader"
 import {
+  useCaptureThumbnail,
   useDeleteModel,
   useDeleteModelFile,
   useModel,
@@ -47,6 +50,7 @@ export function ModelDetailPage() {
   const id = Number(params.id)
   const { data: model, isPending, isError, error } = useModel(id)
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
+  const [viewerCanvas, setViewerCanvas] = useState<HTMLCanvasElement | null>(null)
 
   if (isPending) {
     return (
@@ -72,6 +76,9 @@ export function ModelDetailPage() {
 
   const activePath = selectedPath ?? model.primaryFilePath
   const activeFile = model.files.find((f) => f.relativePath === activePath)
+  const viewableExtension =
+    activeFile && isViewableExtension(activeFile.extension) ? activeFile.extension : null
+  const isViewable = viewableExtension != null
   const viewerHeight = "h-80 w-full sm:h-[28rem]"
 
   return (
@@ -90,22 +97,36 @@ export function ModelDetailPage() {
         </div>
         <div className="flex w-full shrink-0 items-center gap-2 sm:w-auto">
           <DeleteModelButton modelId={model.id} />
+          {isViewable && (
+            <CaptureThumbnailButton
+              modelId={model.id}
+              canvas={viewerCanvas}
+              className="flex-1 sm:flex-none"
+            />
+          )}
           <RegenerateThumbnailButton modelId={model.id} className="flex-1 sm:flex-none" />
           <UploadVersionDialog modelId={model.id} className="flex-1 sm:flex-none" />
         </div>
       </div>
 
-      {activeFile && isViewableExtension(activeFile.extension) ? (
+      {activeFile && viewableExtension ? (
         <Suspense fallback={<Skeleton className={viewerHeight} />}>
           <ModelViewer
             key={activeFile.relativePath}
             url={fileUrl(model.id, activeFile.relativePath)}
-            extension={activeFile.extension}
+            extension={viewableExtension}
             className={viewerHeight}
+            onCanvasReady={setViewerCanvas}
           />
         </Suspense>
       ) : (
         <ModelThumbnail model={model} className={viewerHeight} />
+      )}
+      {model.thumbnailSource === "manual" && (
+        <p className="-mt-4 flex items-center gap-1.5 text-xs text-muted-foreground/70">
+          <Badge variant="outline">Custom thumbnail</Badge>
+          Won't be replaced by future syncs — use "Thumbnail" above to go back to automatic.
+        </p>
       )}
 
       <EditableDescription modelId={model.id} description={model.description} />
@@ -444,6 +465,40 @@ function RestoreButton({ modelId, entry }: { modelId: number; entry: GitLogEntry
     >
       {restore.isPending ? <Loader2 className="size-4 animate-spin" /> : <History className="size-4" />}
       Restore
+    </Button>
+  )
+}
+
+function CaptureThumbnailButton({
+  modelId,
+  canvas,
+  className,
+}: {
+  modelId: number
+  canvas: HTMLCanvasElement | null
+  className?: string
+}) {
+  const capture = useCaptureThumbnail(modelId)
+
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      disabled={!canvas || capture.isPending}
+      onClick={() => {
+        canvas?.toBlob((blob) => {
+          if (blob) capture.mutate(blob)
+        }, "image/png")
+      }}
+      title="Save the current view as the thumbnail"
+      className={className}
+    >
+      {capture.isPending ? (
+        <Loader2 className="size-4 animate-spin" />
+      ) : (
+        <Camera className="size-4" />
+      )}
+      Capture
     </Button>
   )
 }

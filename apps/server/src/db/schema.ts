@@ -13,6 +13,14 @@ export const models = sqliteTable("models", {
   })
     .notNull()
     .default("pending"),
+  // "manual" (a user-captured shot from the interactive viewer) is sticky: the
+  // sync-triggered auto-regeneration path (thumbnails/trigger.ts's
+  // maybeEnqueueThumbnail) skips models with this source so a future file
+  // upload/restore doesn't silently clobber a deliberately-posed thumbnail.
+  // The explicit "regenerate" action resets this back to "auto".
+  thumbnailSource: text("thumbnail_source", { enum: ["auto", "manual"] })
+    .notNull()
+    .default("auto"),
   lastSyncedCommitSha: text("last_synced_commit_sha"),
   lastSyncedAt: integer("last_synced_at", { mode: "timestamp_ms" }),
   syncStatus: text("sync_status", { enum: ["ok", "error", "missing"] })

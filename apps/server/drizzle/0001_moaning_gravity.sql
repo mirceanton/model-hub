@@ -1,0 +1,1 @@
+ALTER TABLE `models` ADD `thumbnail_source` text DEFAULT 'auto' NOT NULL;

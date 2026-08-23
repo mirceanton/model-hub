@@ -30,6 +30,7 @@ function toApiModel(row: ModelRow, tags: Tag[]): Model {
     primaryFilePath: row.primaryFilePath,
     thumbnailPath: row.thumbnailPath,
     thumbnailStatus: row.thumbnailStatus,
+    thumbnailSource: row.thumbnailSource,
     lastSyncedCommitSha: row.lastSyncedCommitSha,
     lastSyncedAt: row.lastSyncedAt ? row.lastSyncedAt.getTime() : null,
     syncStatus: row.syncStatus,
@@ -285,7 +286,9 @@ export function registerModelRoutes(app: FastifyInstance, db: DbClient, libraryR
         ...(description !== undefined ? { description } : {}),
         ...(favorite !== undefined ? { favorite } : {}),
         ...(primaryFilePath !== undefined ? { primaryFilePath } : {}),
-        ...(primaryFileChanged ? { thumbnailStatus: "pending" as const } : {}),
+        ...(primaryFileChanged
+          ? { thumbnailStatus: "pending" as const, thumbnailSource: "auto" as const }
+          : {}),
         updatedAt: new Date(),
       })
       .where(eq(modelsTable.id, id))

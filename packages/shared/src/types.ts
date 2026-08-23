@@ -1,5 +1,6 @@
 export type SyncStatus = "ok" | "error" | "missing";
 export type ThumbnailStatus = "pending" | "generating" | "ready" | "error";
+export type ThumbnailSource = "auto" | "manual";
 export type ModelExtension = "stl" | "3mf" | "obj";
 
 export interface Tag {
@@ -21,6 +22,7 @@ export interface Model {
   primaryFilePath: string | null;
   thumbnailPath: string | null;
   thumbnailStatus: ThumbnailStatus;
+  thumbnailSource: ThumbnailSource;
   lastSyncedCommitSha: string | null;
   lastSyncedAt: number | null;
   syncStatus: SyncStatus;
