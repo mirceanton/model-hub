@@ -1,9 +1,27 @@
 import { Box, LogOut } from "lucide-react"
+import { createContext, useContext, useEffect, useState } from "react"
 import { Link, NavLink, Outlet } from "react-router"
 import { Button } from "@/components/ui/button"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { useAuthMe, useLogout } from "@/lib/queries"
 import { cn } from "@/lib/utils"
+
+const DEFAULT_MAIN_MAX_WIDTH = "72rem" // matches the old fixed max-w-6xl
+
+const MainMaxWidthContext = createContext<(width: string | null) => void>(() => {})
+
+/**
+ * Lets a route widen the shared <main> beyond the default max-w-6xl, e.g. to
+ * fit more grid columns without shrinking existing content. Resets to the
+ * default on unmount.
+ */
+export function useMainMaxWidth(width: string | null) {
+  const setWidth = useContext(MainMaxWidthContext)
+  useEffect(() => {
+    setWidth(width)
+    return () => setWidth(null)
+  }, [width, setWidth])
+}
 
 function TopNav() {
   const linkClass = ({ isActive }: { isActive: boolean }) =>
@@ -49,6 +67,8 @@ function UserMenu() {
 }
 
 export function AppShell() {
+  const [mainMaxWidth, setMainMaxWidth] = useState<string | null>(null)
+
   return (
     <div className="min-h-svh bg-background text-foreground">
       <header className="h-14 border-b">
@@ -64,8 +84,10 @@ export function AppShell() {
           </div>
         </div>
       </header>
-      <main className="mx-auto max-w-6xl px-4 py-6">
-        <Outlet />
+      <main className="mx-auto px-4 py-6" style={{ maxWidth: mainMaxWidth ?? DEFAULT_MAIN_MAX_WIDTH }}>
+        <MainMaxWidthContext.Provider value={setMainMaxWidth}>
+          <Outlet />
+        </MainMaxWidthContext.Provider>
       </main>
     </div>
   )

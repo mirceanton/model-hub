@@ -2,6 +2,7 @@ import type { Model, ModelSortField, SortOrder } from "@model-hub/shared"
 import { AlertCircle, ChevronLeft, ChevronRight, FolderOpen, Search, Star } from "lucide-react"
 import { useEffect, useState } from "react"
 import { Link } from "react-router"
+import { useMainMaxWidth } from "@/components/app-shell"
 import { CreateModelDialog } from "@/components/create-model-dialog"
 import { FavoriteToggle } from "@/components/favorite-toggle"
 import { ModelThumbnail } from "@/components/model-thumbnail"
@@ -20,8 +21,44 @@ import { tagBadgeStyle } from "@/lib/tag-colors"
 import { cn } from "@/lib/utils"
 
 const SEARCH_DEBOUNCE_MS = 250
-const PER_PAGE_OPTIONS = [12, 24, 48, 96]
-const DEFAULT_PER_PAGE = 12
+
+// Card columns the user can pick, and the responsive breakpoint progression
+// leading up to each — screens narrower than the target still step down
+// through fewer columns, same as before this became user-selectable.
+const COLUMN_OPTIONS = [3, 4, 5] as const
+const DEFAULT_COLUMNS = 3
+const COLUMN_GRID_CLASSES: Record<(typeof COLUMN_OPTIONS)[number], string> = {
+  3: "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3",
+  4: "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4",
+  5: "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5",
+}
+
+// Items-per-page options scale with the column count so a page is always a
+// whole number of full rows (e.g. 3 columns -> 12/24/48/96, 4 -> 16/32/64/128).
+const PER_PAGE_ROW_MULTIPLIERS = [4, 8, 16, 32]
+const DEFAULT_PER_PAGE_INDEX = 0
+
+// Card size is pinned to the 3-column layout at the old max-w-6xl (72rem)
+// container; widening the container (not shrinking cards) is how extra
+// columns fit at a given card size. The container's width is shared with
+// the fixed-width tag sidebar (18rem + 1.5rem gap, see the lg:grid-cols
+// below), so that fixed chunk has to be subtracted out before dividing the
+// rest into cards, and added back when computing the new total width.
+const BASE_MAX_WIDTH_REM = 72
+const BASE_COLUMNS = 3
+const GRID_GAP_REM = 1
+const CONTAINER_PADDING_REM = 2
+const SIDEBAR_WIDTH_REM = 18
+const SIDEBAR_GAP_REM = 1.5
+const FIXED_CHROME_REM = CONTAINER_PADDING_REM + SIDEBAR_GAP_REM + SIDEBAR_WIDTH_REM
+const CARD_WIDTH_REM =
+  (BASE_MAX_WIDTH_REM - FIXED_CHROME_REM - GRID_GAP_REM * (BASE_COLUMNS - 1)) / BASE_COLUMNS
+
+function mainMaxWidthForColumns(columns: number) {
+  if (columns === BASE_COLUMNS) return null
+  const width = FIXED_CHROME_REM + columns * CARD_WIDTH_REM + GRID_GAP_REM * (columns - 1)
+  return `${width.toFixed(2)}rem`
+}
 
 interface SortOption {
   value: string
@@ -43,11 +80,15 @@ export function ModelListPage() {
   const [search, setSearch] = useState("")
   const [activeTag, setActiveTag] = useState<string | null>(null)
   const [favoritesOnly, setFavoritesOnly] = useState(false)
-  const [perPage, setPerPage] = useState(DEFAULT_PER_PAGE)
+  const [columns, setColumns] = useState<(typeof COLUMN_OPTIONS)[number]>(DEFAULT_COLUMNS)
+  const [perPageIndex, setPerPageIndex] = useState(DEFAULT_PER_PAGE_INDEX)
   const [page, setPage] = useState(1)
   const [sortValue, setSortValue] = useState(DEFAULT_SORT.value)
 
+  const perPage = PER_PAGE_ROW_MULTIPLIERS[perPageIndex] * columns
   const sortOption = SORT_OPTIONS.find((option) => option.value === sortValue) ?? DEFAULT_SORT
+
+  useMainMaxWidth(mainMaxWidthForColumns(columns))
 
   useEffect(() => {
     const timer = setTimeout(() => setSearch(searchInput), SEARCH_DEBOUNCE_MS)
@@ -117,16 +158,33 @@ export function ModelListPage() {
             </SelectContent>
           </Select>
           <Select
-            value={String(perPage)}
-            onValueChange={(value) => setPerPage(Number(value))}
+            value={String(columns)}
+            onValueChange={(value) => setColumns(Number(value) as (typeof COLUMN_OPTIONS)[number])}
           >
-            <SelectTrigger size="sm" aria-label="Items per page">
-              <SelectValue />
+            <SelectTrigger size="sm" aria-label="Columns">
+              <SelectValue>{(value: string) => `${value} columns`}</SelectValue>
             </SelectTrigger>
             <SelectContent>
-              {PER_PAGE_OPTIONS.map((option) => (
+              {COLUMN_OPTIONS.map((option) => (
                 <SelectItem key={option} value={String(option)}>
-                  {option} per page
+                  {option} columns
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select
+            value={String(perPageIndex)}
+            onValueChange={(value) => setPerPageIndex(Number(value))}
+          >
+            <SelectTrigger size="sm" aria-label="Items per page">
+              <SelectValue>
+                {(value: string) => `${PER_PAGE_ROW_MULTIPLIERS[Number(value)] * columns} per page`}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              {PER_PAGE_ROW_MULTIPLIERS.map((multiplier, index) => (
+                <SelectItem key={multiplier} value={String(index)}>
+                  {multiplier * columns} per page
                 </SelectItem>
               ))}
             </SelectContent>
@@ -137,7 +195,7 @@ export function ModelListPage() {
 
       <div className="min-w-0 [grid-area:content]">
         {isPending ? (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
+          <div className={cn("grid gap-4", COLUMN_GRID_CLASSES[columns])}>
             {Array.from({ length: 8 }).map((_, i) => (
               <Skeleton key={i} className="aspect-[4/5] w-full rounded-lg" />
             ))}
@@ -162,7 +220,7 @@ export function ModelListPage() {
           </div>
         ) : (
           <>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
+            <div className={cn("grid gap-4", COLUMN_GRID_CLASSES[columns])}>
               {models.data.map((model) => (
                 <ModelCard key={model.id} model={model} />
               ))}
