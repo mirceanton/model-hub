@@ -6,6 +6,7 @@ import {
   GitCommitHorizontal,
   History,
   Loader2,
+  Pencil,
   RefreshCw,
   Star,
   Trash2,
@@ -13,6 +14,7 @@ import {
 import { lazy, Suspense, useState } from "react"
 import { Link, useNavigate, useParams } from "react-router"
 import { FavoriteToggle } from "@/components/favorite-toggle"
+import { MarkdownContent } from "@/components/markdown-content"
 import { ModelThumbnail } from "@/components/model-thumbnail"
 import { SyncStatusBadge } from "@/components/sync-status-badge"
 import { TagEditor } from "@/components/tag-editor"
@@ -302,18 +304,38 @@ function EditableDescription({
   const update = useUpdateModel(modelId)
 
   if (!editing) {
+    function startEditing() {
+      setValue(description)
+      setEditing(true)
+    }
+
     return (
-      <button
-        type="button"
-        onClick={() => {
-          setValue(description)
-          setEditing(true)
-        }}
-        className="rounded px-1 py-0.5 text-left text-sm text-muted-foreground hover:bg-muted/50"
-        title="Click to edit"
-      >
-        {description || "No description yet. Click to add one."}
-      </button>
+      <div className="group flex items-start justify-between gap-2">
+        {description ? (
+          <MarkdownContent content={description} className="min-w-0 flex-1" />
+        ) : (
+          <button
+            type="button"
+            onClick={startEditing}
+            className="rounded px-1 py-0.5 text-left text-sm text-muted-foreground hover:bg-muted/50"
+            title="Click to edit"
+          >
+            No description yet. Click to add one.
+          </button>
+        )}
+        {description && (
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="shrink-0 opacity-0 group-hover:opacity-100"
+            onClick={startEditing}
+            aria-label="Edit description"
+            title="Edit description"
+          >
+            <Pencil className="size-4" />
+          </Button>
+        )}
+      </div>
     )
   }
 
@@ -325,20 +347,23 @@ function EditableDescription({
   }
 
   return (
-    <Textarea
-      autoFocus
-      value={value}
-      onChange={(e) => setValue(e.target.value)}
-      onBlur={commit}
-      onKeyDown={(e) => {
-        if (e.key === "Escape") {
-          setValue(description)
-          setEditing(false)
-        }
-      }}
-      placeholder="What is this model?"
-      rows={3}
-    />
+    <div className="flex flex-col gap-1">
+      <Textarea
+        autoFocus
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") {
+            setValue(description)
+            setEditing(false)
+          }
+        }}
+        placeholder="What is this model? Markdown is supported."
+        rows={3}
+      />
+      <p className="text-xs text-muted-foreground/70">Markdown supported.</p>
+    </div>
   )
 }
 
