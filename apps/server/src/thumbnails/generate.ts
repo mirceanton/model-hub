@@ -10,7 +10,7 @@ import { getBrowser } from "./browser.js";
 
 const RENDER_TIMEOUT_MS = 20_000;
 const VIEWPORT = { width: 512, height: 512 };
-const THUMBNAIL_FILENAME = "thumb.png";
+export const THUMBNAIL_FILENAME = "thumb.png";
 
 // Passed as strings (not typed closures) so this Node-only TS project never
 // needs DOM lib types just to poll a couple of globals set by the render page.

@@ -1,8 +1,8 @@
 import type { ModelExtension } from "@model-hub/shared"
 import { Bounds, Html, OrbitControls } from "@react-three/drei"
-import { Canvas } from "@react-three/fiber"
+import { Canvas, useThree } from "@react-three/fiber"
 import { AlertTriangle, Loader2 } from "lucide-react"
-import { Component, Suspense, type ReactNode } from "react"
+import { Component, Suspense, useEffect, type ReactNode } from "react"
 import { cn } from "@/lib/utils"
 import { EmptyGeometryError, ModelMesh } from "./model-mesh"
 
@@ -42,19 +42,37 @@ class ViewerErrorBoundary extends Component<{ children: ReactNode }, { error: Er
   }
 }
 
+/** Hands the live WebGL canvas up to the parent once mounted, so it can be captured on demand (e.g. for a user-posed thumbnail) without threading a ref through react-three-fiber's Canvas. */
+function CanvasHandle({ onReady }: { onReady?: (canvas: HTMLCanvasElement) => void }) {
+  const canvas = useThree((state) => state.gl.domElement)
+  useEffect(() => {
+    onReady?.(canvas)
+  }, [canvas, onReady])
+  return null
+}
+
 export function ModelViewer({
   url,
   extension,
   className,
+  onCanvasReady,
 }: {
   url: string
   extension: ModelExtension
   className?: string
+  /** Called once the canvas mounts. `preserveDrawingBuffer` is on, so `canvas.toBlob()` reliably captures whatever is currently rendered. */
+  onCanvasReady?: (canvas: HTMLCanvasElement) => void
 }) {
   return (
     <div className={cn("overflow-hidden rounded-md border bg-muted/30", className)}>
       <ViewerErrorBoundary key={url}>
-        <Canvas camera={{ fov: 45, position: [4, 4, 4] }} shadows dpr={[1, 2]}>
+        <Canvas
+          camera={{ fov: 45, position: [4, 4, 4] }}
+          shadows
+          dpr={[1, 2]}
+          gl={{ preserveDrawingBuffer: true }}
+        >
+          <CanvasHandle onReady={onCanvasReady} />
           <ambientLight intensity={0.7} />
           <directionalLight position={[5, 10, 7.5]} intensity={1.2} castShadow />
           <directionalLight position={[-5, -5, -5]} intensity={0.3} />

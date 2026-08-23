@@ -11,6 +11,7 @@ const baseModel: ModelRow = {
   primaryFilePath: "model.stl",
   thumbnailPath: null,
   thumbnailStatus: "ready",
+  thumbnailSource: "auto",
   lastSyncedCommitSha: "a".repeat(40),
   lastSyncedAt: new Date(),
   syncStatus: "ok",

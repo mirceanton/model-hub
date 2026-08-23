@@ -119,6 +119,20 @@ export function regenerateThumbnail(id: number): Promise<RegenerateThumbnailResu
   })
 }
 
+export interface CaptureThumbnailResult {
+  ok: true
+  thumbnailStatus: "ready"
+}
+
+export function captureThumbnail(id: number, image: Blob): Promise<CaptureThumbnailResult> {
+  const formData = new FormData()
+  formData.append("thumbnail", image, "thumb.png")
+  return request<CaptureThumbnailResult>(`/api/models/${id}/thumbnail/capture`, {
+    method: "POST",
+    body: formData,
+  })
+}
+
 export function fetchTags(): Promise<TagWithCount[]> {
   return request<TagWithCount[]>("/api/tags")
 }

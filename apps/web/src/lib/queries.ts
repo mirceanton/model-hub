@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   addModelTag,
   addProjectPin,
+  captureThumbnail,
   createModel,
   createProject,
   createTag,
@@ -143,6 +144,14 @@ export function useRegenerateThumbnail(id: number) {
   const invalidate = useInvalidateModel(id)
   return useMutation({
     mutationFn: () => regenerateThumbnail(id),
+    onSuccess: invalidate,
+  })
+}
+
+export function useCaptureThumbnail(id: number) {
+  const invalidate = useInvalidateModel(id)
+  return useMutation({
+    mutationFn: (image: Blob) => captureThumbnail(id, image),
     onSuccess: invalidate,
   })
 }

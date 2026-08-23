@@ -30,13 +30,20 @@ export function enqueueThumbnail(db: DbClient, model: ThumbnailModel): void {
   queue.enqueue(() => generateThumbnail(db, model, ctx));
 }
 
-/** Enqueues a thumbnail render only when the reconcile actually produced a new commit — i.e. content changed. */
+/**
+ * Enqueues a thumbnail render only when the reconcile actually produced a new
+ * commit (content changed) AND the model's current thumbnail isn't a
+ * user-captured one — "manual" is sticky against this auto-regeneration path
+ * so a routine file upload/restore doesn't silently overwrite a deliberately
+ * posed shot. The explicit regenerate endpoint bypasses this by resetting
+ * thumbnailSource back to "auto" itself before calling enqueueThumbnail directly.
+ */
 export function maybeEnqueueThumbnail(
   db: DbClient,
-  model: ThumbnailModel,
+  model: ThumbnailModel & Pick<ModelRow, "thumbnailSource">,
   result: ReconcileResult,
 ): void {
-  if (result.status === "ok" && result.committed) {
+  if (result.status === "ok" && result.committed && model.thumbnailSource !== "manual") {
     enqueueThumbnail(db, { ...model, primaryFilePath: result.primaryFilePath ?? null });
   }
 }
