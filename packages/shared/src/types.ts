@@ -2,6 +2,8 @@ export type SyncStatus = "ok" | "error" | "missing";
 export type ThumbnailStatus = "pending" | "generating" | "ready" | "error";
 export type ThumbnailSource = "auto" | "manual";
 export type ModelExtension = "stl" | "3mf" | "obj";
+export type ModelSortField = "title" | "createdAt";
+export type SortOrder = "asc" | "desc";
 
 export interface Tag {
   id: number;
