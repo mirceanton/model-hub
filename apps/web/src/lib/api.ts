@@ -85,6 +85,16 @@ export function uploadModelVersion(
   return request<UploadResult>(`/api/models/${id}/upload`, { method: "POST", body: formData })
 }
 
+export interface DeleteFileResult {
+  ok: true
+  committed: boolean
+}
+
+export function deleteModelFile(modelId: number, relativePath: string): Promise<DeleteFileResult> {
+  const path = relativePath.split("/").map(encodeURIComponent).join("/")
+  return request<DeleteFileResult>(`/api/models/${modelId}/files/${path}`, { method: "DELETE" })
+}
+
 export interface RestoreResult {
   ok: true
   committed: boolean

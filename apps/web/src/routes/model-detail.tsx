@@ -28,6 +28,7 @@ import { formatBytes, formatDateTime } from "@/lib/format"
 import { fileUrl, isViewableExtension } from "@/lib/model-loader"
 import {
   useDeleteModel,
+  useDeleteModelFile,
   useModel,
   useRegenerateThumbnail,
   useRestoreVersion,
@@ -171,6 +172,7 @@ export function ModelDetailPage() {
                     isPrimary={file.relativePath === model.primaryFilePath}
                     relativePath={file.relativePath}
                   />
+                  <DeleteFileButton modelId={model.id} relativePath={file.relativePath} />
                 </li>
               ))}
             </ul>
@@ -367,6 +369,34 @@ function DeleteModelButton({ modelId }: { modelId: number }) {
         <Trash2 className="size-4" />
       )}
       Delete
+    </Button>
+  )
+}
+
+function DeleteFileButton({ modelId, relativePath }: { modelId: number; relativePath: string }) {
+  const deleteFile = useDeleteModelFile(modelId)
+
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="icon"
+      className="size-8 shrink-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+      disabled={deleteFile.isPending}
+      title={`Delete ${relativePath}`}
+      onClick={(e) => {
+        e.stopPropagation()
+        if (!confirm(`Delete "${relativePath}" from this model? This creates a new commit.`)) {
+          return
+        }
+        deleteFile.mutate(relativePath)
+      }}
+    >
+      {deleteFile.isPending ? (
+        <Loader2 className="size-4 animate-spin" />
+      ) : (
+        <Trash2 className="size-4" />
+      )}
     </Button>
   )
 }
