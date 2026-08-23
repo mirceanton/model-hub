@@ -59,58 +59,69 @@ async function pickModelDirPath(libraryRoot: string, db: DbClient, base: string)
   }
 }
 
+const SORT_COLUMNS = {
+  title: sql`lower(${modelsTable.title})`,
+  createdAt: modelsTable.createdAt,
+} as const;
+
 export function registerModelRoutes(app: FastifyInstance, db: DbClient, libraryRoot: string): void {
-  app.get<{ Querystring: { q?: string; tag?: string; favorite?: string; page?: string; perPage?: string } }>(
-    "/api/models",
-    async (request) => {
-      let rows = db
-        .select()
-        .from(modelsTable)
-        .orderBy(desc(modelsTable.favorite), asc(sql`lower(${modelsTable.title})`))
-        .all();
+  app.get<{
+    Querystring: {
+      q?: string;
+      tag?: string;
+      favorite?: string;
+      page?: string;
+      perPage?: string;
+      sort?: string;
+      order?: string;
+    };
+  }>("/api/models", async (request) => {
+    const sortField = request.query.sort === "createdAt" ? "createdAt" : "title";
+    const orderFn = request.query.order === "desc" ? desc : asc;
 
-      const needle = request.query.q?.trim().toLowerCase();
-      if (needle) {
-        rows = rows.filter((row) => row.title.toLowerCase().includes(needle));
-      }
+    let rows = db.select().from(modelsTable).orderBy(orderFn(SORT_COLUMNS[sortField])).all();
 
-      const tagFilter = request.query.tag?.trim();
-      if (tagFilter) {
-        const matchingModelIds = new Set(
-          db
-            .select({ modelId: modelTagsTable.modelId })
-            .from(modelTagsTable)
-            .innerJoin(tagsTable, eq(modelTagsTable.tagId, tagsTable.id))
-            .where(sql`lower(${tagsTable.name}) = lower(${tagFilter})`)
-            .all()
-            .map((r) => r.modelId),
-        );
-        rows = rows.filter((row) => matchingModelIds.has(row.id));
-      }
+    const needle = request.query.q?.trim().toLowerCase();
+    if (needle) {
+      rows = rows.filter((row) => row.title.toLowerCase().includes(needle));
+    }
 
-      if (request.query.favorite === "true") {
-        rows = rows.filter((row) => row.favorite);
-      }
-
-      const total = rows.length;
-
-      const perPage = Number(request.query.perPage);
-      if (Number.isInteger(perPage) && perPage > 0) {
-        const page = Math.max(1, Number(request.query.page) || 1);
-        const offset = (page - 1) * perPage;
-        rows = rows.slice(offset, offset + perPage);
-      }
-
-      const tagsByModel = getTagsForModels(
-        db,
-        rows.map((row) => row.id),
+    const tagFilter = request.query.tag?.trim();
+    if (tagFilter) {
+      const matchingModelIds = new Set(
+        db
+          .select({ modelId: modelTagsTable.modelId })
+          .from(modelTagsTable)
+          .innerJoin(tagsTable, eq(modelTagsTable.tagId, tagsTable.id))
+          .where(sql`lower(${tagsTable.name}) = lower(${tagFilter})`)
+          .all()
+          .map((r) => r.modelId),
       );
-      return {
-        data: rows.map((row) => toApiModel(row, tagsByModel.get(row.id) ?? [])),
-        total,
-      };
-    },
-  );
+      rows = rows.filter((row) => matchingModelIds.has(row.id));
+    }
+
+    if (request.query.favorite === "true") {
+      rows = rows.filter((row) => row.favorite);
+    }
+
+    const total = rows.length;
+
+    const perPage = Number(request.query.perPage);
+    if (Number.isInteger(perPage) && perPage > 0) {
+      const page = Math.max(1, Number(request.query.page) || 1);
+      const offset = (page - 1) * perPage;
+      rows = rows.slice(offset, offset + perPage);
+    }
+
+    const tagsByModel = getTagsForModels(
+      db,
+      rows.map((row) => row.id),
+    );
+    return {
+      data: rows.map((row) => toApiModel(row, tagsByModel.get(row.id) ?? [])),
+      total,
+    };
+  });
 
   // Client must send the "title" field before any "files" parts — the
   // library-root directory (derived from the title) has to exist before

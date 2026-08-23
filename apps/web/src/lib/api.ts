@@ -2,9 +2,11 @@ import type {
   Model,
   ModelDetail,
   ModelListResult,
+  ModelSortField,
   PinnedModel,
   Project,
   ProjectDetail,
+  SortOrder,
   Tag,
   TagWithCount,
 } from "@model-hub/shared"
@@ -25,6 +27,8 @@ export interface ModelFilters {
   favorite?: boolean
   page?: number
   perPage?: number
+  sort?: ModelSortField
+  order?: SortOrder
 }
 
 export function fetchModels(filters: ModelFilters = {}): Promise<ModelListResult> {
@@ -34,6 +38,8 @@ export function fetchModels(filters: ModelFilters = {}): Promise<ModelListResult
   if (filters.favorite) params.set("favorite", "true")
   if (filters.perPage) params.set("perPage", String(filters.perPage))
   if (filters.page) params.set("page", String(filters.page))
+  if (filters.sort) params.set("sort", filters.sort)
+  if (filters.order) params.set("order", filters.order)
   const query = params.toString()
   return request<ModelListResult>(`/api/models${query ? `?${query}` : ""}`)
 }

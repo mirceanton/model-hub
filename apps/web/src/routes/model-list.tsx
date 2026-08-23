@@ -1,4 +1,4 @@
-import type { Model } from "@model-hub/shared"
+import type { Model, ModelSortField, SortOrder } from "@model-hub/shared"
 import { AlertCircle, ChevronLeft, ChevronRight, FolderOpen, Search, Star } from "lucide-react"
 import { useEffect, useState } from "react"
 import { Link } from "react-router"
@@ -23,6 +23,21 @@ const SEARCH_DEBOUNCE_MS = 250
 const PER_PAGE_OPTIONS = [12, 24, 48, 96]
 const DEFAULT_PER_PAGE = 12
 
+interface SortOption {
+  value: string
+  label: string
+  sort: ModelSortField
+  order: SortOrder
+}
+
+const SORT_OPTIONS: SortOption[] = [
+  { value: "title-asc", label: "Name (A–Z)", sort: "title", order: "asc" },
+  { value: "title-desc", label: "Name (Z–A)", sort: "title", order: "desc" },
+  { value: "createdAt-desc", label: "Recently added", sort: "createdAt", order: "desc" },
+  { value: "createdAt-asc", label: "Oldest first", sort: "createdAt", order: "asc" },
+]
+const DEFAULT_SORT = SORT_OPTIONS[0]
+
 export function ModelListPage() {
   const [searchInput, setSearchInput] = useState("")
   const [search, setSearch] = useState("")
@@ -30,6 +45,9 @@ export function ModelListPage() {
   const [favoritesOnly, setFavoritesOnly] = useState(false)
   const [perPage, setPerPage] = useState(DEFAULT_PER_PAGE)
   const [page, setPage] = useState(1)
+  const [sortValue, setSortValue] = useState(DEFAULT_SORT.value)
+
+  const sortOption = SORT_OPTIONS.find((option) => option.value === sortValue) ?? DEFAULT_SORT
 
   useEffect(() => {
     const timer = setTimeout(() => setSearch(searchInput), SEARCH_DEBOUNCE_MS)
@@ -38,7 +56,7 @@ export function ModelListPage() {
 
   useEffect(() => {
     setPage(1)
-  }, [search, activeTag, favoritesOnly, perPage])
+  }, [search, activeTag, favoritesOnly, perPage, sortValue])
 
   const { data: tags, isPending: tagsPending } = useTags()
   const {
@@ -52,6 +70,8 @@ export function ModelListPage() {
     favorite: favoritesOnly || undefined,
     page,
     perPage,
+    sort: sortOption.sort,
+    order: sortOption.order,
   })
 
   const isFiltered = search.trim().length > 0 || activeTag != null || favoritesOnly
@@ -82,6 +102,20 @@ export function ModelListPage() {
             <Star className={cn("size-3.5", favoritesOnly && "fill-current")} />
             Favorites
           </Button>
+          <Select value={sortValue} onValueChange={(value) => value && setSortValue(value)}>
+            <SelectTrigger size="sm" aria-label="Sort by">
+              <SelectValue>
+                {(value: string) => SORT_OPTIONS.find((option) => option.value === value)?.label}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              {SORT_OPTIONS.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <Select
             value={String(perPage)}
             onValueChange={(value) => setPerPage(Number(value))}
@@ -103,7 +137,7 @@ export function ModelListPage() {
 
       <div className="min-w-0 [grid-area:content]">
         {isPending ? (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
             {Array.from({ length: 8 }).map((_, i) => (
               <Skeleton key={i} className="aspect-[4/5] w-full rounded-lg" />
             ))}
@@ -128,7 +162,7 @@ export function ModelListPage() {
           </div>
         ) : (
           <>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
               {models.data.map((model) => (
                 <ModelCard key={model.id} model={model} />
               ))}
