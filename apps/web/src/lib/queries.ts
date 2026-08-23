@@ -6,6 +6,7 @@ import {
   createProject,
   createTag,
   deleteModel,
+  deleteModelFile,
   deleteProject,
   deleteTag,
   fetchAuthMe,
@@ -118,6 +119,14 @@ export function useUploadVersion(id: number) {
   return useMutation({
     mutationFn: ({ files, message }: { files: File[]; message: string }) =>
       uploadModelVersion(id, files, message),
+    onSuccess: invalidate,
+  })
+}
+
+export function useDeleteModelFile(id: number) {
+  const invalidate = useInvalidateModel(id)
+  return useMutation({
+    mutationFn: (relativePath: string) => deleteModelFile(id, relativePath),
     onSuccess: invalidate,
   })
 }
