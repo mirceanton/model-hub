@@ -10,5 +10,5 @@ export function thumbnailUrl(modelId: number, cacheBust: number): string {
 }
 
 export function isViewableExtension(extension: string): extension is ModelExtension {
-  return extension === "stl" || extension === "3mf"
+  return extension === "stl" || extension === "3mf" || extension === "obj"
 }

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A self-hosted 3D model library (STL/3MF). Point it at a `LIBRARY_ROOT`
+A self-hosted 3D model library (STL/3MF/OBJ). Point it at a `LIBRARY_ROOT`
 directory with one subfolder per model; the app git-syncs each model
 directory's contents transparently (whether changes come through the web UI
 or someone editing files directly over NFS/SMB), tracks metadata (tags,
@@ -87,7 +87,7 @@ headless Chromium instance; `queue.ts` is a trivial in-process
 bounded-concurrency queue (default concurrency 1, no Redis/BullMQ).
 `generate.ts` drives Playwright to `${WEB_BASE_URL}/internal/render?...` (a
 route in `apps/web`, lazy-loaded, never linked from the UI — reuses the same
-STL/3MF loading code as the interactive viewer via
+STL/3MF/OBJ loading code as the interactive viewer via
 `apps/web/src/components/model-mesh.tsx`), waits for a `window` flag the
 render page sets once loaded, screenshots the canvas, and writes
 `.thumbnails/thumb.png` into the model dir. `thumbnailStatus` tracks

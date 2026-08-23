@@ -68,7 +68,11 @@ export function InternalRenderPage() {
     document.body.style.backgroundColor = "transparent"
   }, [])
 
-  if (!Number.isInteger(modelId) || !file || (extension !== "stl" && extension !== "3mf")) {
+  if (
+    !Number.isInteger(modelId) ||
+    !file ||
+    (extension !== "stl" && extension !== "3mf" && extension !== "obj")
+  ) {
     window.__modelHubRenderError = "invalid-params"
     return null
   }

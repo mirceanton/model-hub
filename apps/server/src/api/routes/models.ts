@@ -176,7 +176,7 @@ export function registerModelRoutes(app: FastifyInstance, db: DbClient, libraryR
     if (!dirPath || writtenFiles.length === 0) {
       if (dirPath) await rm(dirPath, { recursive: true, force: true }).catch(() => {});
       return reply.code(400).send({
-        error: "at least one valid model file (.stl/.3mf) is required",
+        error: "at least one valid model file (.stl/.3mf/.obj) is required",
         skippedFiles,
       });
     }

@@ -47,7 +47,7 @@ export function registerVersionRoutes(app: FastifyInstance, db: DbClient): void 
 
     if (writtenFiles.length === 0) {
       return reply.code(400).send({
-        error: "no valid model files (.stl/.3mf) were uploaded",
+        error: "no valid model files (.stl/.3mf/.obj) were uploaded",
         skippedFiles,
       });
     }
