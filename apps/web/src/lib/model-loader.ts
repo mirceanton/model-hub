@@ -4,6 +4,10 @@ export function fileUrl(modelId: number, relativePath: string): string {
   return `/api/models/${modelId}/files/${relativePath.split("/").map(encodeURIComponent).join("/")}`
 }
 
+export function archiveUrl(modelId: number): string {
+  return `/api/models/${modelId}/download`
+}
+
 /** `cacheBust` should be the model's updatedAt so a regenerated thumbnail is refetched without a hard reload. */
 export function thumbnailUrl(modelId: number, cacheBust: number): string {
   return `/api/models/${modelId}/thumbnail?v=${cacheBust}`

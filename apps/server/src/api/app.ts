@@ -5,6 +5,7 @@ import { registerAuthGuard } from "../auth/guard.js";
 import type { Config } from "../config.js";
 import type { DbClient } from "../db/client.js";
 import { registerAuthRoutes } from "./routes/auth.js";
+import { registerDownloadRoutes } from "./routes/download.js";
 import { registerFileRoutes } from "./routes/files.js";
 import { registerHealthRoute } from "./routes/health.js";
 import { registerModelRoutes } from "./routes/models.js";
@@ -36,6 +37,7 @@ export function buildApp(db: DbClient, config: Config): FastifyInstance {
   registerModelRoutes(app, db, config.libraryRoot);
   registerProjectRoutes(app, db);
   registerFileRoutes(app, db);
+  registerDownloadRoutes(app, db);
   registerVersionRoutes(app, db);
   registerThumbnailRoutes(app, db);
   registerTagRoutes(app, db);
