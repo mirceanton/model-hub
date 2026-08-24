@@ -3,6 +3,7 @@ import {
   AlertCircle,
   ArrowLeft,
   Camera,
+  Download,
   File,
   GitCommitHorizontal,
   History,
@@ -29,7 +30,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { UploadVersionDialog } from "@/components/upload-version-dialog"
 import { formatBytes, formatDateTime } from "@/lib/format"
-import { fileUrl, isViewableExtension } from "@/lib/model-loader"
+import { archiveUrl, fileUrl, isViewableExtension } from "@/lib/model-loader"
 import {
   useCaptureThumbnail,
   useDeleteModel,
@@ -105,6 +106,11 @@ export function ModelDetailPage() {
             />
           )}
           <RegenerateThumbnailButton modelId={model.id} className="flex-1 sm:flex-none" />
+          <DownloadModelButton
+            modelId={model.id}
+            disabled={model.files.length === 0}
+            className="flex-1 sm:flex-none"
+          />
           <UploadVersionDialog modelId={model.id} className="flex-1 sm:flex-none" />
         </div>
       </div>
@@ -195,6 +201,7 @@ export function ModelDetailPage() {
                     isPrimary={file.relativePath === model.primaryFilePath}
                     relativePath={file.relativePath}
                   />
+                  <DownloadFileButton modelId={model.id} relativePath={file.relativePath} />
                   <DeleteFileButton modelId={model.id} relativePath={file.relativePath} />
                 </li>
               ))}
@@ -262,6 +269,48 @@ function SetPrimaryFileButton({
       }}
     >
       <Star className={cn("size-4", isPrimary && "fill-amber-400 text-amber-400")} />
+    </Button>
+  )
+}
+
+function DownloadModelButton({
+  modelId,
+  disabled,
+  className,
+}: {
+  modelId: number
+  disabled?: boolean
+  className?: string
+}) {
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      disabled={disabled}
+      title="Download all files as a zip archive"
+      className={className}
+      nativeButton={false}
+      render={<a href={archiveUrl(modelId)} download />}
+    >
+      <Download className="size-4" />
+      Download
+    </Button>
+  )
+}
+
+function DownloadFileButton({ modelId, relativePath }: { modelId: number; relativePath: string }) {
+  const fileName = relativePath.split("/").pop()
+
+  return (
+    <Button
+      variant="ghost"
+      size="icon"
+      className="size-8 shrink-0 text-muted-foreground"
+      title={`Download ${relativePath}`}
+      nativeButton={false}
+      render={<a href={fileUrl(modelId, relativePath)} download={fileName} onClick={(e) => e.stopPropagation()} />}
+    >
+      <Download className="size-4" />
     </Button>
   )
 }
