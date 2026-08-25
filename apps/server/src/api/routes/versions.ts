@@ -18,6 +18,7 @@ import { getLog, restoreToCommit } from "../../sync/git.js";
 import { runExclusive } from "../../sync/queue.js";
 import { LOCAL_UPLOAD_IDENTITY, reconcileModelCore } from "../../sync/reconcile.js";
 import { maybeEnqueueThumbnail } from "../../thumbnails/trigger.js";
+import { bulkResponseSchema, errorResponseSchema, modelDiffSchema, numericIdParamSchema } from "../schemas.js";
 
 type DeleteFileOutcome =
   | { ok: true; committed: boolean }
@@ -68,9 +69,39 @@ async function deleteSingleFile(
 
 export function registerVersionRoutes(app: FastifyInstance, db: DbClient, config: Config): void {
 
+  // No `body` schema: multipart/form-data consumed field-by-field via
+  // `request.parts()` (see models.ts's create-model route for the same
+  // reasoning), so `request.body` is never populated for Fastify to
+  // validate against.
   app.post<{ Params: { id: string } }>(
     "/api/models/:id/upload",
-    { config: { rateLimit: uploadRateLimit(config) } },
+    {
+      config: { rateLimit: uploadRateLimit(config) },
+      schema: {
+        tags: ["files"],
+        summary: "Upload a new version",
+        description:
+          "Multipart upload: one or more `files` parts (model and/or attachment files) plus " +
+          "an optional `message` field used as the git commit message.",
+        params: numericIdParamSchema,
+        consumes: ["multipart/form-data"],
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              ok: { type: "boolean" },
+              committed: { type: "boolean" },
+              writtenFiles: { type: "array", items: { type: "string" } },
+              skippedFiles: { type: "array", items: { type: "string" } },
+            },
+            required: ["ok", "committed", "writtenFiles", "skippedFiles"],
+          },
+          400: errorResponseSchema,
+          404: errorResponseSchema,
+          500: errorResponseSchema,
+        },
+      },
+    },
     async (request, reply) => {
       const id = Number(request.params.id);
       if (!Number.isInteger(id)) {
@@ -127,6 +158,27 @@ export function registerVersionRoutes(app: FastifyInstance, db: DbClient, config
 
   app.post<{ Params: { id: string }; Body: { sha?: string } }>(
     "/api/models/:id/restore",
+    {
+      schema: {
+        tags: ["files"],
+        summary: "Restore to a previous commit",
+        params: numericIdParamSchema,
+        body: {
+          type: "object",
+          properties: { sha: { type: "string" } },
+        },
+        response: {
+          200: {
+            type: "object",
+            properties: { ok: { type: "boolean" }, committed: { type: "boolean" } },
+            required: ["ok", "committed"],
+          },
+          400: errorResponseSchema,
+          404: errorResponseSchema,
+          500: errorResponseSchema,
+        },
+      },
+    },
     async (request, reply) => {
       const id = Number(request.params.id);
       if (!Number.isInteger(id)) {
@@ -178,6 +230,22 @@ export function registerVersionRoutes(app: FastifyInstance, db: DbClient, config
   // /api/models/:id.
   app.get<{ Params: { id: string }; Querystring: { from?: string; to?: string } }>(
     "/api/models/:id/diff",
+    {
+      schema: {
+        tags: ["files"],
+        summary: "Diff two commits",
+        params: numericIdParamSchema,
+        querystring: {
+          type: "object",
+          properties: { from: { type: "string" }, to: { type: "string" } },
+        },
+        response: {
+          200: modelDiffSchema,
+          400: errorResponseSchema,
+          404: errorResponseSchema,
+        },
+      },
+    },
     async (request, reply) => {
       const id = Number(request.params.id);
       if (!Number.isInteger(id)) {
@@ -207,6 +275,23 @@ export function registerVersionRoutes(app: FastifyInstance, db: DbClient, config
 
   app.delete<{ Params: { id: string; "*": string } }>(
     "/api/models/:id/files/*",
+    {
+      schema: {
+        tags: ["files"],
+        summary: "Delete one file",
+        description: "The `*` wildcard is the file's path relative to the model directory.",
+        response: {
+          200: {
+            type: "object",
+            properties: { ok: { type: "boolean" }, committed: { type: "boolean" } },
+            required: ["ok", "committed"],
+          },
+          400: errorResponseSchema,
+          404: errorResponseSchema,
+          500: errorResponseSchema,
+        },
+      },
+    },
     async (request, reply) => {
       const id = Number(request.params.id);
       if (!Number.isInteger(id)) {
@@ -245,7 +330,27 @@ export function registerVersionRoutes(app: FastifyInstance, db: DbClient, config
   // every other still-ungated single-item route.
   app.post<{ Params: { id: string }; Body: ModelFilesBulkRequest }>(
     "/api/models/:id/files/bulk",
-    { preHandler: requireRole("editor") },
+    {
+      preHandler: requireRole("editor"),
+      schema: {
+        tags: ["files"],
+        summary: "Bulk-delete files",
+        params: numericIdParamSchema,
+        body: {
+          type: "object",
+          properties: {
+            ids: { type: "array", items: { type: "string" }, minItems: 1 },
+            action: { type: "string", enum: ["delete"] },
+          },
+          required: ["ids", "action"],
+        },
+        response: {
+          200: bulkResponseSchema("string"),
+          400: errorResponseSchema,
+          404: errorResponseSchema,
+        },
+      },
+    },
     async (request, reply) => {
       const id = Number(request.params.id);
       if (!Number.isInteger(id)) {

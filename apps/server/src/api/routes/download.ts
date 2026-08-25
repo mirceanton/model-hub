@@ -6,10 +6,29 @@ import type { DbClient } from "../../db/client.js";
 import { files as filesTable } from "../../db/schema.js";
 import { sanitizeModelDirName } from "../../lib/fs-utils.js";
 import { getActiveModel } from "../../lib/model-lookup.js";
+import { errorResponseSchema, numericIdParamSchema } from "../schemas.js";
 
 /** Streams every indexed file of a model as a single zip archive. */
 export function registerDownloadRoutes(app: FastifyInstance, db: DbClient): void {
-  app.get<{ Params: { id: string } }>("/api/models/:id/download", async (request, reply) => {
+  app.get<{ Params: { id: string } }>(
+    "/api/models/:id/download",
+    {
+      schema: {
+        tags: ["files"],
+        summary: "Download a model as a zip",
+        description: "Streams every indexed file of the model as a single zip archive.",
+        params: numericIdParamSchema,
+        response: {
+          200: {
+            description: "A zip archive of the model's files.",
+            content: { "application/zip": { schema: { type: "string", format: "binary" } } },
+          },
+          400: errorResponseSchema,
+          404: errorResponseSchema,
+        },
+      },
+    },
+    async (request, reply) => {
     const id = Number(request.params.id);
     if (!Number.isInteger(id)) {
       return reply.code(400).send({ error: "invalid model id" });
@@ -39,5 +58,6 @@ export function registerDownloadRoutes(app: FastifyInstance, db: DbClient): void
 
     void archive.finalize();
     return reply.send(archive);
-  });
+    },
+  );
 }

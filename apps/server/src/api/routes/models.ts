@@ -18,6 +18,14 @@ import { requireRole } from "../../auth/guard.js";
 import type { Config } from "../../config.js";
 import type { DbClient } from "../../db/client.js";
 import {
+  bulkResponseSchema,
+  errorResponseSchema,
+  modelDetailSchema,
+  modelListResultSchema,
+  modelSchema,
+  numericIdParamSchema,
+} from "../schemas.js";
+import {
   files as filesTable,
   models as modelsTable,
   modelTags as modelTagsTable,
@@ -175,7 +183,40 @@ export function registerModelRoutes(
       sort?: string;
       order?: string;
     };
-  }>("/api/models", async (request) => {
+  }>(
+    "/api/models",
+    {
+      schema: {
+        tags: ["models"],
+        summary: "List models",
+        description:
+          "Lists active (non-trashed) models, with optional search/filter/sort/pagination.",
+        querystring: {
+          type: "object",
+          properties: {
+            q: { type: "string", description: "Case-insensitive substring match on title." },
+            tag: {
+              description: 'Repeat for multiple tags (e.g. "?tag=a&tag=b") — all must match (AND).',
+              anyOf: [{ type: "string" }, { type: "array", items: { type: "string" } }],
+            },
+            favorite: { type: "string", enum: ["true", "false"] },
+            extension: { type: "string" },
+            minSizeBytes: { type: "string" },
+            maxSizeBytes: { type: "string" },
+            minFiles: { type: "string" },
+            maxFiles: { type: "string" },
+            page: { type: "string" },
+            perPage: { type: "string" },
+            sort: { type: "string", enum: ["title", "createdAt", "lastSyncedAt"] },
+            order: { type: "string", enum: ["asc", "desc"] },
+          },
+        },
+        response: {
+          200: modelListResultSchema,
+        },
+      },
+    },
+    async (request) => {
     const sortField =
       request.query.sort === "createdAt" || request.query.sort === "lastSyncedAt"
         ? request.query.sort
@@ -253,7 +294,32 @@ export function registerModelRoutes(
   // Client must send the "title" field before any "files" parts — the
   // library-root directory (derived from the title) has to exist before
   // uploaded files can be streamed into it.
-  app.post("/api/models", { config: { rateLimit: uploadRateLimit(config) } }, async (request, reply) => {
+  //
+  // No `body` schema here: this is a `multipart/form-data` request consumed
+  // field-by-field via `request.parts()` (not `@fastify/multipart`'s
+  // `attachFieldsToBody`), so `request.body` is never populated for Fastify
+  // to validate against — a JSON `body` schema would document nothing real
+  // and risk mismatching actual behavior. `consumes` + the description below
+  // are what make the multipart shape show up in the generated spec.
+  app.post(
+    "/api/models",
+    {
+      config: { rateLimit: uploadRateLimit(config) },
+      schema: {
+        tags: ["models"],
+        summary: "Create a model",
+        description:
+          "Multipart upload: a required `title` field (sent before any `files` parts), " +
+          "optional repeated `tags` and `sourceUrl` fields, then one or more `files` parts " +
+          "(at least one must be a .stl/.3mf/.obj model file; images/pdf attachments may ride along).",
+        consumes: ["multipart/form-data"],
+        response: {
+          201: modelSchema,
+          400: errorResponseSchema,
+        },
+      },
+    },
+    async (request, reply) => {
     let title: string | undefined;
     let sourceUrl: string | undefined;
     const tagNames: string[] = [];
@@ -384,7 +450,21 @@ export function registerModelRoutes(
       .send(toApiModel(updatedRow, getTagsForModel(db, modelRow.id), getDuplicateModels(db, modelRow.id)));
   });
 
-  app.get<{ Params: { id: string } }>("/api/models/:id", async (request, reply) => {
+  app.get<{ Params: { id: string } }>(
+    "/api/models/:id",
+    {
+      schema: {
+        tags: ["models"],
+        summary: "Get a model",
+        params: numericIdParamSchema,
+        response: {
+          200: modelDetailSchema,
+          400: errorResponseSchema,
+          404: errorResponseSchema,
+        },
+      },
+    },
+    async (request, reply) => {
     const id = Number(request.params.id);
     if (!Number.isInteger(id)) {
       return reply.code(400).send({ error: "invalid model id" });
@@ -433,7 +513,31 @@ export function registerModelRoutes(
       primaryFilePath?: string;
       sourceUrl?: string | null;
     };
-  }>("/api/models/:id", async (request, reply) => {
+  }>(
+    "/api/models/:id",
+    {
+      schema: {
+        tags: ["models"],
+        summary: "Update a model",
+        params: numericIdParamSchema,
+        body: {
+          type: "object",
+          properties: {
+            title: { type: "string" },
+            description: { type: "string" },
+            favorite: { type: "boolean" },
+            primaryFilePath: { type: "string" },
+            sourceUrl: { type: ["string", "null"] },
+          },
+        },
+        response: {
+          200: modelSchema,
+          400: errorResponseSchema,
+          404: errorResponseSchema,
+        },
+      },
+    },
+    async (request, reply) => {
     const id = Number(request.params.id);
     if (!Number.isInteger(id)) {
       return reply.code(400).send({ error: "invalid model id" });
@@ -518,7 +622,21 @@ export function registerModelRoutes(
     return toApiModel(updated, getTagsForModel(db, id), getDuplicateModels(db, id));
   });
 
-  app.delete<{ Params: { id: string } }>("/api/models/:id", async (request, reply) => {
+  app.delete<{ Params: { id: string } }>(
+    "/api/models/:id",
+    {
+      schema: {
+        tags: ["models"],
+        summary: "Delete a model (move to trash)",
+        params: numericIdParamSchema,
+        response: {
+          204: { type: "null", description: "Model moved to trash." },
+          400: errorResponseSchema,
+          404: errorResponseSchema,
+        },
+      },
+    },
+    async (request, reply) => {
     const id = Number(request.params.id);
     if (!Number.isInteger(id)) {
       return reply.code(400).send({ error: "invalid model id" });
@@ -555,7 +673,34 @@ export function registerModelRoutes(
   // "ungated for now" pass.
   app.post<{ Body: ModelsBulkRequest }>(
     "/api/models/bulk",
-    { preHandler: requireRole("editor") },
+    {
+      preHandler: requireRole("editor"),
+      schema: {
+        tags: ["models"],
+        summary: "Bulk model action",
+        description:
+          "Applies one action to every listed model id, returning a per-item result — see " +
+          "BulkResponse. tagName is required for add-tag, tagId for remove-tag (validated in " +
+          "the handler, not the schema, since it's conditional on `action`).",
+        body: {
+          type: "object",
+          properties: {
+            ids: { type: "array", items: { type: "number" }, minItems: 1 },
+            action: {
+              type: "string",
+              enum: ["delete", "favorite", "unfavorite", "add-tag", "remove-tag"],
+            },
+            tagName: { type: "string" },
+            tagId: { type: "number" },
+          },
+          required: ["ids", "action"],
+        },
+        response: {
+          200: bulkResponseSchema("number"),
+          400: errorResponseSchema,
+        },
+      },
+    },
     async (request, reply) => {
       const { ids, action, tagName, tagId } = request.body ?? ({} as ModelsBulkRequest);
       if (!Array.isArray(ids) || ids.length === 0 || ids.some((id) => !Number.isInteger(id))) {

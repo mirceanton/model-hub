@@ -6,6 +6,7 @@ import { registerAuthGuard } from "../auth/guard.js";
 import type { Config } from "../config.js";
 import type { DbClient } from "../db/client.js";
 import { registerHttpMetrics } from "../metrics/http-metrics.js";
+import { registerOpenApi } from "./openapi.js";
 import { registerAdminRoutes } from "./routes/admin.js";
 import { registerApiTokenRoutes } from "./routes/api-tokens.js";
 import { registerAuthRoutes } from "./routes/auth.js";
@@ -52,23 +53,48 @@ export function buildApp(db: DbClient, config: Config): FastifyInstance {
   registerHealthRoute(app);
   registerMetricsRoute(app);
   registerAuthGuard(app, db, config);
-  registerAuthRoutes(app, db, config);
-  registerAdminRoutes(app, db);
-  registerStatsRoutes(app, db, config);
-  registerApiTokenRoutes(app, db);
-  registerModelRoutes(app, db, config.libraryRoot, config);
-  registerModelExportRoutes(app, db);
-  registerProjectRoutes(app, db);
-  registerProjectExportRoutes(app, db);
-  registerProjectThumbnailRoutes(app, db);
-  registerFileRoutes(app, db);
-  registerDownloadRoutes(app, db);
-  registerVersionRoutes(app, db, config);
-  registerThumbnailRoutes(app, db);
-  registerSourceSnapshotRoutes(app, db);
-  registerTagRoutes(app, db);
-  registerTrashRoutes(app, db, config.libraryRoot);
-  registerSyncRoutes(app, db, config.libraryRoot);
+  // Registered right after the guard (whose onRequest hook, added directly
+  // to `app` rather than through `app.register`, applies to every route
+  // declared afterwards regardless of sync/async timing — see auth/guard.ts)
+  // so /docs is gated the same way /api/* is.
+  registerOpenApi(app);
+
+  // Every route module below is wrapped in `app.register(async (instance) =>
+  // ...)` — not just called directly on `app` — so its routes are added
+  // through avvio's plugin queue *after* the `@fastify/swagger` /
+  // `@fastify/swagger-ui` registration inside registerOpenApi above has
+  // actually run. This matters specifically for `@fastify/swagger`'s
+  // `onRoute` hook: unlike `onRequest` (a request-time hook, unaffected by
+  // this), `onRoute` fires synchronously the instant a route is declared.
+  // `app.get()`/`app.post()` calls made directly on `app` run immediately,
+  // in the same tick as the rest of this function — well before any
+  // `app.register()`'d plugin (swagger included) actually executes, since
+  // `register()` always defers to avvio's boot phase. Left unwrapped, every
+  // route below would be declared before swagger's `onRoute` hook even
+  // exists, and the generated spec would have zero paths (verified via a
+  // minimal repro during development of issue #70 — this is not
+  // hypothetical). Wrapping in `register()` queues these calls to run
+  // *after* registerOpenApi's queued plugins finish, so the hook is already
+  // attached by the time any of these routes are declared.
+  app.register(async (instance) => {
+    registerAuthRoutes(instance, db, config);
+    registerAdminRoutes(instance, db);
+    registerStatsRoutes(instance, db, config);
+    registerApiTokenRoutes(instance, db);
+    registerModelRoutes(instance, db, config.libraryRoot, config);
+    registerModelExportRoutes(instance, db);
+    registerProjectRoutes(instance, db);
+    registerProjectExportRoutes(instance, db);
+    registerProjectThumbnailRoutes(instance, db);
+    registerFileRoutes(instance, db);
+    registerDownloadRoutes(instance, db);
+    registerVersionRoutes(instance, db, config);
+    registerThumbnailRoutes(instance, db);
+    registerSourceSnapshotRoutes(instance, db);
+    registerTagRoutes(instance, db);
+    registerTrashRoutes(instance, db, config.libraryRoot);
+    registerSyncRoutes(instance, db, config.libraryRoot);
+  });
 
   if (config.staticWebDir) {
     registerStaticSpa(app, config.staticWebDir);
