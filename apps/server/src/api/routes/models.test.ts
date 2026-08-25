@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import multipart from "@fastify/multipart";
 import { eq } from "drizzle-orm";
 import Fastify, { type FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -11,8 +12,9 @@ import { ensureMarkerId } from "../../lib/fs-utils.js";
 import { LOCAL_UPLOAD_IDENTITY, reconcileModelCore } from "../../sync/reconcile.js";
 import { registerModelRoutes } from "./models.js";
 
-function buildTestApp(db: DbClient, libraryRoot: string): FastifyInstance {
+async function buildTestApp(db: DbClient, libraryRoot: string): Promise<FastifyInstance> {
   const app = Fastify({ logger: false });
+  await app.register(multipart);
   registerModelRoutes(app, db, libraryRoot);
   return app;
 }
@@ -55,7 +57,7 @@ describe("duplicate detection surfaced on model routes", () => {
     libraryRoot = await mkdtemp(join(tmpdir(), "model-hub-duplicates-"));
     db = createDbClient(":memory:");
     runMigrations(db);
-    app = buildTestApp(db, libraryRoot);
+    app = await buildTestApp(db, libraryRoot);
   });
 
   afterEach(async () => {
@@ -100,7 +102,7 @@ describe("attachments on the model detail route", () => {
     libraryRoot = await mkdtemp(join(tmpdir(), "model-hub-attachments-"));
     db = createDbClient(":memory:");
     runMigrations(db);
-    app = buildTestApp(db, libraryRoot);
+    app = await buildTestApp(db, libraryRoot);
   });
 
   afterEach(async () => {
@@ -146,5 +148,149 @@ describe("attachments on the model detail route", () => {
 
     expect(res.statusCode).toBe(400);
     expect(res.json()).toMatchObject({ error: expect.stringContaining("model file") });
+  });
+});
+
+describe("sourceUrl on the model routes", () => {
+  let libraryRoot: string;
+  let db: DbClient;
+  let app: FastifyInstance;
+
+  beforeEach(async () => {
+    libraryRoot = await mkdtemp(join(tmpdir(), "model-hub-source-url-"));
+    db = createDbClient(":memory:");
+    runMigrations(db);
+    app = await buildTestApp(db, libraryRoot);
+  });
+
+  afterEach(async () => {
+    await app.close();
+    await rm(libraryRoot, { recursive: true, force: true });
+  });
+
+  it("defaults to no sourceUrl and a 'none' snapshot status", async () => {
+    const model = await createTestModel(db, libraryRoot, "Benchy", {
+      "model.stl": "solid benchy\nendsolid benchy\n",
+    });
+
+    const res = await app.inject({ method: "GET", url: `/api/models/${model.id}` });
+    const body = res.json() as {
+      sourceUrl: string | null;
+      sourceSnapshotStatus: string;
+      sourceSnapshotHtml: string | null;
+    };
+    expect(body.sourceUrl).toBeNull();
+    expect(body.sourceSnapshotStatus).toBe("none");
+    expect(body.sourceSnapshotHtml).toBeNull();
+  });
+
+  it("PATCHing a valid http(s) sourceUrl sets it and marks the snapshot pending", async () => {
+    const model = await createTestModel(db, libraryRoot, "Benchy", {
+      "model.stl": "solid benchy\nendsolid benchy\n",
+    });
+
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/api/models/${model.id}`,
+      payload: { sourceUrl: "https://www.printables.com/model/12345-benchy" },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { sourceUrl: string; sourceSnapshotStatus: string };
+    expect(body.sourceUrl).toBe("https://www.printables.com/model/12345-benchy");
+    expect(body.sourceSnapshotStatus).toBe("pending");
+  });
+
+  it("rejects a malformed sourceUrl", async () => {
+    const model = await createTestModel(db, libraryRoot, "Benchy", {
+      "model.stl": "solid benchy\nendsolid benchy\n",
+    });
+
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/api/models/${model.id}`,
+      payload: { sourceUrl: "not a url" },
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toMatchObject({ error: expect.stringContaining("http(s)") });
+  });
+
+  it("rejects a non-http(s) sourceUrl (e.g. file:// or javascript:)", async () => {
+    const model = await createTestModel(db, libraryRoot, "Benchy", {
+      "model.stl": "solid benchy\nendsolid benchy\n",
+    });
+
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/api/models/${model.id}`,
+      payload: { sourceUrl: "javascript:alert(1)" },
+    });
+
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("clearing sourceUrl also clears the stored snapshot", async () => {
+    const model = await createTestModel(db, libraryRoot, "Benchy", {
+      "model.stl": "solid benchy\nendsolid benchy\n",
+    });
+    await app.inject({
+      method: "PATCH",
+      url: `/api/models/${model.id}`,
+      payload: { sourceUrl: "https://www.printables.com/model/12345-benchy" },
+    });
+    // Simulate a snapshot having completed, so we can prove clearing wipes it.
+    db.update(modelsTable)
+      .set({ sourceSnapshotStatus: "ready", sourceSnapshotHtml: "<p>cached</p>" })
+      .where(eq(modelsTable.id, model.id))
+      .run();
+
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/api/models/${model.id}`,
+      payload: { sourceUrl: null },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { sourceUrl: string | null; sourceSnapshotStatus: string };
+    expect(body.sourceUrl).toBeNull();
+    expect(body.sourceSnapshotStatus).toBe("none");
+
+    const detailRes = await app.inject({ method: "GET", url: `/api/models/${model.id}` });
+    expect((detailRes.json() as { sourceSnapshotHtml: string | null }).sourceSnapshotHtml).toBeNull();
+  });
+
+  it("accepts sourceUrl on model creation", async () => {
+    const form = new FormData();
+    form.append("title", "New Model");
+    form.append("sourceUrl", "https://www.thingiverse.com/thing/12345");
+    form.append("files", new Blob(["solid a\nendsolid a\n"]), "a.stl");
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/models",
+      payload: form,
+    });
+
+    expect(res.statusCode).toBe(201);
+    const body = res.json() as { sourceUrl: string; sourceSnapshotStatus: string };
+    expect(body.sourceUrl).toBe("https://www.thingiverse.com/thing/12345");
+    expect(body.sourceSnapshotStatus).toBe("pending");
+  });
+
+  it("rejects model creation with a malformed sourceUrl", async () => {
+    const form = new FormData();
+    form.append("title", "New Model");
+    form.append("sourceUrl", "not a url");
+    form.append("files", new Blob(["solid a\nendsolid a\n"]), "a.stl");
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/models",
+      payload: form,
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toMatchObject({ error: expect.stringContaining("sourceUrl") });
   });
 });

@@ -3,6 +3,7 @@ import { initOidcClient } from "./auth/oidc.js";
 import { loadConfig } from "./config.js";
 import { createDbClient } from "./db/client.js";
 import { runMigrations } from "./db/migrate.js";
+import { initSourceSnapshotPipeline, sweepPendingSourceSnapshots } from "./source-snapshot/trigger.js";
 import { purgeExpiredTrash, scanLibraryRoot } from "./sync/scanner.js";
 import { startWatcher } from "./sync/watcher.js";
 import { closeBrowser } from "./thumbnails/browser.js";
@@ -12,6 +13,13 @@ async function main(): Promise<void> {
   const config = loadConfig();
   const db = createDbClient(config.databasePath);
   runMigrations(db);
+
+  // Unlike the thumbnail pipeline, this only ever fetches *other* servers,
+  // so it has no dependency on this server's own app.listen() having bound
+  // yet — safe to start (and sweep any snapshot fetches a crash left
+  // "pending") right away.
+  initSourceSnapshotPipeline();
+  sweepPendingSourceSnapshots(db);
 
   if (config.oidc) {
     await initOidcClient(config.oidc);

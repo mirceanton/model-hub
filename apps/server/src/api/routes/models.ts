@@ -22,7 +22,9 @@ import {
   TRASH_DIRNAME,
 } from "../../lib/fs-utils.js";
 import { getActiveModel } from "../../lib/model-lookup.js";
+import { isValidHttpUrl } from "../../lib/source-url.js";
 import { getOrCreateTag, getTagsForModel, getTagsForModels, InvalidTagNameError } from "../../lib/tags.js";
+import { enqueueSourceSnapshot } from "../../source-snapshot/trigger.js";
 import { getLog } from "../../sync/git.js";
 import { runExclusive } from "../../sync/queue.js";
 import { LOCAL_UPLOAD_IDENTITY, reconcileModelCore } from "../../sync/reconcile.js";
@@ -45,6 +47,10 @@ export function toApiModel(row: ModelRow, tags: Tag[], duplicateModels: Duplicat
     syncError: row.syncError,
     missingSince: row.missingSince ? row.missingSince.getTime() : null,
     favorite: row.favorite,
+    sourceUrl: row.sourceUrl,
+    sourceSnapshotStatus: row.sourceSnapshotStatus,
+    sourceSnapshotError: row.sourceSnapshotError,
+    sourceSnapshotFetchedAt: row.sourceSnapshotFetchedAt ? row.sourceSnapshotFetchedAt.getTime() : null,
     deletedAt: row.deletedAt ? row.deletedAt.getTime() : null,
     createdAt: row.createdAt.getTime(),
     updatedAt: row.updatedAt.getTime(),
@@ -146,11 +152,12 @@ export function registerModelRoutes(app: FastifyInstance, db: DbClient, libraryR
   // uploaded files can be streamed into it.
   app.post("/api/models", async (request, reply) => {
     let title: string | undefined;
+    let sourceUrl: string | undefined;
     const tagNames: string[] = [];
     const writtenFiles: string[] = [];
     const skippedFiles: string[] = [];
     let dirPath: string | null = null;
-    let titleError: string | null = null;
+    let validationError: string | null = null;
 
     try {
       for await (const part of request.parts()) {
@@ -159,18 +166,23 @@ export function registerModelRoutes(app: FastifyInstance, db: DbClient, libraryR
             title = part.value;
           } else if (part.fieldname === "tags" && typeof part.value === "string") {
             tagNames.push(part.value);
+          } else if (part.fieldname === "sourceUrl" && typeof part.value === "string") {
+            sourceUrl = part.value;
           }
           continue;
         }
 
-        if (dirPath == null && titleError == null) {
+        if (dirPath == null && validationError == null) {
           const trimmedTitle = title?.trim();
+          const trimmedSourceUrl = sourceUrl?.trim();
           if (!trimmedTitle) {
-            titleError = "title is required and must be sent before any files";
+            validationError = "title is required and must be sent before any files";
+          } else if (trimmedSourceUrl && !isValidHttpUrl(trimmedSourceUrl)) {
+            validationError = "sourceUrl must be a valid http(s) URL";
           } else {
             const base = sanitizeModelDirName(trimmedTitle);
             if (!base) {
-              titleError = "title must contain at least one valid character";
+              validationError = "title must contain at least one valid character";
             } else {
               dirPath = await pickModelDirPath(libraryRoot, db, base);
               await mkdir(dirPath, { recursive: true });
@@ -178,7 +190,7 @@ export function registerModelRoutes(app: FastifyInstance, db: DbClient, libraryR
           }
         }
 
-        if (titleError != null) {
+        if (validationError != null) {
           part.file.resume();
           continue;
         }
@@ -198,9 +210,9 @@ export function registerModelRoutes(app: FastifyInstance, db: DbClient, libraryR
       throw err;
     }
 
-    if (titleError != null) {
+    if (validationError != null) {
       if (dirPath) await rm(dirPath, { recursive: true, force: true }).catch(() => {});
-      return reply.code(400).send({ error: titleError });
+      return reply.code(400).send({ error: validationError });
     }
 
     // Attachments (images/pdf) may ride along with a new model, but can't
@@ -217,13 +229,22 @@ export function registerModelRoutes(app: FastifyInstance, db: DbClient, libraryR
       });
     }
 
+    const trimmedSourceUrl = sourceUrl?.trim() || null;
     const now = new Date();
     let modelRow: ModelRow;
     try {
       const { id: fsId } = await ensureMarkerId(dirPath);
       modelRow = db
         .insert(modelsTable)
-        .values({ fsId, path: dirPath, title: title!.trim(), createdAt: now, updatedAt: now })
+        .values({
+          fsId,
+          path: dirPath,
+          title: title!.trim(),
+          sourceUrl: trimmedSourceUrl,
+          sourceSnapshotStatus: trimmedSourceUrl ? "pending" : "none",
+          createdAt: now,
+          updatedAt: now,
+        })
         .returning()
         .get();
     } catch (err) {
@@ -251,6 +272,9 @@ export function registerModelRoutes(app: FastifyInstance, db: DbClient, libraryR
 
     const updatedRow = db.select().from(modelsTable).where(eq(modelsTable.id, modelRow.id)).get()!;
     maybeEnqueueThumbnail(db, updatedRow, result);
+    if (trimmedSourceUrl) {
+      enqueueSourceSnapshot(db, updatedRow);
+    }
 
     return reply
       .code(201)
@@ -289,13 +313,23 @@ export function registerModelRoutes(app: FastifyInstance, db: DbClient, libraryR
       files,
       attachments,
       gitLog,
+      // Only on the detail response, not the list one (toApiModel) — same
+      // reasoning as `files`/`gitLog`: potentially large, only needed when
+      // actually viewing one model.
+      sourceSnapshotHtml: row.sourceSnapshotHtml,
     };
     return detail;
   });
 
   app.patch<{
     Params: { id: string };
-    Body: { title?: string; description?: string; favorite?: boolean; primaryFilePath?: string };
+    Body: {
+      title?: string;
+      description?: string;
+      favorite?: boolean;
+      primaryFilePath?: string;
+      sourceUrl?: string | null;
+    };
   }>("/api/models/:id", async (request, reply) => {
     const id = Number(request.params.id);
     if (!Number.isInteger(id)) {
@@ -307,10 +341,20 @@ export function registerModelRoutes(app: FastifyInstance, db: DbClient, libraryR
       return reply.code(404).send({ error: "model not found" });
     }
 
-    const { title, description, favorite, primaryFilePath } = request.body ?? {};
+    const { title, description, favorite, primaryFilePath, sourceUrl } = request.body ?? {};
     if (title !== undefined && title.trim().length === 0) {
       return reply.code(400).send({ error: "title cannot be empty" });
     }
+
+    // undefined: field omitted, leave sourceUrl untouched. null or "": clear
+    // it. Non-empty string: must be a syntactically valid http(s) URL — the
+    // SSRF-relevant checks (resolved-IP blocking) happen at fetch time in
+    // source-snapshot/generate.ts, not here.
+    const normalizedSourceUrl = sourceUrl === undefined ? undefined : sourceUrl?.trim() || null;
+    if (normalizedSourceUrl != null && !isValidHttpUrl(normalizedSourceUrl)) {
+      return reply.code(400).send({ error: "sourceUrl must be a valid http(s) URL" });
+    }
+    const sourceUrlChanged = normalizedSourceUrl !== undefined && normalizedSourceUrl !== row.sourceUrl;
 
     if (primaryFilePath !== undefined) {
       const fileRow = db
@@ -342,6 +386,19 @@ export function registerModelRoutes(app: FastifyInstance, db: DbClient, libraryR
         ...(primaryFileChanged
           ? { thumbnailStatus: "pending" as const, thumbnailSource: "auto" as const }
           : {}),
+        ...(normalizedSourceUrl !== undefined ? { sourceUrl: normalizedSourceUrl } : {}),
+        // A changed sourceUrl (including clearing it) invalidates whatever
+        // snapshot was fetched for the *previous* URL — drop it and, if
+        // there's a new URL to fetch, mark it pending so the queued job
+        // below has somewhere terminal to land it.
+        ...(sourceUrlChanged
+          ? {
+              sourceSnapshotStatus: normalizedSourceUrl ? ("pending" as const) : ("none" as const),
+              sourceSnapshotHtml: null,
+              sourceSnapshotError: null,
+              sourceSnapshotFetchedAt: null,
+            }
+          : {}),
         updatedAt: new Date(),
       })
       .where(eq(modelsTable.id, id))
@@ -350,6 +407,9 @@ export function registerModelRoutes(app: FastifyInstance, db: DbClient, libraryR
 
     if (primaryFileChanged) {
       enqueueThumbnail(db, updated);
+    }
+    if (sourceUrlChanged && normalizedSourceUrl) {
+      enqueueSourceSnapshot(db, updated);
     }
 
     return toApiModel(updated, getTagsForModel(db, id), getDuplicateModels(db, id));
