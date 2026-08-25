@@ -1,11 +1,13 @@
 import type { ThumbnailStatus } from "@model-hub/shared"
-import { AlertCircle, HardDrive, Image as ImageIcon, Layers, RefreshCw, Server } from "lucide-react"
+import { AlertCircle, HardDrive, Image as ImageIcon, Layers, RefreshCw, RotateCw, Server } from "lucide-react"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { formatBytes, formatDateTime } from "@/lib/format"
 import { useAuthMe, useInstanceStats } from "@/lib/queries"
+import { cn } from "@/lib/utils"
 
 const THUMBNAIL_STATUS_LABELS: Record<ThumbnailStatus, string> = {
   pending: "Pending",
@@ -187,7 +189,7 @@ function InstanceInfoCard() {
 
 export function StatsPage() {
   const { data: authMe, isPending: authPending } = useAuthMe()
-  const { isPending, isError, error } = useInstanceStats()
+  const { isPending, isError, error, isFetching, refetch } = useInstanceStats()
 
   if (authPending) {
     return <Skeleton className="h-64 w-full rounded-lg" />
@@ -228,7 +230,19 @@ export function StatsPage() {
 
   return (
     <div className="flex flex-col gap-4">
-      <h1 className="text-lg font-semibold">Stats</h1>
+      <div className="flex items-center justify-between gap-3">
+        <h1 className="text-lg font-semibold">Stats</h1>
+        <Button variant="outline" size="sm" onClick={() => void refetch()} disabled={isFetching}>
+          <RotateCw className={cn("size-3.5", isFetching && "animate-spin")} />
+          Refresh
+        </Button>
+      </div>
+      {/*
+        No auto-polling here (see useInstanceStats's doc comment): storage
+        involves a real recursive disk walk of LIBRARY_ROOT, so this page
+        only refetches on manual refresh or the react-query window-focus
+        default, not on a timer.
+      */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <StorageCard />
         <CountsCard />
