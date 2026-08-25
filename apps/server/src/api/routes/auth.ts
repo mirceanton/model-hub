@@ -7,9 +7,17 @@ import { createSession, deleteSession, ensureLocalOwner, upsertOidcUser } from "
 import type { Config } from "../../config.js";
 import type { DbClient } from "../../db/client.js";
 import type { UserRow } from "../../db/schema.js";
+import { ensureAuthSettings } from "../../lib/auth-settings.js";
 
 function toPublicUser(user: UserRow) {
-  return { id: user.id, name: user.name, email: user.email };
+  return { id: user.id, name: user.name, email: user.email, role: user.role };
+}
+
+/** Reads the configurable groups claim (see auth-settings.ts) off the ID token claims. Tolerant of it being absent or not an array of strings — resolves to []. */
+function extractGroups(claims: Record<string, unknown>, groupsClaim: string): string[] {
+  const raw = claims[groupsClaim];
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((v): v is string => typeof v === "string");
 }
 
 export function registerAuthRoutes(app: FastifyInstance, db: DbClient, config: Config): void {
@@ -68,10 +76,12 @@ export function registerAuthRoutes(app: FastifyInstance, db: DbClient, config: C
         throw new Error("ID token missing sub claim");
       }
 
+      const { oidcGroupsClaim } = ensureAuthSettings(db);
       const user = upsertOidcUser(db, {
         sub: claims.sub,
         email: typeof claims.email === "string" ? claims.email : undefined,
         name: typeof claims.name === "string" ? claims.name : undefined,
+        groups: extractGroups(claims, oidcGroupsClaim),
       });
 
       const session = createSession(db, user.id);

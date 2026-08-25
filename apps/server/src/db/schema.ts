@@ -128,7 +128,48 @@ export const users = sqliteTable("users", {
   email: text("email"),
   name: text("name"),
   isLocalOwner: integer("is_local_owner", { mode: "boolean" }).notNull().default(false),
+  // The local owner (single-user mode) always resolves as "admin" — enforced
+  // in code (session.ts's ensureLocalOwner), not by this column default,
+  // since the default here is the safe fallback for everyone else. An OIDC
+  // user's role is recomputed from their OIDC groups on every login (see
+  // lib/roles.ts's resolveRoleFromGroups) rather than being a durable manual
+  // assignment, so group membership changes take effect on next sign-in.
+  role: text("role", { enum: ["admin", "editor", "viewer"] })
+    .notNull()
+    .default("viewer"),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+});
+
+/**
+ * One "OIDC group claim value -> app role" rule, configured by an admin (not
+ * an env var — see CLAUDE.md's Auth section) so it's editable without a
+ * restart. groupName is matched verbatim against the configurable claim
+ * named by authSettings.oidcGroupsClaim.
+ */
+export const oidcGroupRoleMappings = sqliteTable("oidc_group_role_mappings", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  groupName: text("group_name").notNull().unique(),
+  role: text("role", { enum: ["admin", "editor", "viewer"] }).notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+});
+
+/**
+ * Singleton row (there is always exactly one, created on first use — see
+ * lib/auth-settings.ts's ensureAuthSettings, same pattern as session.ts's
+ * ensureLocalOwner) holding the instance-wide OIDC role-mapping config.
+ */
+export const authSettings = sqliteTable("auth_settings", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  // The ID token claim to read the user's groups from — provider-specific
+  // (Authelia/Authentik/Keycloak all name this differently).
+  oidcGroupsClaim: text("oidc_groups_claim").notNull().default("groups"),
+  // Safe fallback for an authenticated user whose groups match no mapping —
+  // never silently falls through to admin.
+  defaultRole: text("default_role", { enum: ["admin", "editor", "viewer"] })
+    .notNull()
+    .default("viewer"),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
 });
 
@@ -153,3 +194,5 @@ export type ProjectModelPinRow = typeof projectModelPins.$inferSelect;
 export type NewProjectModelPinRow = typeof projectModelPins.$inferInsert;
 export type UserRow = typeof users.$inferSelect;
 export type SessionRow = typeof sessions.$inferSelect;
+export type OidcGroupRoleMappingRow = typeof oidcGroupRoleMappings.$inferSelect;
+export type AuthSettingsRow = typeof authSettings.$inferSelect;

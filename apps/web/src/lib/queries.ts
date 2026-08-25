@@ -1,3 +1,4 @@
+import type { UserRole } from "@model-hub/shared"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   addModelTag,
@@ -5,16 +6,20 @@ import {
   captureThumbnail,
   createModel,
   createProject,
+  createRoleMapping,
   createTag,
   deleteModel,
   deleteModelFile,
   deleteProject,
+  deleteRoleMapping,
   deleteTag,
+  fetchAdminUsers,
   fetchAuthMe,
   fetchModel,
   fetchModels,
   fetchProject,
   fetchProjects,
+  fetchRoleMapping,
   fetchTags,
   logout,
   regenerateThumbnail,
@@ -24,6 +29,8 @@ import {
   updateModel,
   updateProject,
   updateProjectPin,
+  updateRoleMapping,
+  updateRoleMappingSettings,
   updateTag,
   uploadModelVersion,
   type ModelFilters,
@@ -278,6 +285,60 @@ export function useRemovePin(projectId: number) {
   const invalidate = useInvalidateProject(projectId)
   return useMutation({
     mutationFn: (modelId: number) => removeProjectPin(projectId, modelId),
+    onSuccess: invalidate,
+  })
+}
+
+export function useAdminUsers() {
+  return useQuery({
+    queryKey: ["admin", "users"],
+    queryFn: fetchAdminUsers,
+  })
+}
+
+export function useRoleMapping() {
+  return useQuery({
+    queryKey: ["admin", "role-mapping"],
+    queryFn: fetchRoleMapping,
+  })
+}
+
+function useInvalidateRoleMapping() {
+  const queryClient = useQueryClient()
+  return () => {
+    void queryClient.invalidateQueries({ queryKey: ["admin", "role-mapping"] })
+  }
+}
+
+export function useUpdateRoleMappingSettings() {
+  const invalidate = useInvalidateRoleMapping()
+  return useMutation({
+    mutationFn: (patch: { groupsClaim?: string; defaultRole?: UserRole }) =>
+      updateRoleMappingSettings(patch),
+    onSuccess: invalidate,
+  })
+}
+
+export function useCreateRoleMapping() {
+  const invalidate = useInvalidateRoleMapping()
+  return useMutation({
+    mutationFn: (input: { groupName: string; role: UserRole }) => createRoleMapping(input),
+    onSuccess: invalidate,
+  })
+}
+
+export function useUpdateRoleMapping() {
+  const invalidate = useInvalidateRoleMapping()
+  return useMutation({
+    mutationFn: ({ id, role }: { id: number; role: UserRole }) => updateRoleMapping(id, role),
+    onSuccess: invalidate,
+  })
+}
+
+export function useDeleteRoleMapping() {
+  const invalidate = useInvalidateRoleMapping()
+  return useMutation({
+    mutationFn: (id: number) => deleteRoleMapping(id),
     onSuccess: invalidate,
   })
 }

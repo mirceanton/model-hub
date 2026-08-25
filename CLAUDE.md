@@ -120,6 +120,34 @@ to real clients. The frontend's `AuthGate` (redirects to `/auth/login` when
 unauthenticated) deliberately does *not* wrap `/internal/render` for the
 same reason — see `App.tsx`'s routing.
 
+**Roles.** `users.role` is one of `admin` (full access, including user/role
+management and instance settings) / `editor` (create/upload/edit/tag/
+favorite models and projects, but no deletes, user management, or settings)
+/ `viewer` (read-only: browse, view, download). The single-user-mode local
+owner always resolves as `admin` (`session.ts`'s `ensureLocalOwner` enforces
+this on every call, not just at row creation) — single-user mode is
+otherwise unaffected by RBAC. An OIDC user's role is *not* a durable manual
+assignment: it's recomputed from their current OIDC groups on every login
+(`upsertOidcUser` → `resolveRoleFromGroups` in `lib/roles.ts`), so a group
+change on the provider side takes effect next sign-in, not immediately.
+
+Group→role mapping is admin-configurable in the DB (`oidc_group_role_mappings`
+table + a singleton `auth_settings` row for the fallback role and the
+groups-claim name), not env vars, so it's editable without a restart —
+mirrors `config.ts`'s OIDC settings pattern but lives in SQLite instead. The
+groups-claim name is configurable because providers vary (Authelia/
+Authentik/Keycloak all name it differently); `auth.ts`'s callback reads it
+straight off the ID token claims (no extra userinfo round-trip). A user
+whose groups match no mapping gets the configured `defaultRole` (recommend
+`viewer`) — deliberately never silently falls through to `admin`.
+
+`guard.ts`'s `requireRole(minimumRole)` is a per-route Fastify preHandler
+(403, not 401, on an authenticated-but-underprivileged request) — applied
+so far only to the admin user-listing and role-mapping routes
+(`api/routes/admin.ts`). It is *not* swept across the existing model/
+project/tag/etc. routes yet; that's deliberately left to future PRs that
+touch those routes anyway, to avoid one sprawling diff.
+
 ### Projects (grouping) (`apps/server/src/lib/project-pins.ts`, `apps/server/src/api/routes/projects.ts`)
 
 A **Project** is a separate, DB-only entity from a **Model** (no filesystem
