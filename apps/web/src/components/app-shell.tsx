@@ -46,9 +46,14 @@ function TopNav() {
         API Tokens
       </NavLink>
       {data?.user?.role === "admin" && (
-        <NavLink to="/admin" className={linkClass}>
-          Admin
-        </NavLink>
+        <>
+          <NavLink to="/stats" className={linkClass}>
+            Stats
+          </NavLink>
+          <NavLink to="/admin" className={linkClass}>
+            Admin
+          </NavLink>
+        </>
       )}
     </nav>
   )

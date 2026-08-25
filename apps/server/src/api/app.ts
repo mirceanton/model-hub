@@ -16,6 +16,7 @@ import { registerMetricsRoute } from "./routes/metrics.js";
 import { registerModelRoutes } from "./routes/models.js";
 import { registerProjectRoutes } from "./routes/projects.js";
 import { registerSourceSnapshotRoutes } from "./routes/source-snapshot.js";
+import { registerStatsRoutes } from "./routes/stats.js";
 import { registerSyncRoutes } from "./routes/sync.js";
 import { registerTagRoutes } from "./routes/tags.js";
 import { registerThumbnailRoutes } from "./routes/thumbnails.js";
@@ -50,6 +51,7 @@ export function buildApp(db: DbClient, config: Config): FastifyInstance {
   registerAuthGuard(app, db, config);
   registerAuthRoutes(app, db, config);
   registerAdminRoutes(app, db);
+  registerStatsRoutes(app, db, config);
   registerApiTokenRoutes(app, db);
   registerModelRoutes(app, db, config.libraryRoot, config);
   registerProjectRoutes(app, db);

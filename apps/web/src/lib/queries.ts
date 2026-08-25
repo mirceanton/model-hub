@@ -18,6 +18,7 @@ import {
   fetchAdminUsers,
   fetchApiTokens,
   fetchAuthMe,
+  fetchInstanceStats,
   fetchModel,
   fetchModels,
   fetchProject,
@@ -364,6 +365,14 @@ export function useRoleMapping() {
   return useQuery({
     queryKey: ["admin", "role-mapping"],
     queryFn: fetchRoleMapping,
+  })
+}
+
+export function useInstanceStats() {
+  return useQuery({
+    queryKey: ["stats"],
+    queryFn: fetchInstanceStats,
+    refetchInterval: REFETCH_INTERVAL_MS,
   })
 }
 

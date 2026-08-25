@@ -2,6 +2,7 @@ import type {
   AdminUser,
   ApiToken,
   ApiTokenCreated,
+  InstanceStats,
   Model,
   ModelDetail,
   ModelListResult,
@@ -330,6 +331,10 @@ export function fetchAdminUsers(): Promise<AdminUser[]> {
 
 export function fetchRoleMapping(): Promise<OidcRoleMappingConfig> {
   return request<OidcRoleMappingConfig>("/api/admin/role-mapping")
+}
+
+export function fetchInstanceStats(): Promise<InstanceStats> {
+  return request<InstanceStats>("/api/stats")
 }
 
 export function updateRoleMappingSettings(patch: {

@@ -6,7 +6,7 @@ import { MODEL_EXTENSIONS } from "../lib/fs-utils.js";
 import { thumbnailJobsCompletedTotal, thumbnailJobsFailedTotal } from "../metrics/thumbnail-metrics.js";
 import type { ReconcileResult } from "../sync/reconcile.js";
 import { generateThumbnail, type ThumbnailContext } from "./generate.js";
-import { ThumbnailQueue } from "./queue.js";
+import { ThumbnailQueue, type ThumbnailQueueState } from "./queue.js";
 
 let queue: ThumbnailQueue | null = null;
 let context: ThumbnailContext | null = null;
@@ -15,6 +15,16 @@ let context: ThumbnailContext | null = null;
 export function initThumbnailPipeline(concurrency: number, webBaseUrl: string): void {
   queue = new ThumbnailQueue(concurrency);
   context = { webBaseUrl };
+}
+
+/**
+ * The queue's own state accessor (see ThumbnailQueue.getState) — the
+ * instance stats page (issue #73) reuses this instead of recomputing queue
+ * depth/in-flight a second way. Zeroed out before initThumbnailPipeline has
+ * run (e.g. under test), same as enqueueThumbnail's own no-op guard below.
+ */
+export function getThumbnailQueueState(): ThumbnailQueueState {
+  return queue?.getState() ?? { pending: 0, active: 0 };
 }
 
 function isViewablePrimaryFile(primaryFilePath: string | null | undefined): boolean {
