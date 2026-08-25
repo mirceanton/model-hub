@@ -1,8 +1,10 @@
 import { stat } from "node:fs/promises";
+import { join } from "node:path";
 import { eq } from "drizzle-orm";
 import type { DbClient } from "../db/client.js";
 import { files as filesTable, models as modelsTable, type ModelRow } from "../db/schema.js";
 import { ensureGitignore, ensureMarkerId, listModelFiles, pickPrimaryFile } from "../lib/fs-utils.js";
+import { sha256File } from "../lib/hash.js";
 import { generateAutoCommitMessage } from "./commit-message.js";
 import {
   addAllAndCommit,
@@ -102,23 +104,62 @@ export async function reconcileModelCore(
       headSha = await getHeadSha(model.path);
     }
 
+    // Content hashing is lazy/incremental: reuse the previous hash for a file
+    // whose mtime and size haven't changed since the last reconcile (the same
+    // invalidation signal this `files` cache already keys everything else
+    // off), and only stream+hash the file when either has changed. Read the
+    // prior rows before the delete-and-reinsert below wipes them.
+    const priorFileRows = db
+      .select({
+        relativePath: filesTable.relativePath,
+        sizeBytes: filesTable.sizeBytes,
+        mtime: filesTable.mtime,
+        contentHash: filesTable.contentHash,
+      })
+      .from(filesTable)
+      .where(eq(filesTable.modelId, model.id))
+      .all();
+    const priorByPath = new Map(priorFileRows.map((f) => [f.relativePath, f]));
+
     const fileEntries = await listModelFiles(model.path);
+    const hashedFileEntries = await Promise.all(
+      fileEntries.map(async (f) => {
+        const prior = priorByPath.get(f.relativePath);
+        // f.mtime comes from fs.stat's mtimeMs, which carries sub-millisecond
+        // precision that the "timestamp_ms" column truncates on write (via
+        // `new Date(...).getTime()`) — compare through the same truncation
+        // here, or an untouched file's fractional mtime would never equal
+        // the whole-millisecond value read back from a prior reconcile and
+        // this cache would never hit.
+        const unchanged =
+          prior != null &&
+          prior.contentHash != null &&
+          prior.sizeBytes === f.sizeBytes &&
+          prior.mtime.getTime() === new Date(f.mtime).getTime();
+        const contentHash = unchanged ? prior.contentHash : await sha256File(join(model.path, f.relativePath));
+        return { ...f, contentHash };
+      }),
+    );
+
     const stillValidPrimary =
       model.primaryFilePath != null &&
-      fileEntries.some((f) => f.relativePath === model.primaryFilePath);
-    const primaryFilePath = stillValidPrimary ? model.primaryFilePath : pickPrimaryFile(fileEntries);
+      hashedFileEntries.some((f) => f.relativePath === model.primaryFilePath);
+    const primaryFilePath = stillValidPrimary
+      ? model.primaryFilePath
+      : pickPrimaryFile(hashedFileEntries);
 
     db.transaction((tx) => {
       tx.delete(filesTable).where(eq(filesTable.modelId, model.id)).run();
-      if (fileEntries.length > 0) {
+      if (hashedFileEntries.length > 0) {
         tx.insert(filesTable)
           .values(
-            fileEntries.map((f) => ({
+            hashedFileEntries.map((f) => ({
               modelId: model.id,
               relativePath: f.relativePath,
               sizeBytes: f.sizeBytes,
               mtime: new Date(f.mtime),
               extension: f.extension,
+              contentHash: f.contentHash,
             })),
           )
           .run();

@@ -13,6 +13,7 @@ import {
   tags as tagsTable,
   type ModelRow,
 } from "../../db/schema.js";
+import { computeDuplicateModelMap, type DuplicateModelRef, getDuplicateModels } from "../../lib/duplicates.js";
 import { ensureMarkerId, sanitizeModelDirName, sanitizeUploadFilename, TRASH_DIRNAME } from "../../lib/fs-utils.js";
 import { getActiveModel } from "../../lib/model-lookup.js";
 import { getOrCreateTag, getTagsForModel, getTagsForModels, InvalidTagNameError } from "../../lib/tags.js";
@@ -21,7 +22,7 @@ import { runExclusive } from "../../sync/queue.js";
 import { LOCAL_UPLOAD_IDENTITY, reconcileModelCore } from "../../sync/reconcile.js";
 import { enqueueThumbnail, maybeEnqueueThumbnail } from "../../thumbnails/trigger.js";
 
-export function toApiModel(row: ModelRow, tags: Tag[]): Model {
+export function toApiModel(row: ModelRow, tags: Tag[], duplicateModels: DuplicateModelRef[] = []): Model {
   return {
     id: row.id,
     fsId: row.fsId,
@@ -42,6 +43,7 @@ export function toApiModel(row: ModelRow, tags: Tag[]): Model {
     createdAt: row.createdAt.getTime(),
     updatedAt: row.updatedAt.getTime(),
     tags,
+    duplicateModels,
   };
 }
 
@@ -124,8 +126,11 @@ export function registerModelRoutes(app: FastifyInstance, db: DbClient, libraryR
       db,
       rows.map((row) => row.id),
     );
+    const duplicatesByModel = computeDuplicateModelMap(db);
     return {
-      data: rows.map((row) => toApiModel(row, tagsByModel.get(row.id) ?? [])),
+      data: rows.map((row) =>
+        toApiModel(row, tagsByModel.get(row.id) ?? [], duplicatesByModel.get(row.id) ?? []),
+      ),
       total,
     };
   });
@@ -235,7 +240,9 @@ export function registerModelRoutes(app: FastifyInstance, db: DbClient, libraryR
     const updatedRow = db.select().from(modelsTable).where(eq(modelsTable.id, modelRow.id)).get()!;
     maybeEnqueueThumbnail(db, updatedRow, result);
 
-    return reply.code(201).send(toApiModel(updatedRow, getTagsForModel(db, modelRow.id)));
+    return reply
+      .code(201)
+      .send(toApiModel(updatedRow, getTagsForModel(db, modelRow.id), getDuplicateModels(db, modelRow.id)));
   });
 
   app.get<{ Params: { id: string } }>("/api/models/:id", async (request, reply) => {
@@ -253,7 +260,7 @@ export function registerModelRoutes(app: FastifyInstance, db: DbClient, libraryR
     const gitLog = row.missingSince == null ? await getLog(row.path).catch(() => []) : [];
 
     const detail: ModelDetail = {
-      ...toApiModel(row, getTagsForModel(db, id)),
+      ...toApiModel(row, getTagsForModel(db, id), getDuplicateModels(db, id)),
       files: fileRows.map((f) => ({
         relativePath: f.relativePath,
         sizeBytes: f.sizeBytes,
@@ -317,7 +324,7 @@ export function registerModelRoutes(app: FastifyInstance, db: DbClient, libraryR
       enqueueThumbnail(db, updated);
     }
 
-    return toApiModel(updated, getTagsForModel(db, id));
+    return toApiModel(updated, getTagsForModel(db, id), getDuplicateModels(db, id));
   });
 
   app.delete<{ Params: { id: string } }>("/api/models/:id", async (request, reply) => {

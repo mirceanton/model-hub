@@ -55,12 +55,23 @@ export const files = sqliteTable(
     sizeBytes: integer("size_bytes").notNull(),
     mtime: integer("mtime", { mode: "timestamp_ms" }).notNull(),
     extension: text("extension").notNull(),
+    // SHA-256 hex digest of the file's contents, computed during sync/reconcile
+    // (reconcile.ts) and reused across scans as long as mtime/size haven't
+    // changed since the last hash — the same invalidation signal this cache
+    // already uses for everything else. Null only very briefly (a row whose
+    // reconcile hasn't finished hashing it yet isn't observable outside the
+    // transaction that inserts it) — never treated as a match against another
+    // null. Powers duplicate-model detection (lib/duplicates.ts): two active
+    // models sharing any file with the same hash are flagged as possible
+    // duplicates of each other.
+    contentHash: text("content_hash"),
   },
   (table) => ({
     modelRelativePathUnique: uniqueIndex("files_model_id_relative_path_unique").on(
       table.modelId,
       table.relativePath,
     ),
+    contentHashIdx: index("files_content_hash_idx").on(table.contentHash),
   }),
 );
 
