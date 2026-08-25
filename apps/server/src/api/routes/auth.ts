@@ -8,6 +8,7 @@ import type { Config } from "../../config.js";
 import type { DbClient } from "../../db/client.js";
 import type { UserRow } from "../../db/schema.js";
 import { ensureAuthSettings } from "../../lib/auth-settings.js";
+import { authRateLimit } from "../../lib/rate-limit.js";
 
 function toPublicUser(user: UserRow) {
   return { id: user.id, name: user.name, email: user.email, role: user.role };
@@ -34,8 +35,9 @@ export function registerAuthRoutes(app: FastifyInstance, db: DbClient, config: C
 
   if (!config.oidc) return;
   const oidcConfig = config.oidc;
+  const authRouteOptions = { config: { rateLimit: authRateLimit(config) } };
 
-  app.get("/auth/login", async (_request, reply) => {
+  app.get("/auth/login", authRouteOptions, async (_request, reply) => {
     const oidc = getOidcClient();
     const codeVerifier = client.randomPKCECodeVerifier();
     const codeChallenge = await client.calculatePKCECodeChallenge(codeVerifier);
@@ -55,7 +57,7 @@ export function registerAuthRoutes(app: FastifyInstance, db: DbClient, config: C
     return reply.redirect(authUrl.toString());
   });
 
-  app.get<{ Querystring: { state?: string } }>("/auth/callback", async (request, reply) => {
+  app.get<{ Querystring: { state?: string } }>("/auth/callback", authRouteOptions, async (request, reply) => {
     const stateParam = request.query.state;
     const pending = stateParam ? consumePendingAuth(stateParam) : null;
     if (!pending) {
@@ -101,7 +103,7 @@ export function registerAuthRoutes(app: FastifyInstance, db: DbClient, config: C
     }
   });
 
-  app.post("/auth/logout", async (request, reply) => {
+  app.post("/auth/logout", authRouteOptions, async (request, reply) => {
     const sessionId = readSessionCookie(request);
     if (sessionId) {
       deleteSession(db, sessionId);

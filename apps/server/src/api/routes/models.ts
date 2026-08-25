@@ -5,6 +5,7 @@ import { pipeline } from "node:stream/promises";
 import { classifyAttachmentExtension, type Model, type ModelDetail, type Tag } from "@model-hub/shared";
 import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
+import type { Config } from "../../config.js";
 import type { DbClient } from "../../db/client.js";
 import {
   files as filesTable,
@@ -22,6 +23,7 @@ import {
   TRASH_DIRNAME,
 } from "../../lib/fs-utils.js";
 import { getActiveModel } from "../../lib/model-lookup.js";
+import { uploadRateLimit } from "../../lib/rate-limit.js";
 import { isValidHttpUrl } from "../../lib/source-url.js";
 import {
   getModelIdsWithAllTags,
@@ -94,7 +96,12 @@ function parseNonNegativeInt(value: string | undefined): number | undefined {
   return Number.isFinite(n) && n >= 0 ? Math.floor(n) : undefined;
 }
 
-export function registerModelRoutes(app: FastifyInstance, db: DbClient, libraryRoot: string): void {
+export function registerModelRoutes(
+  app: FastifyInstance,
+  db: DbClient,
+  libraryRoot: string,
+  config: Config,
+): void {
   app.get<{
     Querystring: {
       q?: string;
@@ -195,7 +202,7 @@ export function registerModelRoutes(app: FastifyInstance, db: DbClient, libraryR
   // Client must send the "title" field before any "files" parts — the
   // library-root directory (derived from the title) has to exist before
   // uploaded files can be streamed into it.
-  app.post("/api/models", async (request, reply) => {
+  app.post("/api/models", { config: { rateLimit: uploadRateLimit(config) } }, async (request, reply) => {
     let title: string | undefined;
     let sourceUrl: string | undefined;
     const tagNames: string[] = [];

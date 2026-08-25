@@ -13,6 +13,7 @@ import { getLog } from "../../sync/git.js";
 import { runExclusive } from "../../sync/queue.js";
 import { LOCAL_UPLOAD_IDENTITY, reconcileModelCore } from "../../sync/reconcile.js";
 import { TRASH_RETENTION_MS, purgeExpiredTrash } from "../../sync/scanner.js";
+import { buildTestConfig } from "../../test-support/config.js";
 import { registerDownloadRoutes } from "./download.js";
 import { registerFileRoutes } from "./files.js";
 import { registerModelRoutes } from "./models.js";
@@ -30,7 +31,7 @@ async function dirExists(path: string): Promise<boolean> {
 function buildTestApp(db: DbClient, libraryRoot: string): FastifyInstance {
   const app = Fastify({ logger: false });
   app.register(multipart);
-  registerModelRoutes(app, db, libraryRoot);
+  registerModelRoutes(app, db, libraryRoot, buildTestConfig());
   registerTrashRoutes(app, db, libraryRoot);
   registerFileRoutes(app, db);
   registerDownloadRoutes(app, db);

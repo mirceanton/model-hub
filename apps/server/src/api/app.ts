@@ -1,5 +1,6 @@
 import cookie from "@fastify/cookie";
 import multipart from "@fastify/multipart";
+import rateLimit from "@fastify/rate-limit";
 import Fastify, { type FastifyInstance } from "fastify";
 import { registerAuthGuard } from "../auth/guard.js";
 import type { Config } from "../config.js";
@@ -36,6 +37,9 @@ export function buildApp(db: DbClient, config: Config): FastifyInstance {
 
   app.register(cookie, { secret: config.sessionSecret ?? undefined });
   app.register(multipart, { limits: { fileSize: MAX_UPLOAD_FILE_BYTES } });
+  // global: false -- limits are applied per-route (via each route's `config.rateLimit`,
+  // see lib/rate-limit.ts), never as a blanket default across every route.
+  app.register(rateLimit, { global: false });
 
   // Registered first so its onResponse hook wraps every route below,
   // including the auth guard's own 401s and the SPA fallback's 404s.
@@ -47,11 +51,11 @@ export function buildApp(db: DbClient, config: Config): FastifyInstance {
   registerAuthRoutes(app, db, config);
   registerAdminRoutes(app, db);
   registerApiTokenRoutes(app, db);
-  registerModelRoutes(app, db, config.libraryRoot);
+  registerModelRoutes(app, db, config.libraryRoot, config);
   registerProjectRoutes(app, db);
   registerFileRoutes(app, db);
   registerDownloadRoutes(app, db);
-  registerVersionRoutes(app, db);
+  registerVersionRoutes(app, db, config);
   registerThumbnailRoutes(app, db);
   registerSourceSnapshotRoutes(app, db);
   registerTagRoutes(app, db);

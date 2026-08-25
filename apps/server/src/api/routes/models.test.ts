@@ -11,12 +11,13 @@ import { models as modelsTable, modelTags as modelTagsTable, type ModelRow } fro
 import { ensureMarkerId } from "../../lib/fs-utils.js";
 import { getOrCreateTag } from "../../lib/tags.js";
 import { LOCAL_UPLOAD_IDENTITY, reconcileModelCore } from "../../sync/reconcile.js";
+import { buildTestConfig } from "../../test-support/config.js";
 import { registerModelRoutes } from "./models.js";
 
 async function buildTestApp(db: DbClient, libraryRoot: string): Promise<FastifyInstance> {
   const app = Fastify({ logger: false });
   await app.register(multipart);
-  registerModelRoutes(app, db, libraryRoot);
+  registerModelRoutes(app, db, libraryRoot, buildTestConfig());
   return app;
 }
 
