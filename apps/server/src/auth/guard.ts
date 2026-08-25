@@ -61,9 +61,17 @@ export function registerAuthGuard(app: FastifyInstance, db: DbClient, config: Co
       request.user = user;
     }
 
-    const isProtectedApiRoute =
-      request.url.startsWith("/api/") && !request.url.startsWith("/api/auth/me");
-    if (isProtectedApiRoute && !request.user) {
+    // /docs (Swagger UI) and /docs/json (raw OpenAPI spec) — see
+    // api/openapi.ts — deliberately live outside /api/, so they're not
+    // covered by the /api/ prefix check below for free the way every other
+    // protected route is; without this explicit check they'd be reachable
+    // unauthenticated even in OIDC mode, unlike /healthz and /metrics whose
+    // unauthenticated-ness is deliberate (see metrics.ts).
+    const isProtectedRoute =
+      (request.url.startsWith("/api/") && !request.url.startsWith("/api/auth/me")) ||
+      request.url === "/docs" ||
+      request.url.startsWith("/docs/");
+    if (isProtectedRoute && !request.user) {
       return reply.code(401).send({ error: "authentication required" });
     }
   });

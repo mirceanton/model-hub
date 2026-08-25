@@ -6,6 +6,7 @@ import type { FastifyInstance } from "fastify";
 import type { DbClient } from "../../db/client.js";
 import { files as filesTable } from "../../db/schema.js";
 import { getActiveModel } from "../../lib/model-lookup.js";
+import { errorResponseSchema } from "../schemas.js";
 
 const CONTENT_TYPE_BY_EXTENSION: Record<string, string> = {
   stl: "model/stl",
@@ -28,6 +29,23 @@ const CONTENT_TYPE_BY_EXTENSION: Record<string, string> = {
 export function registerFileRoutes(app: FastifyInstance, db: DbClient): void {
   app.get<{ Params: { id: string; "*": string } }>(
     "/api/models/:id/files/*",
+    {
+      schema: {
+        tags: ["files"],
+        summary: "Download one raw file",
+        description:
+          "Streams the raw bytes of one indexed file. The `*` wildcard is the file's path " +
+          "relative to the model directory.",
+        response: {
+          200: {
+            description: "Raw file bytes.",
+            content: { "*/*": { schema: { type: "string", format: "binary" } } },
+          },
+          400: errorResponseSchema,
+          404: errorResponseSchema,
+        },
+      },
+    },
     async (request, reply) => {
       const id = Number(request.params.id);
       if (!Number.isInteger(id)) {
