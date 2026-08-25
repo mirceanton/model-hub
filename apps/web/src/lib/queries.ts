@@ -20,6 +20,7 @@ import {
   deleteRoleMapping,
   deleteTag,
   dismissProjectNotice,
+  exportModels,
   fetchAdminUsers,
   fetchApiTokens,
   fetchAuthMe,
@@ -53,6 +54,7 @@ import {
   type ModelsBulkInput,
   type ProjectFilters,
 } from "./api"
+import { triggerBlobDownload } from "./model-loader"
 
 const REFETCH_INTERVAL_MS = 10_000
 
@@ -282,6 +284,23 @@ export function useBulkModelsAction() {
       void queryClient.invalidateQueries({ queryKey: ["tags"] })
       void queryClient.invalidateQueries({ queryKey: ["projects"] })
       void queryClient.invalidateQueries({ queryKey: ["trash"] })
+    },
+  })
+}
+
+/**
+ * Backs the "Export selected" bulk-selection action (POST /api/models/export
+ * — issue #64), which unlike useBulkModelsAction above doesn't mutate
+ * anything server-side: it streams a zip of the selected models' current
+ * files plus a manifest.json metadata sidecar, which this hook saves as a
+ * file download (triggerBlobDownload) rather than caching/returning it as
+ * query data, so it doesn't invalidate any query on success.
+ */
+export function useExportModels() {
+  return useMutation({
+    mutationFn: async (ids: number[]) => {
+      const blob = await exportModels(ids)
+      triggerBlobDownload(blob, "models.zip")
     },
   })
 }

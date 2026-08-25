@@ -124,6 +124,24 @@ export function bulkModelsAction(input: ModelsBulkInput): Promise<BulkResponse> 
   })
 }
 
+/**
+ * POST (not GET) since the response is a zip stream, not JSON, so it can't
+ * go through the shared `request` helper above — returns the raw Blob for
+ * the caller to hand to triggerBlobDownload (lib/model-loader.ts).
+ */
+export async function exportModels(ids: number[]): Promise<Blob> {
+  const res = await fetch("/api/models/export", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ids }),
+  })
+  if (!res.ok) {
+    const body = (await res.json().catch(() => null)) as { error?: string } | null
+    throw new Error(body?.error ?? `Request to /api/models/export failed with status ${res.status}`)
+  }
+  return res.blob()
+}
+
 export interface UploadResult {
   ok: true
   committed: boolean

@@ -1,6 +1,7 @@
 import type { BulkResponse, Model, ModelSortField, SortOrder } from "@model-hub/shared"
 import {
   AlertCircle,
+  Archive,
   ChevronLeft,
   ChevronRight,
   FolderOpen,
@@ -33,7 +34,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton"
 import { useSelection } from "@/hooks/use-selection"
 import { formatDateTime } from "@/lib/format"
-import { useBulkModelsAction, useModels, useTags, useUpdateModel } from "@/lib/queries"
+import { useBulkModelsAction, useExportModels, useModels, useTags, useUpdateModel } from "@/lib/queries"
 import { tagBadgeStyle } from "@/lib/tag-colors"
 import { cn } from "@/lib/utils"
 
@@ -141,6 +142,7 @@ export function ModelListPage() {
 
   const selection = useSelection<number>()
   const bulkAction = useBulkModelsAction()
+  const exportModels = useExportModels()
   const [bulkResult, setBulkResult] = useState<BulkResponse | undefined>()
   function handleBulkSuccess(data: BulkResponse) {
     setBulkResult(data)
@@ -480,80 +482,103 @@ export function ModelListPage() {
                   </label>
                 </div>
                 {selection.selected.size > 0 && (
-                  <BulkActionBar count={selection.selected.size} onClear={selection.clear}>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      disabled={bulkAction.isPending}
-                      onClick={() =>
-                        bulkAction.mutate(
-                          { ids: [...selection.selected], action: "favorite" },
-                          { onSuccess: handleBulkSuccess },
-                        )
-                      }
-                    >
-                      <Star className="size-3.5" />
-                      Favorite
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      disabled={bulkAction.isPending}
-                      onClick={() =>
-                        bulkAction.mutate(
-                          { ids: [...selection.selected], action: "unfavorite" },
-                          { onSuccess: handleBulkSuccess },
-                        )
-                      }
-                    >
-                      <Star className="size-3.5" />
-                      Unfavorite
-                    </Button>
-                    <BulkAddTagButton
-                      allTags={tags}
-                      disabled={bulkAction.isPending}
-                      onApply={(tagName) =>
-                        bulkAction.mutate(
-                          { ids: [...selection.selected], action: "add-tag", tagName },
-                          { onSuccess: handleBulkSuccess },
-                        )
-                      }
-                    />
-                    <BulkRemoveTagButton
-                      allTags={tags}
-                      disabled={bulkAction.isPending}
-                      pending={bulkAction.isPending}
-                      onApply={(tagId) =>
-                        bulkAction.mutate(
-                          { ids: [...selection.selected], action: "remove-tag", tagId },
-                          { onSuccess: handleBulkSuccess },
-                        )
-                      }
-                    />
-                    <Button
-                      type="button"
-                      variant="destructive"
-                      size="sm"
-                      disabled={bulkAction.isPending}
-                      onClick={() => {
-                        const count = selection.selected.size
-                        if (!confirm(`Move ${count} model${count === 1 ? "" : "s"} to trash?`)) return
-                        bulkAction.mutate(
-                          { ids: [...selection.selected], action: "delete" },
-                          { onSuccess: handleBulkSuccess },
-                        )
-                      }}
-                    >
-                      {bulkAction.isPending ? (
-                        <Loader2 className="size-3.5 animate-spin" />
-                      ) : (
-                        <Trash2 className="size-3.5" />
-                      )}
-                      Delete
-                    </Button>
-                  </BulkActionBar>
+                  <>
+                    <BulkActionBar count={selection.selected.size} onClear={selection.clear}>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={bulkAction.isPending}
+                        onClick={() =>
+                          bulkAction.mutate(
+                            { ids: [...selection.selected], action: "favorite" },
+                            { onSuccess: handleBulkSuccess },
+                          )
+                        }
+                      >
+                        <Star className="size-3.5" />
+                        Favorite
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={bulkAction.isPending}
+                        onClick={() =>
+                          bulkAction.mutate(
+                            { ids: [...selection.selected], action: "unfavorite" },
+                            { onSuccess: handleBulkSuccess },
+                          )
+                        }
+                      >
+                        <Star className="size-3.5" />
+                        Unfavorite
+                      </Button>
+                      <BulkAddTagButton
+                        allTags={tags}
+                        disabled={bulkAction.isPending}
+                        onApply={(tagName) =>
+                          bulkAction.mutate(
+                            { ids: [...selection.selected], action: "add-tag", tagName },
+                            { onSuccess: handleBulkSuccess },
+                          )
+                        }
+                      />
+                      <BulkRemoveTagButton
+                        allTags={tags}
+                        disabled={bulkAction.isPending}
+                        pending={bulkAction.isPending}
+                        onApply={(tagId) =>
+                          bulkAction.mutate(
+                            { ids: [...selection.selected], action: "remove-tag", tagId },
+                            { onSuccess: handleBulkSuccess },
+                          )
+                        }
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={exportModels.isPending}
+                        onClick={() => exportModels.mutate([...selection.selected])}
+                      >
+                        {exportModels.isPending ? (
+                          <Loader2 className="size-3.5 animate-spin" />
+                        ) : (
+                          <Archive className="size-3.5" />
+                        )}
+                        Export
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="destructive"
+                        size="sm"
+                        disabled={bulkAction.isPending}
+                        onClick={() => {
+                          const count = selection.selected.size
+                          if (!confirm(`Move ${count} model${count === 1 ? "" : "s"} to trash?`)) return
+                          bulkAction.mutate(
+                            { ids: [...selection.selected], action: "delete" },
+                            { onSuccess: handleBulkSuccess },
+                          )
+                        }}
+                      >
+                        {bulkAction.isPending ? (
+                          <Loader2 className="size-3.5 animate-spin" />
+                        ) : (
+                          <Trash2 className="size-3.5" />
+                        )}
+                        Delete
+                      </Button>
+                    </BulkActionBar>
+                    {exportModels.isError && (
+                      <Alert variant="destructive">
+                        <AlertCircle />
+                        <AlertTitle>Export failed</AlertTitle>
+                        <AlertDescription>{exportModels.error.message}</AlertDescription>
+                      </Alert>
+                    )}
+                  </>
                 )}
                 <BulkFailureAlert
                   response={bulkResult}
