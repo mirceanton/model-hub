@@ -1,7 +1,7 @@
 import type { Model, ModelSortField, SortOrder } from "@model-hub/shared"
 import { AlertCircle, ChevronLeft, ChevronRight, FolderOpen, Search, Star } from "lucide-react"
-import { useEffect, useState } from "react"
-import { Link } from "react-router"
+import { useEffect, useMemo, useState } from "react"
+import { Link, useSearchParams } from "react-router"
 import { useMainMaxWidth } from "@/components/app-shell"
 import { CreateModelDialog } from "@/components/create-model-dialog"
 import { DuplicateBadge } from "@/components/duplicate-badge"
@@ -79,7 +79,12 @@ const DEFAULT_SORT = SORT_OPTIONS[0]
 export function ModelListPage() {
   const [searchInput, setSearchInput] = useState("")
   const [search, setSearch] = useState("")
-  const [activeTag, setActiveTag] = useState<string | null>(null)
+  // Active tag filters (AND) live in the URL, not component state, so the
+  // filtered view is shareable/bookmarkable — everything else here (search,
+  // sort, pagination, column count) stays session-local, matching prior
+  // behavior.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const activeTags = useMemo(() => searchParams.getAll("tag"), [searchParams])
   const [favoritesOnly, setFavoritesOnly] = useState(false)
   const [columns, setColumns] = useState<(typeof COLUMN_OPTIONS)[number]>(DEFAULT_COLUMNS)
   const [perPageIndex, setPerPageIndex] = useState(DEFAULT_PER_PAGE_INDEX)
@@ -98,7 +103,33 @@ export function ModelListPage() {
 
   useEffect(() => {
     setPage(1)
-  }, [search, activeTag, favoritesOnly, perPage, sortValue])
+  }, [search, activeTags, favoritesOnly, perPage, sortValue])
+
+  function toggleTag(tag: string) {
+    setSearchParams(
+      (prev) => {
+        const current = prev.getAll("tag")
+        const next = new URLSearchParams(prev)
+        next.delete("tag")
+        for (const t of current.includes(tag) ? current.filter((t2) => t2 !== tag) : [...current, tag]) {
+          next.append("tag", t)
+        }
+        return next
+      },
+      { replace: true },
+    )
+  }
+
+  function clearTags() {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        next.delete("tag")
+        return next
+      },
+      { replace: true },
+    )
+  }
 
   const { data: tags, isPending: tagsPending } = useTags()
   const {
@@ -108,7 +139,7 @@ export function ModelListPage() {
     error,
   } = useModels({
     q: search || undefined,
-    tag: activeTag ?? undefined,
+    tags: activeTags.length > 0 ? activeTags : undefined,
     favorite: favoritesOnly || undefined,
     page,
     perPage,
@@ -116,7 +147,7 @@ export function ModelListPage() {
     order: sortOption.order,
   })
 
-  const isFiltered = search.trim().length > 0 || activeTag != null || favoritesOnly
+  const isFiltered = search.trim().length > 0 || activeTags.length > 0 || favoritesOnly
   const total = models?.total ?? 0
   const totalPages = Math.max(1, Math.ceil(total / perPage))
 
@@ -260,8 +291,9 @@ export function ModelListPage() {
       <TagPanel
         tags={tags}
         isLoading={tagsPending}
-        activeTag={activeTag}
-        onSelectTag={setActiveTag}
+        activeTags={activeTags}
+        onToggleTag={toggleTag}
+        onClearTags={clearTags}
         className="[grid-area:tags]"
       />
     </div>

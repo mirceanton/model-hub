@@ -10,7 +10,6 @@ import {
   files as filesTable,
   models as modelsTable,
   modelTags as modelTagsTable,
-  tags as tagsTable,
   type ModelRow,
 } from "../../db/schema.js";
 import { computeDuplicateModelMap, type DuplicateModelRef, getDuplicateModels } from "../../lib/duplicates.js";
@@ -23,7 +22,13 @@ import {
 } from "../../lib/fs-utils.js";
 import { getActiveModel } from "../../lib/model-lookup.js";
 import { isValidHttpUrl } from "../../lib/source-url.js";
-import { getOrCreateTag, getTagsForModel, getTagsForModels, InvalidTagNameError } from "../../lib/tags.js";
+import {
+  getModelIdsWithAllTags,
+  getOrCreateTag,
+  getTagsForModel,
+  getTagsForModels,
+  InvalidTagNameError,
+} from "../../lib/tags.js";
 import { enqueueSourceSnapshot } from "../../source-snapshot/trigger.js";
 import { getLog } from "../../sync/git.js";
 import { runExclusive } from "../../sync/queue.js";
@@ -84,7 +89,11 @@ export function registerModelRoutes(app: FastifyInstance, db: DbClient, libraryR
   app.get<{
     Querystring: {
       q?: string;
-      tag?: string;
+      // A single `?tag=foo` parses as a string; repeating it (`?tag=foo&tag=bar`)
+      // parses as an array — Fastify's default querystring parser (fast-querystring)
+      // does this for any repeated key, no custom parsing needed. All listed
+      // tags must match (AND), not any one of them.
+      tag?: string | string[];
       favorite?: string;
       page?: string;
       perPage?: string;
@@ -107,17 +116,11 @@ export function registerModelRoutes(app: FastifyInstance, db: DbClient, libraryR
       rows = rows.filter((row) => row.title.toLowerCase().includes(needle));
     }
 
-    const tagFilter = request.query.tag?.trim();
-    if (tagFilter) {
-      const matchingModelIds = new Set(
-        db
-          .select({ modelId: modelTagsTable.modelId })
-          .from(modelTagsTable)
-          .innerJoin(tagsTable, eq(modelTagsTable.tagId, tagsTable.id))
-          .where(sql`lower(${tagsTable.name}) = lower(${tagFilter})`)
-          .all()
-          .map((r) => r.modelId),
-      );
+    const tagFilters = (request.query.tag == null ? [] : ([request.query.tag].flat() as string[]))
+      .map((t) => t.trim())
+      .filter((t) => t.length > 0);
+    if (tagFilters.length > 0) {
+      const matchingModelIds = getModelIdsWithAllTags(db, tagFilters);
       rows = rows.filter((row) => matchingModelIds.has(row.id));
     }
 

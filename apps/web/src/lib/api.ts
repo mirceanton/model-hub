@@ -28,7 +28,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export interface ModelFilters {
   q?: string
-  tag?: string
+  /** All listed tags must match (AND) — sent as repeated `?tag=` params. */
+  tags?: string[]
   favorite?: boolean
   page?: number
   perPage?: number
@@ -39,7 +40,7 @@ export interface ModelFilters {
 export function fetchModels(filters: ModelFilters = {}): Promise<ModelListResult> {
   const params = new URLSearchParams()
   if (filters.q) params.set("q", filters.q)
-  if (filters.tag) params.set("tag", filters.tag)
+  for (const tag of filters.tags ?? []) params.append("tag", tag)
   if (filters.favorite) params.set("favorite", "true")
   if (filters.perPage) params.set("perPage", String(filters.perPage))
   if (filters.page) params.set("page", String(filters.page))

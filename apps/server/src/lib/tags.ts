@@ -134,6 +134,44 @@ export function getTagsForModel(db: DbClient, modelId: number): Tag[] {
   return rows.sort((a, b) => a.name.localeCompare(b.name));
 }
 
+/**
+ * Returns the IDs of models that have *every* one of the given tag names
+ * (case-insensitive AND, not OR) — e.g. `["articulated", "miniature"]` only
+ * matches models tagged with both. Runs one query per tag name and
+ * intersects the resulting ID sets, mirroring the single-tag lookup this
+ * generalizes. Blank names are ignored; an all-blank/empty input matches
+ * nothing (callers should skip calling this when there's no filter).
+ */
+export function getModelIdsWithAllTags(db: DbClient, tagNames: string[]): Set<number> {
+  const names = tagNames.map((name) => name.trim()).filter((name) => name.length > 0);
+  if (names.length === 0) return new Set();
+
+  let result: Set<number> | undefined;
+  for (const tagName of names) {
+    const modelIdsForTag: Set<number> = new Set(
+      db
+        .select({ modelId: modelTagsTable.modelId })
+        .from(modelTagsTable)
+        .innerJoin(tagsTable, eq(modelTagsTable.tagId, tagsTable.id))
+        .where(sql`lower(${tagsTable.name}) = lower(${tagName})`)
+        .all()
+        .map((r) => r.modelId),
+    );
+    const previous = result;
+    if (previous === undefined) {
+      result = modelIdsForTag;
+    } else {
+      const intersection = new Set<number>();
+      for (const id of previous) {
+        if (modelIdsForTag.has(id)) intersection.add(id);
+      }
+      result = intersection;
+    }
+    if (result.size === 0) break;
+  }
+  return result ?? new Set();
+}
+
 export function getTagsForModels(db: DbClient, modelIds: number[]): Map<number, Tag[]> {
   const result = new Map<number, Tag[]>();
   if (modelIds.length === 0) return result;
