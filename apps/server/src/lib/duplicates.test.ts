@@ -21,10 +21,16 @@ function insertModel(db: DbClient, title: string, deletedAt: Date | null = null)
     .get();
 }
 
-function insertFile(db: DbClient, modelId: number, relativePath: string, contentHash: string | null): void {
+function insertFile(
+  db: DbClient,
+  modelId: number,
+  relativePath: string,
+  contentHash: string | null,
+  extension = "stl",
+): void {
   const now = new Date();
   db.insert(filesTable)
-    .values({ modelId, relativePath, sizeBytes: 100, mtime: now, extension: "stl", contentHash })
+    .values({ modelId, relativePath, sizeBytes: 100, mtime: now, extension, contentHash })
     .run();
 }
 
@@ -100,5 +106,17 @@ describe("computeDuplicateModelMap / getDuplicateModels", () => {
     insertFile(db, model.id, "b.stl", "hash-b");
 
     expect(getDuplicateModels(db, model.id)).toEqual([]);
+  });
+
+  it("does not flag two models that only share an identical attachment, not a model file", () => {
+    const modelA = insertModel(db, "Model A");
+    const modelB = insertModel(db, "Model B");
+    insertFile(db, modelA.id, "part.stl", "hash-a");
+    insertFile(db, modelB.id, "part.stl", "hash-b");
+    insertFile(db, modelA.id, "instructions.pdf", "hash-shared-attachment", "pdf");
+    insertFile(db, modelB.id, "instructions.pdf", "hash-shared-attachment", "pdf");
+
+    expect(getDuplicateModels(db, modelA.id)).toEqual([]);
+    expect(getDuplicateModels(db, modelB.id)).toEqual([]);
   });
 });
