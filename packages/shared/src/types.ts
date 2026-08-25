@@ -291,3 +291,58 @@ export interface ProjectDetail extends Project {
   // Non-dismissed notices only — see lib/project-notices.ts's getActiveNoticesForProject.
   notices: ProjectActivityNotice[];
 }
+
+/**
+ * One item's outcome within a bulk (`POST .../bulk`) operation — see issue
+ * #61. `TId` is `number` for models/projects/project-pins (all keyed by
+ * model/project id) and `string` for files within a model (keyed by
+ * relativePath, since files have no numeric id of their own). Every bulk
+ * endpoint in this app returns `BulkResponse<TId>` so the client can report
+ * partial failures item-by-item instead of one opaque all-or-nothing error —
+ * an item that's vanished between page load and the bulk action (deleted by
+ * someone else, a file already removed, ...) is a `success: false` entry
+ * here, never a thrown error that aborts the rest of the batch.
+ */
+export interface BulkResult<TId = number> {
+  id: TId;
+  success: boolean;
+  error?: string;
+}
+
+export interface BulkResponse<TId = number> {
+  results: BulkResult<TId>[];
+}
+
+export type ModelBulkAction = "delete" | "favorite" | "unfavorite" | "add-tag" | "remove-tag";
+
+/**
+ * Body of `POST /api/models/bulk`. `tagName` is required (and validated
+ * once, up front) for `"add-tag"`; `tagId` is required for `"remove-tag"`.
+ * Every other action ignores both fields.
+ */
+export interface ModelsBulkRequest {
+  ids: number[];
+  action: ModelBulkAction;
+  tagName?: string;
+  tagId?: number;
+}
+
+/** Body of `POST /api/models/:id/files/bulk` — `ids` are relativePaths within that one model. */
+export interface ModelFilesBulkRequest {
+  ids: string[];
+  action: "delete";
+}
+
+export type ProjectPinsBulkAction = "remove" | "bump";
+
+/** Body of `POST /api/projects/:id/pins/bulk` — `ids` are modelIds already pinned to that project. */
+export interface ProjectPinsBulkRequest {
+  ids: number[];
+  action: ProjectPinsBulkAction;
+}
+
+/** Body of `POST /api/projects/bulk` — `ids` are project ids. */
+export interface ProjectsBulkRequest {
+  ids: number[];
+  action: "delete";
+}

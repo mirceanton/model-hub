@@ -132,6 +132,26 @@ export function removePin(db: DbClient, projectId: number, modelId: number): voi
     .run();
 }
 
+/**
+ * Whether `modelId` is currently pinned to `projectId` — used by the bulk
+ * pins route (api/routes/projects.ts) to report "not pinned to this
+ * project" as a per-item failure. The single-item DELETE route doesn't need
+ * this (it unconditionally 204s, matching removePin's own no-op-if-absent
+ * behavior), but a bulk batch needs to distinguish "removed" from "wasn't
+ * there to begin with" for its per-item results.
+ */
+export function pinExists(db: DbClient, projectId: number, modelId: number): boolean {
+  return (
+    db
+      .select({ modelId: projectModelPinsTable.modelId })
+      .from(projectModelPinsTable)
+      .where(
+        and(eq(projectModelPinsTable.projectId, projectId), eq(projectModelPinsTable.modelId, modelId)),
+      )
+      .get() != null
+  );
+}
+
 export function getPinsForProject(db: DbClient, projectId: number): PinnedModel[] {
   const rows = db
     .select({ pin: projectModelPinsTable, model: modelsTable })
