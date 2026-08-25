@@ -1,12 +1,14 @@
-import type { GitLogEntry } from "@model-hub/shared"
+import type { GitLogEntry, SourceSnapshotStatus } from "@model-hub/shared"
 import {
   AlertCircle,
   ArrowLeft,
   Camera,
   Copy,
   Download,
+  ExternalLink,
   File,
   GitCommitHorizontal,
+  Globe,
   History,
   Loader2,
   Pencil,
@@ -26,6 +28,14 @@ import { TagEditor } from "@/components/tag-editor"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -39,6 +49,7 @@ import {
   useDeleteModel,
   useDeleteModelFile,
   useModel,
+  useRefreshSourceSnapshot,
   useRegenerateThumbnail,
   useRestoreVersion,
   useUpdateModel,
@@ -98,6 +109,13 @@ export function ModelDetailPage() {
             <ModelFavoriteToggle modelId={model.id} favorite={model.favorite} />
           </div>
           <p className="break-all font-mono text-xs text-muted-foreground">{model.path}</p>
+          <ModelSource
+            modelId={model.id}
+            sourceUrl={model.sourceUrl}
+            snapshotStatus={model.sourceSnapshotStatus}
+            snapshotError={model.sourceSnapshotError}
+            snapshotHtml={model.sourceSnapshotHtml}
+          />
           <TagEditor modelId={model.id} tags={model.tags} />
         </div>
         <div className="flex w-full shrink-0 items-center gap-2 sm:w-auto">
@@ -257,6 +275,156 @@ export function ModelDetailPage() {
           )}
         </TabsContent>
       </Tabs>
+    </div>
+  )
+}
+
+function ModelSource({
+  modelId,
+  sourceUrl,
+  snapshotStatus,
+  snapshotError,
+  snapshotHtml,
+}: {
+  modelId: number
+  sourceUrl: string | null
+  snapshotStatus: SourceSnapshotStatus
+  snapshotError: string | null
+  snapshotHtml: string | null
+}) {
+  const [editing, setEditing] = useState(false)
+  const [value, setValue] = useState(sourceUrl ?? "")
+  const [snapshotOpen, setSnapshotOpen] = useState(false)
+  const update = useUpdateModel(modelId)
+  const refresh = useRefreshSourceSnapshot(modelId)
+
+  function startEditing() {
+    setValue(sourceUrl ?? "")
+    setEditing(true)
+  }
+
+  function commit() {
+    setEditing(false)
+    const trimmed = value.trim()
+    if (trimmed !== (sourceUrl ?? "")) {
+      update.mutate({ sourceUrl: trimmed || null })
+    }
+  }
+
+  if (editing) {
+    return (
+      <div className="flex items-center gap-2">
+        <Globe className="size-3.5 shrink-0 text-muted-foreground" />
+        <Input
+          autoFocus
+          type="url"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") commit()
+            if (e.key === "Escape") {
+              setValue(sourceUrl ?? "")
+              setEditing(false)
+            }
+          }}
+          placeholder="https://www.printables.com/model/…"
+          className="h-7 max-w-sm text-xs"
+        />
+      </div>
+    )
+  }
+
+  if (!sourceUrl) {
+    return (
+      <button
+        type="button"
+        onClick={startEditing}
+        className="flex w-fit items-center gap-1.5 rounded px-1 py-0.5 text-left text-xs text-muted-foreground hover:bg-muted/50"
+        title="Click to add a source URL"
+      >
+        <Globe className="size-3.5" />
+        Add source URL
+      </button>
+    )
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      <Globe className="size-3.5 shrink-0 text-muted-foreground" />
+      <a
+        href={sourceUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        title={sourceUrl}
+        className="inline-flex max-w-xs items-center gap-1 truncate text-xs text-muted-foreground hover:text-foreground hover:underline"
+      >
+        <span className="truncate">{sourceUrl}</span>
+        <ExternalLink className="size-3 shrink-0" />
+      </a>
+      <button
+        type="button"
+        onClick={startEditing}
+        className="rounded p-0.5 text-muted-foreground hover:bg-muted/50"
+        aria-label="Edit source URL"
+        title="Edit source URL"
+      >
+        <Pencil className="size-3" />
+      </button>
+
+      {snapshotStatus === "pending" && (
+        <Badge variant="outline" className="gap-1 text-muted-foreground">
+          <Loader2 className="size-3 animate-spin" />
+          Snapshotting…
+        </Badge>
+      )}
+      {snapshotStatus === "error" && (
+        <Badge
+          variant="outline"
+          className="gap-1 border-destructive/50 text-destructive"
+          title={snapshotError ?? "Snapshot fetch failed"}
+        >
+          <AlertCircle className="size-3" />
+          Snapshot unavailable
+        </Badge>
+      )}
+      {snapshotStatus === "ready" && snapshotHtml && (
+        <Dialog open={snapshotOpen} onOpenChange={setSnapshotOpen}>
+          <DialogTrigger render={<Button variant="ghost" size="sm" className="h-6 px-1.5 text-xs" />}>
+            View saved snapshot
+          </DialogTrigger>
+          <DialogContent className="max-w-3xl sm:max-w-3xl">
+            <DialogHeader>
+              <DialogTitle>Saved snapshot</DialogTitle>
+              <DialogDescription>
+                A sanitized copy of the source page from the last fetch — in case the live link ever
+                goes dead. Rendered in a sandboxed frame with scripts disabled.
+              </DialogDescription>
+            </DialogHeader>
+            <iframe
+              title="Saved source snapshot"
+              srcDoc={snapshotHtml}
+              // No `allow-scripts` (or anything else) — this is the
+              // defense-in-depth layer on top of server-side sanitization:
+              // even a sanitizer gap can't execute script here.
+              sandbox=""
+              referrerPolicy="no-referrer"
+              className="h-[60vh] w-full rounded-md border bg-white"
+            />
+          </DialogContent>
+        </Dialog>
+      )}
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        className="size-6"
+        disabled={refresh.isPending}
+        onClick={() => refresh.mutate()}
+        title="Refresh saved snapshot"
+        aria-label="Refresh saved snapshot"
+      >
+        <RefreshCw className={cn("size-3", refresh.isPending && "animate-spin")} />
+      </Button>
     </div>
   )
 }

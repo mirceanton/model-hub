@@ -24,6 +24,7 @@ import {
   fetchTrash,
   logout,
   purgeFromTrash,
+  refreshSourceSnapshot,
   regenerateThumbnail,
   removeModelTag,
   removeProjectPin,
@@ -185,8 +186,21 @@ export function useRemoveTag(id: number) {
 export function useUpdateModel(id: number) {
   const invalidate = useInvalidateModel(id)
   return useMutation({
-    mutationFn: (patch: { title?: string; description?: string; favorite?: boolean; primaryFilePath?: string }) =>
-      updateModel(id, patch),
+    mutationFn: (patch: {
+      title?: string
+      description?: string
+      favorite?: boolean
+      primaryFilePath?: string
+      sourceUrl?: string | null
+    }) => updateModel(id, patch),
+    onSuccess: invalidate,
+  })
+}
+
+export function useRefreshSourceSnapshot(id: number) {
+  const invalidate = useInvalidateModel(id)
+  return useMutation({
+    mutationFn: () => refreshSourceSnapshot(id),
     onSuccess: invalidate,
   })
 }
@@ -194,7 +208,8 @@ export function useUpdateModel(id: number) {
 export function useCreateModel() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (input: { title: string; tags: string[]; files: File[] }) => createModel(input),
+    mutationFn: (input: { title: string; tags: string[]; files: File[]; sourceUrl?: string }) =>
+      createModel(input),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["models"] })
       void queryClient.invalidateQueries({ queryKey: ["tags"] })

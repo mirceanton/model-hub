@@ -55,7 +55,13 @@ export function fetchModel(id: number): Promise<ModelDetail> {
 
 export function updateModel(
   id: number,
-  patch: { title?: string; description?: string; favorite?: boolean; primaryFilePath?: string },
+  patch: {
+    title?: string
+    description?: string
+    favorite?: boolean
+    primaryFilePath?: string
+    sourceUrl?: string | null
+  },
 ): Promise<Model> {
   return request<Model>(`/api/models/${id}`, {
     method: "PATCH",
@@ -64,12 +70,18 @@ export function updateModel(
   })
 }
 
-export function createModel(input: { title: string; tags: string[]; files: File[] }): Promise<Model> {
+export function createModel(input: {
+  title: string
+  tags: string[]
+  files: File[]
+  sourceUrl?: string
+}): Promise<Model> {
   const formData = new FormData()
   // Server derives the library directory from "title" before it can stream
-  // "files" parts in, so title (and tags) must be appended before files.
+  // "files" parts in, so title (and tags/sourceUrl) must be appended before files.
   formData.append("title", input.title)
   for (const tag of input.tags) formData.append("tags", tag)
+  if (input.sourceUrl) formData.append("sourceUrl", input.sourceUrl)
   for (const file of input.files) formData.append("files", file, file.name)
   return request<Model>("/api/models", { method: "POST", body: formData })
 }
@@ -141,6 +153,17 @@ export function captureThumbnail(id: number, image: Blob): Promise<CaptureThumbn
   return request<CaptureThumbnailResult>(`/api/models/${id}/thumbnail/capture`, {
     method: "POST",
     body: formData,
+  })
+}
+
+export interface RefreshSourceSnapshotResult {
+  ok: true
+  sourceSnapshotStatus: "pending"
+}
+
+export function refreshSourceSnapshot(id: number): Promise<RefreshSourceSnapshotResult> {
+  return request<RefreshSourceSnapshotResult>(`/api/models/${id}/source-snapshot/refresh`, {
+    method: "POST",
   })
 }
 

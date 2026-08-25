@@ -30,6 +30,26 @@ export const models = sqliteTable("models", {
   missingSince: integer("missing_since", { mode: "timestamp_ms" }),
   // Pins a model to the top of the library list — see api/routes/models.ts's default sort.
   favorite: integer("favorite", { mode: "boolean" }).notNull().default(false),
+  // Where this model came from (Thingiverse/Printables/MakerWorld/etc.) —
+  // free text but validated as an http(s) URL by the route layer. Changing
+  // it (including from null) enqueues an async re-fetch of a sanitized HTML
+  // snapshot (see source-snapshot/) so the origin page is still viewable
+  // after link rot; setting it back to null clears the stored snapshot too.
+  sourceUrl: text("source_url"),
+  // "none": no sourceUrl set. "pending": a fetch is queued/in flight.
+  // "ready"/"error" are terminal until the next save or manual refresh.
+  sourceSnapshotStatus: text("source_snapshot_status", {
+    enum: ["none", "pending", "ready", "error"],
+  })
+    .notNull()
+    .default("none"),
+  // Sanitized (see lib/sanitize-html.ts) HTML of the last successful fetch
+  // of sourceUrl — "latest snapshot only", no history. Never trust this as
+  // safe-to-render-unsandboxed on its own: the web app's viewer also renders
+  // it inside a script-less sandboxed iframe as defense in depth.
+  sourceSnapshotHtml: text("source_snapshot_html"),
+  sourceSnapshotError: text("source_snapshot_error"),
+  sourceSnapshotFetchedAt: integer("source_snapshot_fetched_at", { mode: "timestamp_ms" }),
   // Non-null means "in the trash": the on-disk directory has been moved under
   // LIBRARY_ROOT/.trash/ (see lib/fs-utils.ts's TRASH_DIRNAME) and `path`
   // updated to match, and the row is excluded from GET /api/models and every

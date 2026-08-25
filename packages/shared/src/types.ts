@@ -1,6 +1,8 @@
 export type SyncStatus = "ok" | "error" | "missing";
 export type ThumbnailStatus = "pending" | "generating" | "ready" | "error";
 export type ThumbnailSource = "auto" | "manual";
+/** "none": no sourceUrl set. "pending": a snapshot fetch is queued/in flight. "ready"/"error" are terminal until the next save or manual refresh. */
+export type SourceSnapshotStatus = "none" | "pending" | "ready" | "error";
 export type ModelExtension = "stl" | "3mf" | "obj";
 export type ModelSortField = "title" | "createdAt";
 export type SortOrder = "asc" | "desc";
@@ -91,6 +93,15 @@ export interface Model {
   syncError: string | null;
   missingSince: number | null;
   favorite: boolean;
+  // Where this model came from (Thingiverse/Printables/MakerWorld/etc.), or
+  // null if unset. See sourceSnapshotStatus for the anti-link-rot HTML
+  // snapshot fetched from this URL — see ModelDetail.sourceSnapshotHtml for
+  // the (sanitized) snapshot content itself, only present on the detail
+  // response.
+  sourceUrl: string | null;
+  sourceSnapshotStatus: SourceSnapshotStatus;
+  sourceSnapshotError: string | null;
+  sourceSnapshotFetchedAt: number | null;
   // Always null on every Model returned by the normal model routes (they
   // filter trashed rows out) — present so a trashed model briefly in flight
   // through a shared code path still type-checks. See TrashedModel for the
@@ -142,6 +153,12 @@ export interface ModelDetail extends Model {
   // primary-file candidates.
   attachments: FileEntry[];
   gitLog: GitLogEntry[];
+  // Sanitized (server-side, before storage — see the server's
+  // lib/sanitize-html.ts) HTML of the last successful sourceUrl fetch, or
+  // null if none has ever succeeded. Still render this inside a script-less
+  // sandboxed iframe (defense in depth) rather than trusting sanitization
+  // alone — see apps/web/src/routes/model-detail.tsx's snapshot viewer.
+  sourceSnapshotHtml: string | null;
 }
 
 /** One {model, pinned commit} pair within a Project — the "submodule pointer." */

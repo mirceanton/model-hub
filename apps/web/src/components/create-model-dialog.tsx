@@ -28,6 +28,7 @@ import { tagBadgeStyle } from "@/lib/tag-colors"
 export function CreateModelDialog() {
   const [open, setOpen] = useState(false)
   const [title, setTitle] = useState("")
+  const [sourceUrl, setSourceUrl] = useState("")
   const [tags, setTags] = useState<string[]>([])
   const [tagQuery, setTagQuery] = useState("")
   const [files, setFiles] = useState<File[]>([])
@@ -58,6 +59,7 @@ export function CreateModelDialog() {
 
   function reset() {
     setTitle("")
+    setSourceUrl("")
     setTags([])
     setTagQuery("")
     setFiles([])
@@ -68,7 +70,7 @@ export function CreateModelDialog() {
   function handleSubmit() {
     if (!title.trim() || files.length === 0) return
     createModel.mutate(
-      { title, tags, files },
+      { title, tags, files, sourceUrl: sourceUrl.trim() || undefined },
       {
         onSuccess: (model) => {
           setOpen(false)
@@ -106,6 +108,13 @@ export function CreateModelDialog() {
             onChange={(e) => setTitle(e.target.value)}
             placeholder="Model name"
             autoFocus
+          />
+
+          <Input
+            type="url"
+            value={sourceUrl}
+            onChange={(e) => setSourceUrl(e.target.value)}
+            placeholder="Source URL (optional) — e.g. Thingiverse, Printables…"
           />
 
           <div className="flex flex-wrap items-center gap-1.5">
