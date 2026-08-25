@@ -14,6 +14,11 @@ type Job = () => Promise<void>;
  * queue only knows a job ran, not how it turned out (see the comment on
  * the catch below).
  */
+export interface ThumbnailQueueState {
+  pending: number;
+  active: number;
+}
+
 export class ThumbnailQueue {
   private readonly concurrency: number;
   private active = 0;
@@ -21,6 +26,16 @@ export class ThumbnailQueue {
 
   constructor(concurrency: number) {
     this.concurrency = concurrency;
+  }
+
+  /**
+   * Reads the same `pending`/`active` fields the gauges above are set from —
+   * the instance stats page (issue #73) calls this via trigger.ts's
+   * getThumbnailQueueState() instead of scraping /metrics or recomputing
+   * queue depth some other way.
+   */
+  getState(): ThumbnailQueueState {
+    return { pending: this.pending.length, active: this.active };
   }
 
   enqueue(job: Job): void {

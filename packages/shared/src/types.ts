@@ -80,6 +80,54 @@ export interface ApiTokenCreated extends ApiToken {
   token: string;
 }
 
+/**
+ * Global, instance-wide snapshot for the Settings/Stats page (issue #73) —
+ * deliberately not scoped to any user, model, or project. Backed by
+ * apps/server/src/api/routes/stats.ts, which reuses issue #71's Prometheus
+ * metrics data (thumbnail queue state, last-scan stats) rather than
+ * recomputing them a second way.
+ */
+export interface InstanceStats {
+  storage: {
+    /** Actual bytes used under LIBRARY_ROOT on disk (recursive, includes .git/.thumbnails). */
+    libraryUsedBytes: number;
+    /** Total size of the volume LIBRARY_ROOT is mounted on. */
+    volumeTotalBytes: number;
+    /** Free space on that volume, including the portion reserved for root. */
+    volumeFreeBytes: number;
+    /** Free space on that volume available to unprivileged users. */
+    volumeAvailableBytes: number;
+  };
+  counts: {
+    /** Active (non-trashed) models only. */
+    models: number;
+    projects: number;
+    tags: number;
+    /** Active models grouped by thumbnailStatus — every ThumbnailStatus key is always present, defaulting to 0. */
+    thumbnailStatus: Record<ThumbnailStatus, number>;
+  };
+  thumbnailQueue: {
+    /** Jobs queued but not yet started. */
+    pending: number;
+    /** Jobs currently rendering. */
+    active: number;
+  };
+  sync: {
+    /** Unix ms timestamp the most recent full-library scan finished, or null if none has completed since this process started. */
+    lastScanAt: number | null;
+    lastScanDurationSeconds: number | null;
+    /** Active models currently in syncStatus "error". */
+    errorModelCount: number;
+    /** Active models currently in syncStatus "missing". */
+    missingModelCount: number;
+  };
+  instance: {
+    version: string;
+    oidcEnabled: boolean;
+    libraryRoot: string;
+  };
+}
+
 export interface Tag {
   id: number;
   name: string;

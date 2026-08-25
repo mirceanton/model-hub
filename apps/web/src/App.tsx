@@ -8,6 +8,7 @@ import { ModelDetailPage } from "@/routes/model-detail"
 import { ModelListPage } from "@/routes/model-list"
 import { ProjectDetailPage } from "@/routes/project-detail"
 import { ProjectListPage } from "@/routes/project-list"
+import { StatsPage } from "@/routes/stats"
 import { TrashPage } from "@/routes/trash"
 
 // Only ever navigated to by the headless thumbnail worker, never a real user —
@@ -47,6 +48,7 @@ export default function App() {
         <Route path="projects/:id" element={<ProjectDetailPage />} />
         <Route path="trash" element={<TrashPage />} />
         <Route path="tokens" element={<ApiTokensPage />} />
+        <Route path="stats" element={<StatsPage />} />
         <Route path="admin" element={<AdminPage />} />
       </Route>
     </Routes>

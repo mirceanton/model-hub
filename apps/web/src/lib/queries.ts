@@ -18,6 +18,7 @@ import {
   fetchAdminUsers,
   fetchApiTokens,
   fetchAuthMe,
+  fetchInstanceStats,
   fetchModel,
   fetchModels,
   fetchProject,
@@ -364,6 +365,26 @@ export function useRoleMapping() {
   return useQuery({
     queryKey: ["admin", "role-mapping"],
     queryFn: fetchRoleMapping,
+  })
+}
+
+/**
+ * Deliberately no refetchInterval, unlike most other queries here: GET
+ * /api/stats does a genuine recursive `stat` walk of the whole LIBRARY_ROOT
+ * tree to compute storage usage (no cheaper data source exists for that
+ * number — see apps/server/src/lib/disk-usage.ts), so polling it every
+ * REFETCH_INTERVAL_MS would re-walk the entire library on disk every few
+ * seconds for as long as an admin has the Stats page open. That's
+ * especially costly over the NFS/SMB-mounted libraries this app explicitly
+ * supports (see CLAUDE.md's sync engine notes on network-mount reliability/
+ * cost). The Stats page instead exposes a manual refresh action; react-
+ * query's refetch-on-window-focus default still keeps it reasonably fresh
+ * without a timer.
+ */
+export function useInstanceStats() {
+  return useQuery({
+    queryKey: ["stats"],
+    queryFn: fetchInstanceStats,
   })
 }
 
