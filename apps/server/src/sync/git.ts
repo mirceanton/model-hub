@@ -3,7 +3,7 @@ import { rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import type { Readable } from "node:stream";
 import { simpleGit, type SimpleGit } from "simple-git";
-import type { GitLogEntry } from "@model-hub/shared";
+import type { FileChangeEntry, GitLogEntry } from "@model-hub/shared";
 
 export interface GitIdentity {
   name: string;
@@ -155,6 +155,42 @@ export function catFileBlobStream(modelDir: string, blobSha: string): Readable {
   });
   child.on("error", (err) => child.stdout.emit("error", err));
   return child.stdout;
+}
+
+const NAME_STATUS_CODES: Record<string, FileChangeEntry["status"]> = {
+  A: "added",
+  M: "modified",
+  D: "removed",
+};
+
+/**
+ * File-level changes between two commits (`git diff --name-status`), used
+ * by GET /api/models/:id/diff to preview a project pin bump before
+ * committing to it — see api/routes/versions.ts and lib/model-diff.ts.
+ * Uses simple-git's raw diff() (it cleanly supports arbitrary args and
+ * returns the raw string, unlike diffSummary()'s --stat-derived shape,
+ * which has no add/modify/remove status) rather than a direct spawn like
+ * catFileBlobStream — no binary-safety concern here, this is just short
+ * status+path text. --no-renames keeps statuses to a plain A/M/D set
+ * matching FileChangeEntry's three categories, rather than surfacing R/C
+ * rename-detection statuses the caller would have to special-case. -z
+ * NUL-terminates each field (not just each record) so a status and its
+ * path are two separate NUL-terminated tokens, safe against filenames
+ * containing tabs or newlines.
+ */
+export async function getFileDiff(modelDir: string, from: string, to: string): Promise<FileChangeEntry[]> {
+  const git = clientFor(modelDir);
+  const raw = await git.diff(["--name-status", "--no-renames", "-z", from, to]);
+  const tokens = raw.split("\0").filter((t) => t.length > 0);
+  const entries: FileChangeEntry[] = [];
+  for (let i = 0; i < tokens.length; i += 2) {
+    const code = tokens[i];
+    const path = tokens[i + 1];
+    const status = code ? NAME_STATUS_CODES[code] : undefined;
+    if (!status || !path) continue; // unexpected/unmapped status code — skip rather than mis-tag it
+    entries.push({ path, status });
+  }
+  return entries;
 }
 
 export async function getLog(modelDir: string): Promise<GitLogEntry[]> {

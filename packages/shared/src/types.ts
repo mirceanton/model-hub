@@ -206,6 +206,23 @@ export interface GitLogEntry {
   date: string;
 }
 
+/** One path's change between two commits, from `git diff --name-status`. */
+export interface FileChangeEntry {
+  path: string;
+  status: "added" | "modified" | "removed";
+}
+
+/**
+ * The response of GET /api/models/:id/diff?from=<sha>&to=<sha> — the
+ * intervening commit log (see GitLogEntry) plus a file-level change list,
+ * used by the project pin-bump UI to preview a bump before confirming it.
+ * No geometric/visual mesh diff — file-list only, see issue #68.
+ */
+export interface ModelDiff {
+  commits: GitLogEntry[];
+  files: FileChangeEntry[];
+}
+
 export interface ModelListResult {
   data: Model[];
   total: number;

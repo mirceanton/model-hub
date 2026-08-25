@@ -21,6 +21,7 @@ import {
   fetchAuthMe,
   fetchInstanceStats,
   fetchModel,
+  fetchModelDiff,
   fetchModels,
   fetchProject,
   fetchProjects,
@@ -81,6 +82,20 @@ export function useModel(id: number) {
     queryFn: () => fetchModel(id),
     enabled: Number.isFinite(id),
     refetchInterval: REFETCH_INTERVAL_MS,
+  })
+}
+
+/**
+ * The file-list diff preview shown before a project pin bump is confirmed
+ * (manual re-pin or "bump to latest") — see ProjectPinRow. Disabled until
+ * both shas are known and differ, so opening the confirm step never fires a
+ * request for a no-op bump.
+ */
+export function useModelDiff(modelId: number, from: string | undefined, to: string | undefined) {
+  return useQuery({
+    queryKey: ["models", modelId, "diff", from, to],
+    queryFn: () => fetchModelDiff(modelId, from!, to!),
+    enabled: Number.isFinite(modelId) && !!from && !!to && from !== to,
   })
 }
 
