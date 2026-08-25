@@ -5,6 +5,7 @@ import type {
   InstanceStats,
   Model,
   ModelDetail,
+  ModelDiff,
   ModelListResult,
   ModelSortField,
   OidcRoleMapping,
@@ -144,6 +145,17 @@ export function restoreModelVersion(id: number, sha: string): Promise<RestoreRes
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ sha }),
   })
+}
+
+/**
+ * The commit log between two shas plus a file-level add/modify/remove
+ * change list — used to preview a project pin bump (manual re-pin or
+ * "bump to latest") before confirming it. Generic model-level endpoint,
+ * not project-specific — see CLAUDE.md's Projects section and issue #68.
+ */
+export function fetchModelDiff(modelId: number, from: string, to: string): Promise<ModelDiff> {
+  const params = new URLSearchParams({ from, to })
+  return request<ModelDiff>(`/api/models/${modelId}/diff?${params.toString()}`)
 }
 
 export interface RegenerateThumbnailResult {

@@ -1,4 +1,4 @@
-import type { PinnedModel } from "@model-hub/shared";
+import type { GitLogEntry, PinnedModel } from "@model-hub/shared";
 import { and, eq, inArray } from "drizzle-orm";
 import type { DbClient } from "../db/client.js";
 import {
@@ -14,6 +14,22 @@ export class ModelAlreadyPinnedError extends Error {}
 export class ModelHasNoCommitsError extends Error {}
 
 type PinnableModel = Pick<ModelRow, "path" | "lastSyncedCommitSha">;
+
+/**
+ * Validates `sha` against an already-fetched git log, throwing
+ * InvalidCommitShaError if it isn't a known commit for this model. Shared
+ * by resolvePinTarget below and by lib/model-diff.ts's GET
+ * /api/models/:id/diff (which validates both its `from` and `to` shas this
+ * way before running any git command against them) — same pattern as
+ * versions.ts's /restore handler used before this was extracted.
+ */
+export function validateShaInLog(log: GitLogEntry[], sha: string): GitLogEntry {
+  const target = log.find((entry) => entry.sha === sha);
+  if (!target) {
+    throw new InvalidCommitShaError("sha is not a known commit for this model");
+  }
+  return target;
+}
 
 /**
  * Validates `requestedSha` against the model's own git log — same pattern as
@@ -38,10 +54,7 @@ export async function resolvePinTarget(
   }
 
   const log = await getLog(model.path);
-  const target = log.find((entry) => entry.sha === sha);
-  if (!target) {
-    throw new InvalidCommitShaError("sha is not a known commit for this model");
-  }
+  const target = validateShaInLog(log, sha);
   return { sha: target.sha, message: target.message };
 }
 

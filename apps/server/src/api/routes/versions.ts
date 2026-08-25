@@ -8,7 +8,9 @@ import type { Config } from "../../config.js";
 import type { DbClient } from "../../db/client.js";
 import { files as filesTable } from "../../db/schema.js";
 import { sanitizeUploadFilename } from "../../lib/fs-utils.js";
+import { getModelDiff } from "../../lib/model-diff.js";
 import { getActiveModel } from "../../lib/model-lookup.js";
+import { InvalidCommitShaError } from "../../lib/project-pins.js";
 import { uploadRateLimit } from "../../lib/rate-limit.js";
 import { getLog, restoreToCommit } from "../../sync/git.js";
 import { runExclusive } from "../../sync/queue.js";
@@ -111,6 +113,46 @@ export function registerVersionRoutes(app: FastifyInstance, db: DbClient, config
       }
       maybeEnqueueThumbnail(db, model, result);
       return { ok: true, committed: result.committed };
+    },
+  );
+
+  // Generically useful beyond the Projects pin-bump flow (e.g. "what changed
+  // since I last looked at this model's history"), so this lives at the
+  // model level rather than under /api/projects — see issue #68. Uses
+  // getActiveModel (not the unfiltered lookup #67's project export route
+  // uses): unlike export, there's no data-preservation motive for reaching a
+  // trashed model here, and the one caller that exists today (the pin-bump
+  // UI) already requires an active model for the PATCH it previews, since
+  // /api/projects/:id/pins/:modelId itself 404s on a trashed model. This
+  // follows the stricter convention most "normal" model routes use (see
+  // lib/model-lookup.ts), same as this model's own gitLog on GET
+  // /api/models/:id.
+  app.get<{ Params: { id: string }; Querystring: { from?: string; to?: string } }>(
+    "/api/models/:id/diff",
+    async (request, reply) => {
+      const id = Number(request.params.id);
+      if (!Number.isInteger(id)) {
+        return reply.code(400).send({ error: "invalid model id" });
+      }
+
+      const model = getActiveModel(db, id);
+      if (!model) {
+        return reply.code(404).send({ error: "model not found" });
+      }
+
+      const { from, to } = request.query;
+      if (!from || !to) {
+        return reply.code(400).send({ error: "from and to are required" });
+      }
+
+      try {
+        return await getModelDiff(model.path, from, to);
+      } catch (err) {
+        if (err instanceof InvalidCommitShaError) {
+          return reply.code(400).send({ error: err.message });
+        }
+        throw err;
+      }
     },
   );
 
