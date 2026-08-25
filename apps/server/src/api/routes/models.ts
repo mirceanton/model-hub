@@ -20,6 +20,7 @@ import type { DbClient } from "../../db/client.js";
 import {
   bulkResponseSchema,
   errorResponseSchema,
+  errorResponseWithSkippedFilesSchema,
   modelDetailSchema,
   modelListResultSchema,
   modelSchema,
@@ -315,7 +316,7 @@ export function registerModelRoutes(
         consumes: ["multipart/form-data"],
         response: {
           201: modelSchema,
-          400: errorResponseSchema,
+          400: errorResponseWithSkippedFilesSchema,
         },
       },
     },

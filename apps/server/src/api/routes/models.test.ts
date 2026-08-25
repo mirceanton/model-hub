@@ -301,6 +301,23 @@ describe("sourceUrl on the model routes", () => {
     expect(res.statusCode).toBe(400);
     expect(res.json()).toMatchObject({ error: expect.stringContaining("sourceUrl") });
   });
+
+  it("includes skippedFiles in the 400 response when no valid model file is uploaded", async () => {
+    const form = new FormData();
+    form.append("title", "New Model");
+    form.append("files", new Blob(["not a model"]), "notes.txt");
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/models",
+      payload: form,
+    });
+
+    expect(res.statusCode).toBe(400);
+    const body = res.json() as { error: string; skippedFiles: string[] };
+    expect(body.error).toContain("model file");
+    expect(body.skippedFiles).toEqual(["notes.txt"]);
+  });
 });
 
 describe("filtering the model list by tag", () => {
