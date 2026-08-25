@@ -91,6 +91,24 @@ is unauthenticated by design — even when OIDC is enabled — so it stays
 scrapeable without a session or token. If this instance is reachable
 beyond a trusted network, firewall `/metrics` off at the network level.
 
+## API tokens (scripting/automation)
+
+For scripts that need API access without a browser session — e.g. a slicer
+post-processing hook that pushes a new model version after every successful
+print — create a personal API token from the **API Tokens** page in the UI.
+The plaintext value is shown exactly once, at creation; only its hash is
+ever stored. A token authenticates as you, with your current role, and can
+be revoked at any time from the same page.
+
+```bash
+curl -H "Authorization: Bearer mh_pat_<your token>" \
+  http://localhost:4000/api/models
+```
+
+This works the same whether or not OIDC is configured — in single-user mode
+every request already succeeds regardless, so a token there is mostly
+useful for keeping scripts forward-compatible with a future move to OIDC.
+
 ## Development
 
 Monorepo (pnpm workspaces): `apps/server` (Fastify API + sync engine +

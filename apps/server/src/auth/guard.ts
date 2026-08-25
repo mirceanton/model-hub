@@ -2,18 +2,36 @@ import type { UserRole } from "@model-hub/shared";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { Config } from "../config.js";
 import type { DbClient } from "../db/client.js";
+import type { UserRow } from "../db/schema.js";
 import { roleSatisfies } from "../lib/roles.js";
+import { getUserByApiToken } from "./api-tokens.js";
 import { readSessionCookie } from "./cookie.js";
 import { INTERNAL_RENDER_HEADER, INTERNAL_RENDER_TOKEN } from "./internal-token.js";
 import { ensureLocalOwner, getUserBySession } from "./session.js";
+
+const BEARER_PREFIX = "Bearer ";
+
+/** Extracts the token from an `Authorization: Bearer <token>` header, or null if absent/malformed. */
+function readBearerToken(request: FastifyRequest): string | null {
+  const header = request.headers.authorization;
+  if (!header || !header.startsWith(BEARER_PREFIX)) return null;
+  const token = header.slice(BEARER_PREFIX.length).trim();
+  return token || null;
+}
 
 /**
  * Resolves request.user for every request. In single-user mode (no OIDC
  * configured) every request is the synthetic local owner and nothing is ever
  * rejected — this is what keeps the rest of the app oblivious to which auth
- * mode it's running in. In OIDC mode, unauthenticated requests to protected
+ * mode it's running in (personal API tokens are still creatable in this
+ * mode, since request.user is always set, but a bearer token is never
+ * actually checked here — there's nothing to gate: every request already
+ * succeeds regardless). In OIDC mode, unauthenticated requests to protected
  * /api/* routes get a 401; /api/auth/me is exempt so the frontend can always
- * ask "am I logged in?" without hitting the gate itself.
+ * ask "am I logged in?" without hitting the gate itself. An `Authorization:
+ * Bearer <token>` header is checked before the session cookie, so a request
+ * bearing a personal API token (auth/api-tokens.ts) authenticates AS that
+ * token's owning user, with their *current* role — same as a session.
  */
 export function registerAuthGuard(app: FastifyInstance, db: DbClient, config: Config): void {
   if (!config.oidc) {
@@ -31,8 +49,14 @@ export function registerAuthGuard(app: FastifyInstance, db: DbClient, config: Co
       return;
     }
 
-    const sessionId = readSessionCookie(request);
-    const user = sessionId ? getUserBySession(db, sessionId) : null;
+    const bearerToken = readBearerToken(request);
+    let user: UserRow | null = null;
+    if (bearerToken) {
+      user = getUserByApiToken(db, bearerToken);
+    } else {
+      const sessionId = readSessionCookie(request);
+      user = sessionId ? getUserBySession(db, sessionId) : null;
+    }
     if (user) {
       request.user = user;
     }

@@ -42,6 +42,9 @@ function TopNav() {
       <NavLink to="/trash" className={linkClass}>
         Trash
       </NavLink>
+      <NavLink to="/tokens" className={linkClass}>
+        API Tokens
+      </NavLink>
       {data?.user?.role === "admin" && (
         <NavLink to="/admin" className={linkClass}>
           Admin
