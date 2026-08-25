@@ -13,6 +13,7 @@ import {
   type ModelRow,
 } from "../../db/schema.js";
 import { computeDuplicateModelMap, type DuplicateModelRef, getDuplicateModels } from "../../lib/duplicates.js";
+import { getModelFileAggregates, getModelIdsWithExtension } from "../../lib/file-filters.js";
 import {
   ensureMarkerId,
   MODEL_EXTENSIONS,
@@ -83,7 +84,15 @@ export async function pickModelDirPath(libraryRoot: string, db: DbClient, base: 
 const SORT_COLUMNS = {
   title: sql`lower(${modelsTable.title})`,
   createdAt: modelsTable.createdAt,
+  lastSyncedAt: modelsTable.lastSyncedAt,
 } as const;
+
+/** Parses a query-string value as a non-negative integer, or undefined if missing/blank/invalid. */
+function parseNonNegativeInt(value: string | undefined): number | undefined {
+  if (value === undefined || value.trim() === "") return undefined;
+  const n = Number(value);
+  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : undefined;
+}
 
 export function registerModelRoutes(app: FastifyInstance, db: DbClient, libraryRoot: string): void {
   app.get<{
@@ -95,13 +104,24 @@ export function registerModelRoutes(app: FastifyInstance, db: DbClient, libraryR
       // tags must match (AND), not any one of them.
       tag?: string | string[];
       favorite?: string;
+      // Matches a model having at least one tracked file (model file or
+      // attachment, e.g. "obj" or "pdf") with this extension — see
+      // lib/file-filters.ts's getModelIdsWithExtension.
+      extension?: string;
+      minSizeBytes?: string;
+      maxSizeBytes?: string;
+      minFiles?: string;
+      maxFiles?: string;
       page?: string;
       perPage?: string;
       sort?: string;
       order?: string;
     };
   }>("/api/models", async (request) => {
-    const sortField = request.query.sort === "createdAt" ? "createdAt" : "title";
+    const sortField =
+      request.query.sort === "createdAt" || request.query.sort === "lastSyncedAt"
+        ? request.query.sort
+        : "title";
     const orderFn = request.query.order === "desc" ? desc : asc;
 
     let rows = db
@@ -126,6 +146,28 @@ export function registerModelRoutes(app: FastifyInstance, db: DbClient, libraryR
 
     if (request.query.favorite === "true") {
       rows = rows.filter((row) => row.favorite);
+    }
+
+    const extensionFilter = request.query.extension?.trim().toLowerCase();
+    if (extensionFilter) {
+      const matchingModelIds = getModelIdsWithExtension(db, extensionFilter);
+      rows = rows.filter((row) => matchingModelIds.has(row.id));
+    }
+
+    const minSizeBytes = parseNonNegativeInt(request.query.minSizeBytes);
+    const maxSizeBytes = parseNonNegativeInt(request.query.maxSizeBytes);
+    const minFiles = parseNonNegativeInt(request.query.minFiles);
+    const maxFiles = parseNonNegativeInt(request.query.maxFiles);
+    if (minSizeBytes !== undefined || maxSizeBytes !== undefined || minFiles !== undefined || maxFiles !== undefined) {
+      const aggregates = getModelFileAggregates(db);
+      rows = rows.filter((row) => {
+        const agg = aggregates.get(row.id) ?? { totalSizeBytes: 0, fileCount: 0 };
+        if (minSizeBytes !== undefined && agg.totalSizeBytes < minSizeBytes) return false;
+        if (maxSizeBytes !== undefined && agg.totalSizeBytes > maxSizeBytes) return false;
+        if (minFiles !== undefined && agg.fileCount < minFiles) return false;
+        if (maxFiles !== undefined && agg.fileCount > maxFiles) return false;
+        return true;
+      });
     }
 
     const total = rows.length;

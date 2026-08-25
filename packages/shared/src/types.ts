@@ -4,7 +4,7 @@ export type ThumbnailSource = "auto" | "manual";
 /** "none": no sourceUrl set. "pending": a snapshot fetch is queued/in flight. "ready"/"error" are terminal until the next save or manual refresh. */
 export type SourceSnapshotStatus = "none" | "pending" | "ready" | "error";
 export type ModelExtension = "stl" | "3mf" | "obj";
-export type ModelSortField = "title" | "createdAt";
+export type ModelSortField = "title" | "createdAt" | "lastSyncedAt";
 export type SortOrder = "asc" | "desc";
 
 /**
