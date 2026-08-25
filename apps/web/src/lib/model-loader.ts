@@ -1,4 +1,4 @@
-import type { ModelExtension } from "@model-hub/shared"
+import { classifyAttachmentExtension, type ModelExtension } from "@model-hub/shared"
 
 export function fileUrl(modelId: number, relativePath: string): string {
   return `/api/models/${modelId}/files/${relativePath.split("/").map(encodeURIComponent).join("/")}`
@@ -15,4 +15,12 @@ export function thumbnailUrl(modelId: number, cacheBust: number): string {
 
 export function isViewableExtension(extension: string): extension is ModelExtension {
   return extension === "stl" || extension === "3mf" || extension === "obj"
+}
+
+export function isImageAttachment(extension: string): boolean {
+  return classifyAttachmentExtension(extension) === "image"
+}
+
+export function isPdfAttachment(extension: string): boolean {
+  return classifyAttachmentExtension(extension) === "pdf"
 }

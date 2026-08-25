@@ -90,3 +90,61 @@ describe("duplicate detection surfaced on model routes", () => {
     expect(listBody.data.find((m) => m.id === modelB.id)!.duplicateModels).toEqual([]);
   });
 });
+
+describe("attachments on the model detail route", () => {
+  let libraryRoot: string;
+  let db: DbClient;
+  let app: FastifyInstance;
+
+  beforeEach(async () => {
+    libraryRoot = await mkdtemp(join(tmpdir(), "model-hub-attachments-"));
+    db = createDbClient(":memory:");
+    runMigrations(db);
+    app = buildTestApp(db, libraryRoot);
+  });
+
+  afterEach(async () => {
+    await app.close();
+    await rm(libraryRoot, { recursive: true, force: true });
+  });
+
+  it("splits images/pdf into `attachments`, keeping `files` model-only", async () => {
+    const model = await createTestModel(db, libraryRoot, "Benchy", {
+      "model.stl": "solid benchy\nendsolid benchy\n",
+      "photo.jpg": "jpeg-bytes",
+      "manual.pdf": "pdf-bytes",
+    });
+
+    const res = await app.inject({ method: "GET", url: `/api/models/${model.id}` });
+    const body = res.json() as {
+      files: { relativePath: string }[];
+      attachments: { relativePath: string }[];
+    };
+
+    expect(body.files.map((f) => f.relativePath)).toEqual(["model.stl"]);
+    expect(body.attachments.map((f) => f.relativePath).sort()).toEqual(["manual.pdf", "photo.jpg"]);
+  });
+
+  it("never picks an attachment as primaryFilePath, even when it's the only file", async () => {
+    const model = await createTestModel(db, libraryRoot, "PhotosOnly", {
+      "photo.jpg": "jpeg-bytes",
+    });
+    expect(model.primaryFilePath).toBeNull();
+  });
+
+  it("rejects PATCHing primaryFilePath to an attachment", async () => {
+    const model = await createTestModel(db, libraryRoot, "Widget", {
+      "model.stl": "solid widget\nendsolid widget\n",
+      "photo.jpg": "jpeg-bytes",
+    });
+
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/api/models/${model.id}`,
+      payload: { primaryFilePath: "photo.jpg" },
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toMatchObject({ error: expect.stringContaining("model file") });
+  });
+});

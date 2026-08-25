@@ -1,8 +1,8 @@
 import { createWriteStream } from "node:fs";
 import { mkdir, rename, rm, stat } from "node:fs/promises";
-import { join } from "node:path";
+import { extname, join } from "node:path";
 import { pipeline } from "node:stream/promises";
-import type { Model, ModelDetail, Tag } from "@model-hub/shared";
+import { classifyAttachmentExtension, type Model, type ModelDetail, type Tag } from "@model-hub/shared";
 import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { DbClient } from "../../db/client.js";
@@ -14,7 +14,13 @@ import {
   type ModelRow,
 } from "../../db/schema.js";
 import { computeDuplicateModelMap, type DuplicateModelRef, getDuplicateModels } from "../../lib/duplicates.js";
-import { ensureMarkerId, sanitizeModelDirName, sanitizeUploadFilename, TRASH_DIRNAME } from "../../lib/fs-utils.js";
+import {
+  ensureMarkerId,
+  MODEL_EXTENSIONS,
+  sanitizeModelDirName,
+  sanitizeUploadFilename,
+  TRASH_DIRNAME,
+} from "../../lib/fs-utils.js";
 import { getActiveModel } from "../../lib/model-lookup.js";
 import { getOrCreateTag, getTagsForModel, getTagsForModels, InvalidTagNameError } from "../../lib/tags.js";
 import { getLog } from "../../sync/git.js";
@@ -197,7 +203,13 @@ export function registerModelRoutes(app: FastifyInstance, db: DbClient, libraryR
       return reply.code(400).send({ error: titleError });
     }
 
-    if (!dirPath || writtenFiles.length === 0) {
+    // Attachments (images/pdf) may ride along with a new model, but can't
+    // create one on their own — a model needs at least one mesh file to
+    // sync/view/thumbnail.
+    const hasModelFile = writtenFiles.some((name) =>
+      MODEL_EXTENSIONS.has(extname(name).slice(1).toLowerCase()),
+    );
+    if (!dirPath || !hasModelFile) {
       if (dirPath) await rm(dirPath, { recursive: true, force: true }).catch(() => {});
       return reply.code(400).send({
         error: "at least one valid model file (.stl/.3mf/.obj) is required",
@@ -259,14 +271,23 @@ export function registerModelRoutes(app: FastifyInstance, db: DbClient, libraryR
     const fileRows = db.select().from(filesTable).where(eq(filesTable.modelId, id)).all();
     const gitLog = row.missingSince == null ? await getLog(row.path).catch(() => []) : [];
 
+    const allFiles = fileRows.map((f) => ({
+      relativePath: f.relativePath,
+      sizeBytes: f.sizeBytes,
+      mtime: f.mtime.getTime(),
+      extension: f.extension,
+    }));
+    // `files` (model .stl/.3mf/.obj files — viewer/primary-file candidates)
+    // and `attachments` (images/pdf — see classifyAttachmentExtension) are
+    // both drawn from the same `files` table, since the sync engine caches
+    // both categories there; only the API response splits them.
+    const files = allFiles.filter((f) => classifyAttachmentExtension(f.extension) === null);
+    const attachments = allFiles.filter((f) => classifyAttachmentExtension(f.extension) !== null);
+
     const detail: ModelDetail = {
       ...toApiModel(row, getTagsForModel(db, id), getDuplicateModels(db, id)),
-      files: fileRows.map((f) => ({
-        relativePath: f.relativePath,
-        sizeBytes: f.sizeBytes,
-        mtime: f.mtime.getTime(),
-        extension: f.extension,
-      })),
+      files,
+      attachments,
       gitLog,
     };
     return detail;
@@ -293,12 +314,19 @@ export function registerModelRoutes(app: FastifyInstance, db: DbClient, libraryR
 
     if (primaryFilePath !== undefined) {
       const fileRow = db
-        .select({ relativePath: filesTable.relativePath })
+        .select({ relativePath: filesTable.relativePath, extension: filesTable.extension })
         .from(filesTable)
         .where(and(eq(filesTable.modelId, id), eq(filesTable.relativePath, primaryFilePath)))
         .get();
       if (!fileRow) {
         return reply.code(400).send({ error: "primaryFilePath does not match a known file for this model" });
+      }
+      // Attachments (images/pdf) are never valid viewer/thumbnail-source
+      // candidates — same rule as fs-utils.ts's pickPrimaryFile, enforced
+      // here too so a direct API call can't set one as primary even though
+      // the UI only ever offers model files.
+      if (!MODEL_EXTENSIONS.has(fileRow.extension)) {
+        return reply.code(400).send({ error: "primaryFilePath must be a model file (.stl/.3mf/.obj)" });
       }
     }
 

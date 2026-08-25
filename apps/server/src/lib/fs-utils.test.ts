@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { FileEntry } from "@model-hub/shared";
@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   ensureGitignore,
   ensureMarkerId,
+  listModelFiles,
   pickPrimaryFile,
   sanitizeModelDirName,
   sanitizeUploadFilename,
@@ -48,6 +49,65 @@ describe("pickPrimaryFile", () => {
       { relativePath: "a.stl", sizeBytes: 100, mtime: 0, extension: "stl" },
     ];
     expect(pickPrimaryFile(files)).toBe("a.stl");
+  });
+
+  it("never picks an attachment (image/pdf) file, even if it's the only file", () => {
+    const files: FileEntry[] = [
+      { relativePath: "photo.png", sizeBytes: 100, mtime: 0, extension: "png" },
+      { relativePath: "manual.pdf", sizeBytes: 100, mtime: 0, extension: "pdf" },
+    ];
+    expect(pickPrimaryFile(files)).toBeNull();
+  });
+
+  it("ignores attachments when a model file is also present, regardless of attachment size", () => {
+    const files: FileEntry[] = [
+      { relativePath: "huge-photo.png", sizeBytes: 1_000_000, mtime: 0, extension: "png" },
+      { relativePath: "part.stl", sizeBytes: 10, mtime: 0, extension: "stl" },
+    ];
+    expect(pickPrimaryFile(files)).toBe("part.stl");
+  });
+});
+
+describe("listModelFiles", () => {
+  let dir: string;
+
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), "model-hub-list-files-"));
+  });
+
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it("includes both model files and attachment files (images/pdf)", async () => {
+    await writeFile(join(dir, "part.stl"), "stl-bytes");
+    await writeFile(join(dir, "photo.png"), "png-bytes");
+    await writeFile(join(dir, "instructions.pdf"), "pdf-bytes");
+    await writeFile(join(dir, "cover.jpg"), "jpg-bytes");
+
+    const files = await listModelFiles(dir);
+    const paths = files.map((f) => f.relativePath).sort();
+    expect(paths).toEqual(["cover.jpg", "instructions.pdf", "part.stl", "photo.png"]);
+  });
+
+  it("skips files with unrecognized extensions", async () => {
+    await writeFile(join(dir, "part.stl"), "stl-bytes");
+    await writeFile(join(dir, "notes.txt"), "text");
+    await writeFile(join(dir, "archive.zip"), "zip-bytes");
+
+    const files = await listModelFiles(dir);
+    expect(files.map((f) => f.relativePath)).toEqual(["part.stl"]);
+  });
+
+  it("skips dotfiles and dot-directories", async () => {
+    await writeFile(join(dir, "part.stl"), "stl-bytes");
+    await writeFile(join(dir, ".modelhub-id"), "uuid");
+    const { mkdir } = await import("node:fs/promises");
+    await mkdir(join(dir, ".thumbnails"));
+    await writeFile(join(dir, ".thumbnails", "thumb.png"), "png-bytes");
+
+    const files = await listModelFiles(dir);
+    expect(files.map((f) => f.relativePath)).toEqual(["part.stl"]);
   });
 });
 
@@ -124,9 +184,18 @@ describe("sanitizeUploadFilename", () => {
     expect(sanitizeUploadFilename("..\\..\\windows\\evil.stl")).toBe("evil.stl");
   });
 
-  it("rejects non-model extensions", () => {
+  it("rejects non-model, non-attachment extensions", () => {
     expect(sanitizeUploadFilename("readme.txt")).toBeNull();
     expect(sanitizeUploadFilename("archive.zip")).toBeNull();
+  });
+
+  it("accepts image and pdf attachment filenames", () => {
+    expect(sanitizeUploadFilename("photo.png")).toBe("photo.png");
+    expect(sanitizeUploadFilename("photo.JPG")).toBe("photo.JPG");
+    expect(sanitizeUploadFilename("photo.jpeg")).toBe("photo.jpeg");
+    expect(sanitizeUploadFilename("cover.webp")).toBe("cover.webp");
+    expect(sanitizeUploadFilename("animated.gif")).toBe("animated.gif");
+    expect(sanitizeUploadFilename("manual.pdf")).toBe("manual.pdf");
   });
 
   it("rejects empty or dot-only names", () => {

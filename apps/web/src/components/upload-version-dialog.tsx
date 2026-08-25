@@ -63,7 +63,8 @@ export function UploadVersionDialog({
         <DialogHeader>
           <DialogTitle>Upload new version</DialogTitle>
           <DialogDescription>
-            Files with the same name replace the current version. This creates a new commit.
+            Model files (.stl/.3mf/.obj) and attachments (images/pdf) are supported. Files with
+            the same name replace the current version. This creates a new commit.
           </DialogDescription>
         </DialogHeader>
 
@@ -72,7 +73,7 @@ export function UploadVersionDialog({
             ref={fileInputRef}
             type="file"
             multiple
-            accept=".stl,.3mf,.obj"
+            accept=".stl,.3mf,.obj,.png,.jpg,.jpeg,.webp,.gif,.pdf"
             onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
             className="text-sm file:mr-3 file:rounded-md file:border file:bg-muted file:px-2 file:py-1 file:text-xs file:font-medium"
           />
