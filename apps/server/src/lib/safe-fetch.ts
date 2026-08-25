@@ -41,6 +41,17 @@ type DnsLookupCallback = (
 ) => void;
 
 /**
+ * `http.RequestOptions`/`https.RequestOptions` don't declare `autoSelectFamily`
+ * in @types/node, even though Node's runtime forwards it straight through to
+ * the underlying `net.connect()` call it makes (it's a `net.TcpNetConnectOpts`
+ * field) — this augments the option bag's type to match actual runtime
+ * behavior instead of reaching for `any`.
+ */
+type RequestOptionsWithFamily = (http.RequestOptions | https.RequestOptions) & {
+  autoSelectFamily?: boolean;
+};
+
+/**
  * Wraps a `dns.lookup`-compatible function so every resolved address is
  * validated with {@link isBlockedIp} before Node ever opens a socket to it.
  *
@@ -51,8 +62,22 @@ type DnsLookupCallback = (
  * changes between the check and the connect (a "DNS rebinding" attack). A
  * hostname that resolves to a private/loopback/link-local IP is rejected
  * here even if the hostname itself looks perfectly public.
+ *
+ * Node's `autoSelectFamily` (Happy Eyeballs, on by default since Node 20)
+ * calls `lookup` with `{ all: true }` and expects *every* matching record
+ * back, then races connections across all of them, using whichever
+ * completes first — so a single "is address[0] safe?" check here would
+ * leave every other entry undialed-but-unvalidated. An attacker controlling
+ * DNS for their own sourceUrl domain could return a fast public decoy
+ * record first (passing an address[0]-only check) and a slow-to-connect
+ * internal/metadata address second, then let Happy Eyeballs fall through to
+ * the second once the first is made to lag or fail. `performRequest` also
+ * sets `autoSelectFamily: false` so Node never actually requests `{all:
+ * true}` in the first place — this per-entry filtering is belt-and-suspenders
+ * in case that ever changes upstream (a Node default flip, an option this
+ * function is reused with elsewhere, etc.), not the only layer relied on.
  */
-function guardedLookup(lookupFn: typeof dnsLookup, ipGuardFn: (ip: string) => boolean): typeof dnsLookup {
+export function guardedLookup(lookupFn: typeof dnsLookup, ipGuardFn: (ip: string) => boolean): typeof dnsLookup {
   const wrapped = (
     hostname: string,
     optionsOrCallback: unknown,
@@ -66,7 +91,25 @@ function guardedLookup(lookupFn: typeof dnsLookup, ipGuardFn: (ip: string) => bo
         callback(err, address, family);
         return;
       }
-      const resolved = Array.isArray(address) ? address[0]?.address : address;
+
+      if (Array.isArray(address)) {
+        // `{ all: true }` shape (Happy Eyeballs et al.) — every entry must
+        // be individually validated and only the safe ones passed on. Never
+        // forward the array unfiltered: Node dials any entry it contains.
+        const safe = address.filter((entry) => entry?.address && !ipGuardFn(entry.address));
+        if (safe.length === 0) {
+          callback(
+            new Error(`blocked: "${hostname}" resolved to no public addresses`),
+            address,
+            family,
+          );
+          return;
+        }
+        callback(err, safe, family);
+        return;
+      }
+
+      const resolved = address;
       if (!resolved || ipGuardFn(resolved)) {
         callback(
           new Error(`blocked: "${hostname}" resolved to a non-public address (${resolved ?? "unknown"})`),
@@ -152,17 +195,25 @@ function performRequest(
     };
 
     const lib = url.protocol === "https:" ? https : http;
+    const requestOptions: RequestOptionsWithFamily = {
+      method: "GET",
+      lookup: guardedLookup(opts.lookupFn, opts.ipGuardFn),
+      // Belt-and-suspenders alongside guardedLookup's per-entry filtering
+      // above: without this, Node's Happy Eyeballs (on by default since
+      // Node 20) calls `lookup` with `{ all: true }` and races connections
+      // across every returned address, so this keeps it from requesting
+      // `{ all: true }` at all — `lookup` is only ever called for a single
+      // address per hop.
+      autoSelectFamily: false,
+      timeout: opts.timeoutMs,
+      headers: {
+        "User-Agent": "model-hub-source-snapshot/1.0 (+https://github.com/mirceanton/model-hub)",
+        Accept: "text/html,application/xhtml+xml,*/*;q=0.8",
+      },
+    };
     const req = lib.request(
       url,
-      {
-        method: "GET",
-        lookup: guardedLookup(opts.lookupFn, opts.ipGuardFn),
-        timeout: opts.timeoutMs,
-        headers: {
-          "User-Agent": "model-hub-source-snapshot/1.0 (+https://github.com/mirceanton/model-hub)",
-          Accept: "text/html,application/xhtml+xml,*/*;q=0.8",
-        },
-      },
+      requestOptions,
       (res) => {
         const status = res.statusCode ?? 0;
 
