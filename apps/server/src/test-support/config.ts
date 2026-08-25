@@ -22,6 +22,7 @@ export function buildTestConfig(overrides: Partial<Config> = {}): Config {
     staticWebDir: null,
     oidc: null,
     sessionSecret: null,
+    oidcAdminGroups: [],
     authRateLimitMax: 10,
     authRateLimitWindowMs: 60_000,
     uploadRateLimitMax: 30,

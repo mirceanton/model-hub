@@ -3,6 +3,7 @@ import { initOidcClient } from "./auth/oidc.js";
 import { loadConfig } from "./config.js";
 import { createDbClient } from "./db/client.js";
 import { runMigrations } from "./db/migrate.js";
+import { enforceAdminGroupMappings } from "./lib/auth-settings.js";
 import { initSourceSnapshotPipeline, sweepPendingSourceSnapshots } from "./source-snapshot/trigger.js";
 import { purgeExpiredTrash, scanLibraryRoot } from "./sync/scanner.js";
 import { startWatcher } from "./sync/watcher.js";
@@ -13,6 +14,16 @@ async function main(): Promise<void> {
   const config = loadConfig();
   const db = createDbClient(config.databasePath);
   runMigrations(db);
+
+  // OIDC_ADMIN_GROUPS is meaningless in single-user mode (the local-owner
+  // path already grants full access unconditionally) -- no-op rather than
+  // error if it's set there, since someone might leave it set across a mode
+  // switch. "The env var always wins": this runs on every boot so the
+  // configured groups can never be locked out of the /admin UI that
+  // manages the mapping table it writes to.
+  if (config.oidc) {
+    enforceAdminGroupMappings(db, config.oidcAdminGroups);
+  }
 
   // Unlike the thumbnail pipeline, this only ever fetches *other* servers,
   // so it has no dependency on this server's own app.listen() having bound
@@ -27,6 +38,9 @@ async function main(): Promise<void> {
 
   const app = buildApp(db, config);
   app.log.info(config.oidc ? `OIDC auth enabled (issuer: ${config.oidc.issuerUrl})` : "single-user mode (no OIDC configured)");
+  if (config.oidc && config.oidcAdminGroups.length > 0) {
+    app.log.info(`enforced ${config.oidcAdminGroups.length} admin group mapping(s) from OIDC_ADMIN_GROUPS`);
+  }
   app.addHook("onClose", async () => {
     await closeBrowser();
   });

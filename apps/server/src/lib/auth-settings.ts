@@ -115,3 +115,32 @@ export function deleteGroupRoleMapping(db: DbClient, id: number): boolean {
   const result = db.delete(mappingsTable).where(eq(mappingsTable.id, id)).run();
   return result.changes > 0;
 }
+
+/**
+ * Force-upserts each of the given OIDC group names to the `admin` role --
+ * "the env var always wins." Called at every boot (see index.ts) when
+ * OIDC_ADMIN_GROUPS is set, to bootstrap out of the lockout where the
+ * group-mapping table starts empty and nobody can reach the /admin UI that
+ * would otherwise configure it. Idempotent: a group with no existing
+ * mapping row gets one inserted as admin; a group already mapped to a
+ * different role gets updated to admin; a group already correctly mapped
+ * to admin is left untouched (no unnecessary updatedAt bump). Mappings for
+ * groups NOT in `groupNames` are never touched.
+ *
+ * By the time this runs, config.ts's loadConfig has already validated each
+ * name via normalizeGroupName -- this call is defense in depth, not the
+ * primary validation point.
+ */
+export function enforceAdminGroupMappings(db: DbClient, groupNames: string[]): void {
+  const now = new Date();
+  for (const rawGroupName of groupNames) {
+    const groupName = normalizeGroupName(rawGroupName);
+    const existing = db.select().from(mappingsTable).where(eq(mappingsTable.groupName, groupName)).get();
+
+    if (!existing) {
+      db.insert(mappingsTable).values({ groupName, role: "admin", createdAt: now, updatedAt: now }).run();
+    } else if (existing.role !== "admin") {
+      db.update(mappingsTable).set({ role: "admin", updatedAt: now }).where(eq(mappingsTable.id, existing.id)).run();
+    }
+  }
+}
