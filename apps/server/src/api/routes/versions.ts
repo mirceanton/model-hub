@@ -2,11 +2,13 @@ import { createWriteStream } from "node:fs";
 import { rm } from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
 import { pipeline } from "node:stream/promises";
+import type { BulkResponse, BulkResult, ModelFilesBulkRequest } from "@model-hub/shared";
 import { and, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
+import { requireRole } from "../../auth/guard.js";
 import type { Config } from "../../config.js";
 import type { DbClient } from "../../db/client.js";
-import { files as filesTable } from "../../db/schema.js";
+import { files as filesTable, type ModelRow } from "../../db/schema.js";
 import { sanitizeUploadFilename } from "../../lib/fs-utils.js";
 import { getModelDiff } from "../../lib/model-diff.js";
 import { getActiveModel } from "../../lib/model-lookup.js";
@@ -16,6 +18,53 @@ import { getLog, restoreToCommit } from "../../sync/git.js";
 import { runExclusive } from "../../sync/queue.js";
 import { LOCAL_UPLOAD_IDENTITY, reconcileModelCore } from "../../sync/reconcile.js";
 import { maybeEnqueueThumbnail } from "../../thumbnails/trigger.js";
+
+type DeleteFileOutcome =
+  | { ok: true; committed: boolean }
+  | { ok: false; status: 400 | 404 | 500; error: string };
+
+/**
+ * The single-file-delete logic — validates the file is known and its path
+ * stays within the model's directory, deletes it, and reconciles (new
+ * commit) under the same per-path `runExclusive` lock sync uses. Shared by
+ * the single DELETE route and the bulk-delete action below so both stay
+ * behaviorally identical by construction, same reasoning as
+ * models.ts's trashModel.
+ */
+async function deleteSingleFile(
+  db: DbClient,
+  model: ModelRow,
+  relativePath: string,
+): Promise<DeleteFileOutcome> {
+  const fileRow = db
+    .select()
+    .from(filesTable)
+    .where(and(eq(filesTable.modelId, model.id), eq(filesTable.relativePath, relativePath)))
+    .get();
+  if (!fileRow) {
+    return { ok: false, status: 404, error: "file not found" };
+  }
+
+  const modelRoot = resolve(model.path);
+  const absolutePath = resolve(modelRoot, relativePath);
+  if (absolutePath !== modelRoot && !absolutePath.startsWith(modelRoot + sep)) {
+    return { ok: false, status: 400, error: "invalid path" };
+  }
+
+  const result = await runExclusive(model.path, async () => {
+    await rm(absolutePath);
+    return reconcileModelCore(db, model, {
+      identity: LOCAL_UPLOAD_IDENTITY,
+      commitMessage: `Deleted ${relativePath}`,
+    });
+  });
+
+  if (result.status === "error") {
+    return { ok: false, status: 500, error: result.error ?? "unknown error" };
+  }
+  maybeEnqueueThumbnail(db, model, result);
+  return { ok: true, committed: result.committed };
+}
 
 export function registerVersionRoutes(app: FastifyInstance, db: DbClient, config: Config): void {
 
@@ -170,34 +219,62 @@ export function registerVersionRoutes(app: FastifyInstance, db: DbClient, config
       }
 
       const relativePath = request.params["*"];
-      const fileRow = db
-        .select()
-        .from(filesTable)
-        .where(and(eq(filesTable.modelId, id), eq(filesTable.relativePath, relativePath)))
-        .get();
-      if (!fileRow) {
-        return reply.code(404).send({ error: "file not found" });
+      const outcome = await deleteSingleFile(db, model, relativePath);
+      if (!outcome.ok) {
+        return reply.code(outcome.status).send({ error: outcome.error });
+      }
+      return { ok: true, committed: outcome.committed };
+    },
+  );
+
+  // See packages/shared/src/types.ts's BulkResponse doc comment for the
+  // shape shared across every bulk endpoint in this app. `ids` are
+  // relativePaths (not URL-encoded — this is a JSON body, not a URL path
+  // segment). Reuses deleteSingleFile for every item, one at a time, so a
+  // bulk delete is byte-for-byte the same per-item behavior (including the
+  // per-path runExclusive lock and the one-commit-per-file history) as
+  // calling the single DELETE route N times — just with per-item results
+  // instead of the caller having to fire N requests and stitch failures
+  // together itself.
+  //
+  // Gated behind requireRole("editor") — see models.ts's POST
+  // /api/models/bulk for the same reasoning (a bulk delete is qualitatively
+  // more dangerous than deleting one file at a time, and this PR is the
+  // "follow-up PR that touches this route" auth/guard.ts's comment refers
+  // to). The single-file DELETE route above stays ungated for now, matching
+  // every other still-ungated single-item route.
+  app.post<{ Params: { id: string }; Body: ModelFilesBulkRequest }>(
+    "/api/models/:id/files/bulk",
+    { preHandler: requireRole("editor") },
+    async (request, reply) => {
+      const id = Number(request.params.id);
+      if (!Number.isInteger(id)) {
+        return reply.code(400).send({ error: "invalid model id" });
       }
 
-      const modelRoot = resolve(model.path);
-      const absolutePath = resolve(modelRoot, relativePath);
-      if (absolutePath !== modelRoot && !absolutePath.startsWith(modelRoot + sep)) {
-        return reply.code(400).send({ error: "invalid path" });
+      const model = getActiveModel(db, id);
+      if (!model) {
+        return reply.code(404).send({ error: "model not found" });
       }
 
-      const result = await runExclusive(model.path, async () => {
-        await rm(absolutePath);
-        return reconcileModelCore(db, model, {
-          identity: LOCAL_UPLOAD_IDENTITY,
-          commitMessage: `Deleted ${relativePath}`,
-        });
-      });
-
-      if (result.status === "error") {
-        return reply.code(500).send({ error: result.error });
+      const { ids, action } = request.body ?? ({} as ModelFilesBulkRequest);
+      if (!Array.isArray(ids) || ids.length === 0 || ids.some((p) => typeof p !== "string" || !p)) {
+        return reply.code(400).send({ error: "ids must be a non-empty array of relative file paths" });
       }
-      maybeEnqueueThumbnail(db, model, result);
-      return { ok: true, committed: result.committed };
+      if (action !== "delete") {
+        return reply.code(400).send({ error: 'action must be "delete"' });
+      }
+
+      const results: BulkResult<string>[] = [];
+      for (const relativePath of ids) {
+        const outcome = await deleteSingleFile(db, model, relativePath);
+        results.push(
+          outcome.ok ? { id: relativePath, success: true } : { id: relativePath, success: false, error: outcome.error },
+        );
+      }
+
+      const response: BulkResponse<string> = { results };
+      return response;
     },
   );
 }

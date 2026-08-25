@@ -5,6 +5,7 @@ import { Link } from "react-router"
 import { SyncStatusBadge } from "@/components/sync-status-badge"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import {
   Dialog,
   DialogContent,
@@ -19,12 +20,32 @@ import { thumbnailUrl } from "@/lib/model-loader"
 import { useModel, useModelDiff, useRemovePin, useUpdatePin } from "@/lib/queries"
 import { cn } from "@/lib/utils"
 
-export function ProjectPinRow({ projectId, pin }: { projectId: number; pin: PinnedModel }) {
+export function ProjectPinRow({
+  projectId,
+  pin,
+  selectable,
+  selected,
+  onToggleSelect,
+}: {
+  projectId: number
+  pin: PinnedModel
+  selectable?: boolean
+  selected?: boolean
+  onToggleSelect?: () => void
+}) {
   const removePin = useRemovePin(projectId)
   const { data: model } = useModel(pin.modelId)
 
   return (
     <li className="flex items-center gap-3 rounded-lg border px-3 py-2">
+      {selectable && (
+        <Checkbox
+          checked={!!selected}
+          onCheckedChange={() => onToggleSelect?.()}
+          aria-label={`Select ${pin.modelTitle}`}
+          className="shrink-0"
+        />
+      )}
       <div className="flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-md border bg-muted/50">
         {pin.thumbnailStatus === "ready" ? (
           <img

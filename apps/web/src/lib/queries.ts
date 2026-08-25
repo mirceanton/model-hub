@@ -1,8 +1,12 @@
-import type { UserRole } from "@model-hub/shared"
+import type { ProjectPinsBulkAction, UserRole } from "@model-hub/shared"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   addModelTag,
   addProjectPin,
+  bulkDeleteModelFiles,
+  bulkDeleteProjects,
+  bulkModelsAction,
+  bulkProjectPinsAction,
   captureThumbnail,
   createApiToken,
   createModel,
@@ -46,6 +50,7 @@ import {
   uploadModelVersion,
   uploadProjectThumbnail,
   type ModelFilters,
+  type ModelsBulkInput,
   type ProjectFilters,
 } from "./api"
 
@@ -165,6 +170,14 @@ export function useDeleteModelFile(id: number) {
   })
 }
 
+export function useBulkDeleteModelFiles(id: number) {
+  const invalidate = useInvalidateModel(id)
+  return useMutation({
+    mutationFn: (relativePaths: string[]) => bulkDeleteModelFiles(id, relativePaths),
+    onSuccess: invalidate,
+  })
+}
+
 export function useRestoreVersion(id: number) {
   const invalidate = useInvalidateModel(id)
   return useMutation({
@@ -243,6 +256,27 @@ export function useDeleteModel(id: number) {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: () => deleteModel(id),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["models"] })
+      void queryClient.invalidateQueries({ queryKey: ["tags"] })
+      void queryClient.invalidateQueries({ queryKey: ["projects"] })
+      void queryClient.invalidateQueries({ queryKey: ["trash"] })
+    },
+  })
+}
+
+/**
+ * Backs every bulk action on the library grid (delete/favorite/unfavorite/
+ * add-tag/remove-tag — see ModelBulkAction) via the single POST
+ * /api/models/bulk endpoint. Resolves with a BulkResponse even on partial
+ * failure (only a network/validation-level problem rejects) — the caller
+ * inspects `data.results` to report per-item failures, same as every other
+ * bulk hook below.
+ */
+export function useBulkModelsAction() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (input: ModelsBulkInput) => bulkModelsAction(input),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["models"] })
       void queryClient.invalidateQueries({ queryKey: ["tags"] })
@@ -338,6 +372,16 @@ export function useDeleteProject() {
   })
 }
 
+export function useBulkDeleteProjects() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (ids: number[]) => bulkDeleteProjects(ids),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["projects"] })
+    },
+  })
+}
+
 export function useAddPin(projectId: number) {
   const invalidate = useInvalidateProject(projectId)
   return useMutation({
@@ -359,6 +403,16 @@ export function useRemovePin(projectId: number) {
   const invalidate = useInvalidateProject(projectId)
   return useMutation({
     mutationFn: (modelId: number) => removeProjectPin(projectId, modelId),
+    onSuccess: invalidate,
+  })
+}
+
+/** Backs the pinned-models bulk action bar in ProjectDetailPage — "remove" or "bump" (to each model's current commit) via one POST /api/projects/:id/pins/bulk call. */
+export function useBulkProjectPinsAction(projectId: number) {
+  const invalidate = useInvalidateProject(projectId)
+  return useMutation({
+    mutationFn: ({ ids, action }: { ids: number[]; action: ProjectPinsBulkAction }) =>
+      bulkProjectPinsAction(projectId, ids, action),
     onSuccess: invalidate,
   })
 }

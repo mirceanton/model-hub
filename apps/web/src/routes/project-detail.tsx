@@ -1,9 +1,11 @@
-import type { ProjectActivityNotice, ProjectDetail } from "@model-hub/shared"
+import type { BulkResponse, ProjectActivityNotice, ProjectDetail } from "@model-hub/shared"
 import {
   AlertCircle,
   ArrowLeft,
+  ArrowUpCircle,
   Download,
   ImagePlus,
+  ListChecks,
   Loader2,
   PackageX,
   Trash2,
@@ -12,16 +14,20 @@ import {
 import { useRef, useState } from "react"
 import { Link, useNavigate, useParams } from "react-router"
 import { AddModelPickerDialog } from "@/components/add-model-picker-dialog"
+import { BulkActionBar, BulkFailureAlert } from "@/components/bulk-action-bar"
 import { ProjectPinRow } from "@/components/project-pin-row"
 import { ProjectThumbnail } from "@/components/project-thumbnail-mosaic"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Textarea } from "@/components/ui/textarea"
+import { useSelection } from "@/hooks/use-selection"
 import { projectExportUrl } from "@/lib/model-loader"
 import {
+  useBulkProjectPinsAction,
   useDeleteProject,
   useDeleteProjectThumbnail,
   useDismissProjectNotice,
@@ -29,11 +35,15 @@ import {
   useUpdateProject,
   useUploadProjectThumbnail,
 } from "@/lib/queries"
+import { cn } from "@/lib/utils"
 
 export function ProjectDetailPage() {
   const params = useParams<{ id: string }>()
   const id = Number(params.id)
   const { data: project, isPending, isError, error } = useProject(id)
+  const pinSelection = useSelection<number>()
+  const bulkPins = useBulkProjectPinsAction(id)
+  const [pinBulkResult, setPinBulkResult] = useState<BulkResponse | undefined>()
 
   if (isPending) {
     return (
@@ -91,15 +101,119 @@ export function ProjectDetailPage() {
       <Separator />
 
       <div className="flex flex-col gap-2">
-        <h2 className="text-sm font-medium text-muted-foreground">
-          Pinned models ({project.pins.length})
-        </h2>
+        <div className="flex flex-wrap items-center gap-2">
+          <h2 className="text-sm font-medium text-muted-foreground">
+            Pinned models ({project.pins.length})
+          </h2>
+          {project.pins.length > 0 && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              aria-pressed={pinSelection.active}
+              onClick={() => {
+                setPinBulkResult(undefined)
+                pinSelection.setActive(!pinSelection.active)
+              }}
+              className={cn(pinSelection.active && "border-primary/50 bg-primary/10 text-primary")}
+            >
+              <ListChecks className="size-3.5" />
+              Select
+            </Button>
+          )}
+        </div>
+
+        {pinSelection.active && (
+          <div className="flex flex-col gap-2">
+            <label className="flex items-center gap-2 text-sm">
+              <Checkbox
+                checked={project.pins.every((p) => pinSelection.isSelected(p.modelId))}
+                indeterminate={
+                  pinSelection.selected.size > 0 &&
+                  !project.pins.every((p) => pinSelection.isSelected(p.modelId))
+                }
+                onCheckedChange={(checked) =>
+                  checked
+                    ? pinSelection.selectAll(project.pins.map((p) => p.modelId))
+                    : pinSelection.clear()
+                }
+              />
+              Select all
+            </label>
+            {pinSelection.selected.size > 0 && (
+              <BulkActionBar count={pinSelection.selected.size} onClear={pinSelection.clear}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={bulkPins.isPending}
+                  onClick={() =>
+                    bulkPins.mutate(
+                      { ids: [...pinSelection.selected], action: "bump" },
+                      {
+                        onSuccess: (data) => {
+                          setPinBulkResult(data)
+                          pinSelection.clear()
+                        },
+                      },
+                    )
+                  }
+                >
+                  <ArrowUpCircle className="size-3.5" />
+                  Bump to latest
+                </Button>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  size="sm"
+                  disabled={bulkPins.isPending}
+                  onClick={() => {
+                    const count = pinSelection.selected.size
+                    if (!confirm(`Remove ${count} model${count === 1 ? "" : "s"} from this project?`)) {
+                      return
+                    }
+                    bulkPins.mutate(
+                      { ids: [...pinSelection.selected], action: "remove" },
+                      {
+                        onSuccess: (data) => {
+                          setPinBulkResult(data)
+                          pinSelection.clear()
+                        },
+                      },
+                    )
+                  }}
+                >
+                  {bulkPins.isPending ? (
+                    <Loader2 className="size-3.5 animate-spin" />
+                  ) : (
+                    <Trash2 className="size-3.5" />
+                  )}
+                  Remove
+                </Button>
+              </BulkActionBar>
+            )}
+            <BulkFailureAlert
+              response={pinBulkResult}
+              labelFor={(modelId) =>
+                project.pins.find((p) => p.modelId === modelId)?.modelTitle ?? `Model #${modelId}`
+              }
+            />
+          </div>
+        )}
+
         {project.pins.length === 0 ? (
           <p className="text-sm text-muted-foreground">No models pinned yet. Add one to get started.</p>
         ) : (
           <ul className="flex flex-col gap-2">
             {project.pins.map((pin) => (
-              <ProjectPinRow key={pin.modelId} projectId={project.id} pin={pin} />
+              <ProjectPinRow
+                key={pin.modelId}
+                projectId={project.id}
+                pin={pin}
+                selectable={pinSelection.active}
+                selected={pinSelection.isSelected(pin.modelId)}
+                onToggleSelect={() => pinSelection.toggle(pin.modelId)}
+              />
             ))}
           </ul>
         )}

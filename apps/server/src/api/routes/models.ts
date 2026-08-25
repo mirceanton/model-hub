@@ -2,9 +2,19 @@ import { createWriteStream } from "node:fs";
 import { mkdir, rename, rm, stat } from "node:fs/promises";
 import { extname, join } from "node:path";
 import { pipeline } from "node:stream/promises";
-import { classifyAttachmentExtension, type Model, type ModelDetail, type Tag } from "@model-hub/shared";
+import type {
+  BulkResponse,
+  BulkResult,
+  Model,
+  ModelBulkAction,
+  ModelDetail,
+  ModelsBulkRequest,
+  Tag,
+} from "@model-hub/shared";
+import { classifyAttachmentExtension } from "@model-hub/shared";
 import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
+import { requireRole } from "../../auth/guard.js";
 import type { Config } from "../../config.js";
 import type { DbClient } from "../../db/client.js";
 import {
@@ -26,6 +36,7 @@ import { getActiveModel } from "../../lib/model-lookup.js";
 import { uploadRateLimit } from "../../lib/rate-limit.js";
 import { isValidHttpUrl } from "../../lib/source-url.js";
 import {
+  deleteTagIfUnused,
   getModelIdsWithAllTags,
   getOrCreateTag,
   getTagsForModel,
@@ -81,6 +92,46 @@ export async function pickModelDirPath(libraryRoot: string, db: DbClient, base: 
     if (!existsOnDisk && !existsInDb) return candidatePath;
     candidateName = `${base} (${suffix})`;
   }
+}
+
+/**
+ * Recoverable "delete": moves the model's entire directory (repo included,
+ * plus the untouched .modelhub-id marker inside it) under
+ * LIBRARY_ROOT/.trash/ instead of destroying it, and marks deletedAt
+ * instead of dropping the DB row — see apps/server/src/api/routes/trash.ts
+ * for restore/purge. Runs under the same per-path lock as sync so it can't
+ * race an in-flight commit for this model. The DB mutation happens *inside*
+ * the lock too (not after), and re-checks deletedAt on a fresh read first —
+ * otherwise a second near-simultaneous delete for the same id (two tabs, a
+ * naive retry, or one item in a bulk-delete batch racing a concurrent
+ * single-item delete) could still see deletedAt=null, acquire the
+ * (by-then-free) lock, and try to rename a path that's already been moved
+ * away.
+ *
+ * The single DELETE route below and the bulk "delete" action both call this
+ * exact function — no separate/simplified bulk reimplementation of the
+ * trash-move — so both stay behaviorally identical by construction.
+ *
+ * Returns false if the model was already trashed (or vanished) by the time
+ * the lock was acquired, true if this call actually moved it.
+ */
+async function trashModel(db: DbClient, libraryRoot: string, row: ModelRow): Promise<boolean> {
+  const trashRoot = join(libraryRoot, TRASH_DIRNAME);
+  const trashPath = join(trashRoot, `${row.fsId}-${Date.now()}`);
+
+  return runExclusive(row.path, async () => {
+    const fresh = db.select().from(modelsTable).where(eq(modelsTable.id, row.id)).get();
+    if (!fresh || fresh.deletedAt != null) return false;
+
+    await mkdir(trashRoot, { recursive: true });
+    await rename(fresh.path, trashPath);
+
+    db.update(modelsTable)
+      .set({ path: trashPath, deletedAt: new Date(), updatedAt: new Date() })
+      .where(eq(modelsTable.id, row.id))
+      .run();
+    return true;
+  });
 }
 
 const SORT_COLUMNS = {
@@ -478,38 +529,116 @@ export function registerModelRoutes(
       return reply.code(404).send({ error: "model not found" });
     }
 
-    // Recoverable: moves the model's entire directory (repo included, plus
-    // the untouched .modelhub-id marker inside it) under LIBRARY_ROOT/.trash/
-    // instead of destroying it, and marks deletedAt instead of dropping the
-    // DB row — see apps/server/src/api/routes/trash.ts for restore/purge.
-    // Runs under the same per-path lock as sync so it can't race an
-    // in-flight commit for this model. The DB mutation happens *inside* the
-    // lock too (not after), and re-checks deletedAt on a fresh read first —
-    // otherwise a second near-simultaneous DELETE for the same id (two
-    // tabs, a naive retry) could still see deletedAt=null, acquire the
-    // (by-then-free) lock, and try to rename a path that's already been
-    // moved away.
-    const trashRoot = join(libraryRoot, TRASH_DIRNAME);
-    const trashPath = join(trashRoot, `${row.fsId}-${Date.now()}`);
-
-    const trashed = await runExclusive(row.path, async () => {
-      const fresh = db.select().from(modelsTable).where(eq(modelsTable.id, id)).get();
-      if (!fresh || fresh.deletedAt != null) return false;
-
-      await mkdir(trashRoot, { recursive: true });
-      await rename(fresh.path, trashPath);
-
-      db.update(modelsTable)
-        .set({ path: trashPath, deletedAt: new Date(), updatedAt: new Date() })
-        .where(eq(modelsTable.id, id))
-        .run();
-      return true;
-    });
-
+    const trashed = await trashModel(db, libraryRoot, row);
     if (!trashed) {
       return reply.code(404).send({ error: "model not found" });
     }
 
     return reply.code(204).send();
   });
+
+  // See CLAUDE.md / packages/shared/src/types.ts's BulkResponse doc comment
+  // for the shape shared across every bulk endpoint in this app. Every
+  // action here reuses the exact same per-item logic (and, for "delete",
+  // the exact same trashModel helper) as its single-item route above.
+  // Items are processed sequentially, not in parallel: better-sqlite3 is
+  // synchronous/single-threaded anyway, and this keeps one slow/failing
+  // item from racing another's runExclusive lock in confusing ways.
+  //
+  // Gated behind requireRole("editor") even though none of the single-item
+  // routes it batches are gated yet (see auth/guard.ts's comment: the RBAC
+  // sweep was deliberately deferred to follow-up PRs that touch those
+  // routes anyway — this bulk PR is exactly such a PR). Gating is warranted
+  // here specifically because a bulk mutation is qualitatively more
+  // dangerous than a single-item one — one confirm click can delete dozens
+  // of models at once — so it doesn't inherit the single-item routes'
+  // "ungated for now" pass.
+  app.post<{ Body: ModelsBulkRequest }>(
+    "/api/models/bulk",
+    { preHandler: requireRole("editor") },
+    async (request, reply) => {
+      const { ids, action, tagName, tagId } = request.body ?? ({} as ModelsBulkRequest);
+      if (!Array.isArray(ids) || ids.length === 0 || ids.some((id) => !Number.isInteger(id))) {
+        return reply.code(400).send({ error: "ids must be a non-empty array of model ids" });
+      }
+      const validActions: ModelBulkAction[] = [
+        "delete",
+        "favorite",
+        "unfavorite",
+        "add-tag",
+        "remove-tag",
+      ];
+      if (!validActions.includes(action)) {
+        return reply.code(400).send({ error: `action must be one of: ${validActions.join(", ")}` });
+      }
+
+      // Whole-request (not per-item) validation for action-specific
+      // parameters — these describe the batch itself, not any one item, so a
+      // problem here means the request is malformed, not that a particular
+      // model failed.
+      let resolvedTag: { id: number } | null = null;
+      if (action === "add-tag") {
+        if (!tagName) {
+          return reply.code(400).send({ error: "tagName is required for the add-tag action" });
+        }
+        try {
+          resolvedTag = getOrCreateTag(db, tagName);
+        } catch (err) {
+          if (err instanceof InvalidTagNameError) {
+            return reply.code(400).send({ error: err.message });
+          }
+          throw err;
+        }
+      } else if (action === "remove-tag") {
+        if (typeof tagId !== "number" || !Number.isInteger(tagId)) {
+          return reply.code(400).send({ error: "tagId is required for the remove-tag action" });
+        }
+      }
+
+      const results: BulkResult[] = [];
+      for (const id of ids) {
+        const row = getActiveModel(db, id);
+        if (!row) {
+          results.push({ id, success: false, error: "model not found" });
+          continue;
+        }
+
+        try {
+          if (action === "delete") {
+            const trashed = await trashModel(db, libraryRoot, row);
+            results.push(
+              trashed ? { id, success: true } : { id, success: false, error: "model not found" },
+            );
+          } else if (action === "favorite" || action === "unfavorite") {
+            db.update(modelsTable)
+              .set({ favorite: action === "favorite", updatedAt: new Date() })
+              .where(eq(modelsTable.id, id))
+              .run();
+            results.push({ id, success: true });
+          } else if (action === "add-tag") {
+            db.insert(modelTagsTable)
+              .values({ modelId: id, tagId: resolvedTag!.id })
+              .onConflictDoNothing()
+              .run();
+            results.push({ id, success: true });
+          } else {
+            // remove-tag
+            db.delete(modelTagsTable)
+              .where(and(eq(modelTagsTable.modelId, id), eq(modelTagsTable.tagId, tagId!)))
+              .run();
+            results.push({ id, success: true });
+          }
+        } catch (err) {
+          results.push({ id, success: false, error: err instanceof Error ? err.message : String(err) });
+        }
+      }
+
+      if (action === "remove-tag" && typeof tagId === "number") {
+        deleteTagIfUnused(db, tagId);
+      }
+
+      const response: BulkResponse = { results };
+      return response;
+    },
+  );
 }
