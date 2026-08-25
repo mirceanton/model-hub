@@ -1,5 +1,5 @@
 import { extname } from "node:path";
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import type { DbClient } from "../db/client.js";
 import { models as modelsTable, type ModelRow } from "../db/schema.js";
 import { MODEL_EXTENSIONS } from "../lib/fs-utils.js";
@@ -57,7 +57,12 @@ export function sweepPendingThumbnails(db: DbClient): void {
   const stale = db
     .select()
     .from(modelsTable)
-    .where(inArray(modelsTable.thumbnailStatus, ["pending", "generating"]))
+    .where(
+      and(
+        inArray(modelsTable.thumbnailStatus, ["pending", "generating"]),
+        isNull(modelsTable.deletedAt),
+      ),
+    )
     .all();
 
   for (const model of stale) {

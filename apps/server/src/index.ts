@@ -3,7 +3,7 @@ import { initOidcClient } from "./auth/oidc.js";
 import { loadConfig } from "./config.js";
 import { createDbClient } from "./db/client.js";
 import { runMigrations } from "./db/migrate.js";
-import { scanLibraryRoot } from "./sync/scanner.js";
+import { purgeExpiredTrash, scanLibraryRoot } from "./sync/scanner.js";
 import { startWatcher } from "./sync/watcher.js";
 import { closeBrowser } from "./thumbnails/browser.js";
 import { initThumbnailPipeline, sweepPendingThumbnails } from "./thumbnails/trigger.js";
@@ -34,10 +34,22 @@ async function main(): Promise<void> {
     app.log.info(`initial scan reconciled ${initialScan.scanned} model(s)`);
   }
 
+  const initialPurge = await purgeExpiredTrash(db);
+  if (initialPurge.purged > 0) {
+    app.log.info(`initial trash sweep purged ${initialPurge.purged} expired item(s)`);
+  }
+
+  // Trash retention purge rides the same tick as the library scan rather than
+  // its own interval — see scanner.ts's purgeExpiredTrash.
   const scanInterval = setInterval(() => {
     void scanLibraryRoot(db, config.libraryRoot).then((result) => {
       if (result.skipped) {
         app.log.warn(`periodic scan skipped: ${result.reason}`);
+      }
+    });
+    void purgeExpiredTrash(db).then((result) => {
+      if (result.purged > 0) {
+        app.log.info(`trash sweep purged ${result.purged} expired item(s)`);
       }
     });
   }, config.libraryScanIntervalMs);

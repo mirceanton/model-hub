@@ -14,6 +14,7 @@ import { registerProjectRoutes } from "./routes/projects.js";
 import { registerSyncRoutes } from "./routes/sync.js";
 import { registerTagRoutes } from "./routes/tags.js";
 import { registerThumbnailRoutes } from "./routes/thumbnails.js";
+import { registerTrashRoutes } from "./routes/trash.js";
 import { registerVersionRoutes } from "./routes/versions.js";
 import { registerStaticSpa } from "./static.js";
 
@@ -43,6 +44,7 @@ export function buildApp(db: DbClient, config: Config): FastifyInstance {
   registerVersionRoutes(app, db);
   registerThumbnailRoutes(app, db);
   registerTagRoutes(app, db);
+  registerTrashRoutes(app, db, config.libraryRoot);
   registerSyncRoutes(app, db, config.libraryRoot);
 
   if (config.staticWebDir) {

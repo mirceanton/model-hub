@@ -12,6 +12,7 @@ import type {
   SortOrder,
   Tag,
   TagWithCount,
+  TrashedModel,
   UserRole,
 } from "@model-hub/shared"
 
@@ -141,6 +142,23 @@ export function captureThumbnail(id: number, image: Blob): Promise<CaptureThumbn
     method: "POST",
     body: formData,
   })
+}
+
+export function fetchTrash(): Promise<TrashedModel[]> {
+  return request<TrashedModel[]>("/api/trash")
+}
+
+export interface RestoreFromTrashResult {
+  ok: true
+  path: string
+}
+
+export function restoreFromTrash(id: number): Promise<RestoreFromTrashResult> {
+  return request<RestoreFromTrashResult>(`/api/trash/${id}/restore`, { method: "POST" })
+}
+
+export function purgeFromTrash(id: number): Promise<void> {
+  return request<void>(`/api/trash/${id}`, { method: "DELETE" })
 }
 
 export function fetchTags(): Promise<TagWithCount[]> {

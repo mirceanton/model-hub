@@ -22,6 +22,13 @@
       "when": 1787640643094,
       "tag": "0002_married_sleeper",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1787641657835,
+      "tag": "0003_skinny_wind_dancer",
+      "breakpoints": true
     }
   ]
 }

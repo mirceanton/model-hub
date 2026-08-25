@@ -7,6 +7,7 @@ import { ModelDetailPage } from "@/routes/model-detail"
 import { ModelListPage } from "@/routes/model-list"
 import { ProjectDetailPage } from "@/routes/project-detail"
 import { ProjectListPage } from "@/routes/project-list"
+import { TrashPage } from "@/routes/trash"
 
 // Only ever navigated to by the headless thumbnail worker, never a real user —
 // lazy-loaded so its three.js/r3f/drei weight never lands in the main bundle.
@@ -43,6 +44,7 @@ export default function App() {
         <Route path="models/:id" element={<ModelDetailPage />} />
         <Route path="projects" element={<ProjectListPage />} />
         <Route path="projects/:id" element={<ProjectDetailPage />} />
+        <Route path="trash" element={<TrashPage />} />
         <Route path="admin" element={<AdminPage />} />
       </Route>
     </Routes>

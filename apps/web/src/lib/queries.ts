@@ -21,10 +21,13 @@ import {
   fetchProjects,
   fetchRoleMapping,
   fetchTags,
+  fetchTrash,
   logout,
+  purgeFromTrash,
   regenerateThumbnail,
   removeModelTag,
   removeProjectPin,
+  restoreFromTrash,
   restoreModelVersion,
   updateModel,
   updateProject,
@@ -207,7 +210,41 @@ export function useDeleteModel(id: number) {
       void queryClient.invalidateQueries({ queryKey: ["models"] })
       void queryClient.invalidateQueries({ queryKey: ["tags"] })
       void queryClient.invalidateQueries({ queryKey: ["projects"] })
+      void queryClient.invalidateQueries({ queryKey: ["trash"] })
     },
+  })
+}
+
+export function useTrash() {
+  return useQuery({
+    queryKey: ["trash"],
+    queryFn: fetchTrash,
+    refetchInterval: REFETCH_INTERVAL_MS,
+  })
+}
+
+function useInvalidateTrash() {
+  const queryClient = useQueryClient()
+  return () => {
+    void queryClient.invalidateQueries({ queryKey: ["trash"] })
+    void queryClient.invalidateQueries({ queryKey: ["models"] })
+    void queryClient.invalidateQueries({ queryKey: ["tags"] })
+  }
+}
+
+export function useRestoreFromTrash() {
+  const invalidate = useInvalidateTrash()
+  return useMutation({
+    mutationFn: (id: number) => restoreFromTrash(id),
+    onSuccess: invalidate,
+  })
+}
+
+export function usePurgeFromTrash() {
+  const invalidate = useInvalidateTrash()
+  return useMutation({
+    mutationFn: (id: number) => purgeFromTrash(id),
+    onSuccess: invalidate,
   })
 }
 

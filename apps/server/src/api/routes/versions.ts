@@ -5,8 +5,9 @@ import { pipeline } from "node:stream/promises";
 import { and, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { DbClient } from "../../db/client.js";
-import { files as filesTable, models as modelsTable } from "../../db/schema.js";
+import { files as filesTable } from "../../db/schema.js";
 import { sanitizeUploadFilename } from "../../lib/fs-utils.js";
+import { getActiveModel } from "../../lib/model-lookup.js";
 import { getLog, restoreToCommit } from "../../sync/git.js";
 import { runExclusive } from "../../sync/queue.js";
 import { LOCAL_UPLOAD_IDENTITY, reconcileModelCore } from "../../sync/reconcile.js";
@@ -20,7 +21,7 @@ export function registerVersionRoutes(app: FastifyInstance, db: DbClient): void 
       return reply.code(400).send({ error: "invalid model id" });
     }
 
-    const model = db.select().from(modelsTable).where(eq(modelsTable.id, id)).get();
+    const model = getActiveModel(db, id);
     if (!model) {
       return reply.code(404).send({ error: "model not found" });
     }
@@ -75,7 +76,7 @@ export function registerVersionRoutes(app: FastifyInstance, db: DbClient): void 
         return reply.code(400).send({ error: "invalid model id" });
       }
 
-      const model = db.select().from(modelsTable).where(eq(modelsTable.id, id)).get();
+      const model = getActiveModel(db, id);
       if (!model) {
         return reply.code(404).send({ error: "model not found" });
       }
@@ -115,7 +116,7 @@ export function registerVersionRoutes(app: FastifyInstance, db: DbClient): void 
         return reply.code(400).send({ error: "invalid model id" });
       }
 
-      const model = db.select().from(modelsTable).where(eq(modelsTable.id, id)).get();
+      const model = getActiveModel(db, id);
       if (!model) {
         return reply.code(404).send({ error: "model not found" });
       }

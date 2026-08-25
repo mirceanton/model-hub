@@ -39,6 +39,9 @@ function TopNav() {
       <NavLink to="/projects" className={linkClass}>
         Projects
       </NavLink>
+      <NavLink to="/trash" className={linkClass}>
+        Trash
+      </NavLink>
       {data?.user?.role === "admin" && (
         <NavLink to="/admin" className={linkClass}>
           Admin

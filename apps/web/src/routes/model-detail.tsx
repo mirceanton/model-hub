@@ -450,7 +450,7 @@ function DeleteModelButton({ modelId }: { modelId: number }) {
       onClick={() => {
         if (
           !confirm(
-            "Delete this model? This permanently removes its directory (files and history) from disk and cannot be undone.",
+            "Move this model to trash? It's kept for 7 days (restorable from the Trash view) before being permanently removed.",
           )
         ) {
           return

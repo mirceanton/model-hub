@@ -4,7 +4,8 @@ import { resolve, sep } from "node:path";
 import { and, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { DbClient } from "../../db/client.js";
-import { files as filesTable, models as modelsTable } from "../../db/schema.js";
+import { files as filesTable } from "../../db/schema.js";
+import { getActiveModel } from "../../lib/model-lookup.js";
 
 const CONTENT_TYPE_BY_EXTENSION: Record<string, string> = {
   stl: "model/stl",
@@ -22,7 +23,7 @@ export function registerFileRoutes(app: FastifyInstance, db: DbClient): void {
         return reply.code(400).send({ error: "invalid model id" });
       }
 
-      const model = db.select().from(modelsTable).where(eq(modelsTable.id, id)).get();
+      const model = getActiveModel(db, id);
       if (!model) {
         return reply.code(404).send({ error: "model not found" });
       }
