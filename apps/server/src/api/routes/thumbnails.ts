@@ -7,10 +7,15 @@ import type { FastifyInstance } from "fastify";
 import type { DbClient } from "../../db/client.js";
 import { models as modelsTable } from "../../db/schema.js";
 import { THUMBNAILS_DIRNAME } from "../../lib/fs-utils.js";
+import { getActiveModel } from "../../lib/model-lookup.js";
 import { THUMBNAIL_FILENAME } from "../../thumbnails/generate.js";
 import { enqueueThumbnail } from "../../thumbnails/trigger.js";
 
 export function registerThumbnailRoutes(app: FastifyInstance, db: DbClient): void {
+  // Deliberately NOT filtered to active-only models: the Trash view
+  // (apps/web/src/routes/trash.tsx) renders a trashed model's thumbnail via
+  // this exact endpoint, and the thumbnail file itself travels with the
+  // directory when it's moved into .trash/, so it's still valid to serve.
   app.get<{ Params: { id: string } }>("/api/models/:id/thumbnail", async (request, reply) => {
     const id = Number(request.params.id);
     if (!Number.isInteger(id)) {
@@ -41,7 +46,7 @@ export function registerThumbnailRoutes(app: FastifyInstance, db: DbClient): voi
         return reply.code(400).send({ error: "invalid model id" });
       }
 
-      const model = db.select().from(modelsTable).where(eq(modelsTable.id, id)).get();
+      const model = getActiveModel(db, id);
       if (!model) {
         return reply.code(404).send({ error: "model not found" });
       }
@@ -69,7 +74,7 @@ export function registerThumbnailRoutes(app: FastifyInstance, db: DbClient): voi
       return reply.code(400).send({ error: "invalid model id" });
     }
 
-    const model = db.select().from(modelsTable).where(eq(modelsTable.id, id)).get();
+    const model = getActiveModel(db, id);
     if (!model) {
       return reply.code(404).send({ error: "model not found" });
     }

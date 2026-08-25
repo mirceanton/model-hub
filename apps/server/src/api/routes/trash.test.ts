@@ -17,6 +17,8 @@ import { registerDownloadRoutes } from "./download.js";
 import { registerFileRoutes } from "./files.js";
 import { registerModelRoutes } from "./models.js";
 import { registerProjectRoutes } from "./projects.js";
+import { registerTagRoutes } from "./tags.js";
+import { registerThumbnailRoutes } from "./thumbnails.js";
 import { registerTrashRoutes } from "./trash.js";
 
 async function dirExists(path: string): Promise<boolean> {
@@ -33,6 +35,8 @@ function buildTestApp(db: DbClient, libraryRoot: string): FastifyInstance {
   registerFileRoutes(app, db);
   registerDownloadRoutes(app, db);
   registerProjectRoutes(app, db);
+  registerTagRoutes(app, db);
+  registerThumbnailRoutes(app, db);
   return app;
 }
 
@@ -248,6 +252,38 @@ describe("trash routes", () => {
       payload: { modelId: model.id },
     });
     expect(pinRes.statusCode).toBe(404);
+  });
+
+  it("excludes a trashed model from tag mutation and thumbnail regenerate/capture", async () => {
+    const model = await createTestModel(db, libraryRoot, "Trashed Thumbnail Target");
+    await app.inject({ method: "DELETE", url: `/api/models/${model.id}` });
+
+    const addTagRes = await app.inject({
+      method: "POST",
+      url: `/api/models/${model.id}/tags`,
+      payload: { name: "some-tag" },
+    });
+    expect(addTagRes.statusCode).toBe(404);
+
+    const regenerateRes = await app.inject({
+      method: "POST",
+      url: `/api/models/${model.id}/thumbnail/regenerate`,
+    });
+    expect(regenerateRes.statusCode).toBe(404);
+
+    const boundary = "----model-hub-test-boundary";
+    const captureRes = await app.inject({
+      method: "POST",
+      url: `/api/models/${model.id}/thumbnail/capture`,
+      headers: { "content-type": `multipart/form-data; boundary=${boundary}` },
+      payload:
+        `--${boundary}\r\n` +
+        `Content-Disposition: form-data; name="thumbnail"; filename="thumb.png"\r\n` +
+        `Content-Type: image/png\r\n\r\n` +
+        `not-really-a-png\r\n` +
+        `--${boundary}--\r\n`,
+    });
+    expect(captureRes.statusCode).toBe(404);
   });
 
   it("blocks re-pinning ('bump to latest') a pin whose model has since been trashed", async () => {

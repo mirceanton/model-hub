@@ -3,6 +3,7 @@ import { and, eq, isNull, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { DbClient } from "../../db/client.js";
 import { modelTags as modelTagsTable, models as modelsTable, tags as tagsTable } from "../../db/schema.js";
+import { getActiveModel } from "../../lib/model-lookup.js";
 import {
   DuplicateTagNameError,
   deleteTag,
@@ -118,7 +119,7 @@ export function registerTagRoutes(app: FastifyInstance, db: DbClient): void {
         return reply.code(400).send({ error: "invalid model id" });
       }
 
-      const model = db.select().from(modelsTable).where(eq(modelsTable.id, id)).get();
+      const model = getActiveModel(db, id);
       if (!model) {
         return reply.code(404).send({ error: "model not found" });
       }
@@ -154,6 +155,11 @@ export function registerTagRoutes(app: FastifyInstance, db: DbClient): void {
       const tagId = Number(request.params.tagId);
       if (!Number.isInteger(id) || !Number.isInteger(tagId)) {
         return reply.code(400).send({ error: "invalid id" });
+      }
+
+      const model = getActiveModel(db, id);
+      if (!model) {
+        return reply.code(404).send({ error: "model not found" });
       }
 
       db.delete(modelTagsTable)
