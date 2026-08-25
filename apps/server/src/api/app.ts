@@ -4,11 +4,13 @@ import Fastify, { type FastifyInstance } from "fastify";
 import { registerAuthGuard } from "../auth/guard.js";
 import type { Config } from "../config.js";
 import type { DbClient } from "../db/client.js";
+import { registerHttpMetrics } from "../metrics/http-metrics.js";
 import { registerAdminRoutes } from "./routes/admin.js";
 import { registerAuthRoutes } from "./routes/auth.js";
 import { registerDownloadRoutes } from "./routes/download.js";
 import { registerFileRoutes } from "./routes/files.js";
 import { registerHealthRoute } from "./routes/health.js";
+import { registerMetricsRoute } from "./routes/metrics.js";
 import { registerModelRoutes } from "./routes/models.js";
 import { registerProjectRoutes } from "./routes/projects.js";
 import { registerSourceSnapshotRoutes } from "./routes/source-snapshot.js";
@@ -34,7 +36,12 @@ export function buildApp(db: DbClient, config: Config): FastifyInstance {
   app.register(cookie, { secret: config.sessionSecret ?? undefined });
   app.register(multipart, { limits: { fileSize: MAX_UPLOAD_FILE_BYTES } });
 
+  // Registered first so its onResponse hook wraps every route below,
+  // including the auth guard's own 401s and the SPA fallback's 404s.
+  registerHttpMetrics(app);
+
   registerHealthRoute(app);
+  registerMetricsRoute(app);
   registerAuthGuard(app, db, config);
   registerAuthRoutes(app, db, config);
   registerAdminRoutes(app, db);

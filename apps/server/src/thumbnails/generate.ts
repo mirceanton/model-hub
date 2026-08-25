@@ -24,22 +24,25 @@ export interface ThumbnailContext {
 
 type ThumbnailInput = Pick<ModelRow, "id" | "path" | "primaryFilePath">;
 
+/** Terminal outcome of a single render — mirrors the two terminal thumbnailStatus values, used by trigger.ts to drive the completed/failed job counters. */
+export type ThumbnailOutcome = "ready" | "error";
+
 function markStatus(db: DbClient, modelId: number, status: "generating" | "ready" | "error"): void {
   db.update(modelsTable).set({ thumbnailStatus: status }).where(eq(modelsTable.id, modelId)).run();
 }
 
-/** Renders `model`'s primary file headlessly and writes it to `.thumbnails/thumb.png`. Never throws — failures are recorded via thumbnailStatus. */
+/** Renders `model`'s primary file headlessly and writes it to `.thumbnails/thumb.png`. Never throws — failures are recorded via thumbnailStatus and reflected in the returned outcome. */
 export async function generateThumbnail(
   db: DbClient,
   model: ThumbnailInput,
   context: ThumbnailContext,
-): Promise<void> {
+): Promise<ThumbnailOutcome> {
   const extension = model.primaryFilePath
     ? extname(model.primaryFilePath).slice(1).toLowerCase()
     : "";
   if (!model.primaryFilePath || !MODEL_EXTENSIONS.has(extension)) {
     markStatus(db, model.id, "error");
-    return;
+    return "error";
   }
 
   markStatus(db, model.id, "generating");
@@ -80,10 +83,12 @@ export async function generateThumbnail(
       })
       .where(eq(modelsTable.id, model.id))
       .run();
+    return "ready";
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`thumbnail generation failed for model ${model.id}: ${message}`);
     markStatus(db, model.id, "error");
+    return "error";
   } finally {
     await page?.close();
   }
