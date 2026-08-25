@@ -14,6 +14,8 @@ import { registerFileRoutes } from "./routes/files.js";
 import { registerHealthRoute } from "./routes/health.js";
 import { registerMetricsRoute } from "./routes/metrics.js";
 import { registerModelRoutes } from "./routes/models.js";
+import { registerProjectExportRoutes } from "./routes/project-export.js";
+import { registerProjectThumbnailRoutes } from "./routes/project-thumbnails.js";
 import { registerProjectRoutes } from "./routes/projects.js";
 import { registerSourceSnapshotRoutes } from "./routes/source-snapshot.js";
 import { registerStatsRoutes } from "./routes/stats.js";
@@ -55,6 +57,8 @@ export function buildApp(db: DbClient, config: Config): FastifyInstance {
   registerApiTokenRoutes(app, db);
   registerModelRoutes(app, db, config.libraryRoot, config);
   registerProjectRoutes(app, db);
+  registerProjectExportRoutes(app, db);
+  registerProjectThumbnailRoutes(app, db);
   registerFileRoutes(app, db);
   registerDownloadRoutes(app, db);
   registerVersionRoutes(app, db, config);

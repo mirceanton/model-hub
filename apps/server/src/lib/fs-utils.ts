@@ -79,6 +79,16 @@ function extensionOf(filename: string): string {
   return extname(filename).slice(1).toLowerCase();
 }
 
+/** True for a model file (MODEL_EXTENSIONS) or attachment (ATTACHMENT_EXTENSIONS) extension — the same allowlist listModelFiles applies when walking the live working tree. Exported so project export (which reads a historical git commit's tree instead of the live filesystem, so can't just reuse listModelFiles/the `files` DB cache) can apply the identical filter. */
+export function isTrackedExtension(extension: string): boolean {
+  return TRACKED_EXTENSIONS.has(extension.toLowerCase());
+}
+
+/** True when any path segment is a dotfile/dot-directory (.git, .thumbnails, .modelhub-id, .gitignore, .DS_Store, ...) — the same skip listModelFiles applies while walking. */
+export function isDotPath(relativePath: string): boolean {
+  return relativePath.split("/").some((segment) => segment.startsWith("."));
+}
+
 /**
  * Recursively lists model files (.stl/.3mf/.obj) and attachment files
  * (images/pdf — ATTACHMENT_EXTENSIONS) under a model directory. Skips

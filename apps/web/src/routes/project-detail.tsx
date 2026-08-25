@@ -1,16 +1,34 @@
-import type { ProjectActivityNotice } from "@model-hub/shared"
-import { AlertCircle, ArrowLeft, Loader2, PackageX, Trash2, X } from "lucide-react"
-import { useState } from "react"
+import type { ProjectActivityNotice, ProjectDetail } from "@model-hub/shared"
+import {
+  AlertCircle,
+  ArrowLeft,
+  Download,
+  ImagePlus,
+  Loader2,
+  PackageX,
+  Trash2,
+  X,
+} from "lucide-react"
+import { useRef, useState } from "react"
 import { Link, useNavigate, useParams } from "react-router"
 import { AddModelPickerDialog } from "@/components/add-model-picker-dialog"
 import { ProjectPinRow } from "@/components/project-pin-row"
+import { ProjectThumbnail } from "@/components/project-thumbnail-mosaic"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Textarea } from "@/components/ui/textarea"
-import { useDeleteProject, useDismissProjectNotice, useProject, useUpdateProject } from "@/lib/queries"
+import { projectExportUrl } from "@/lib/model-loader"
+import {
+  useDeleteProject,
+  useDeleteProjectThumbnail,
+  useDismissProjectNotice,
+  useProject,
+  useUpdateProject,
+  useUploadProjectThumbnail,
+} from "@/lib/queries"
 
 export function ProjectDetailPage() {
   const params = useParams<{ id: string }>()
@@ -44,10 +62,14 @@ export function ProjectDetailPage() {
       <BackLink />
 
       <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-start sm:justify-between">
-        <div className="flex min-w-0 flex-1 flex-col gap-2">
-          <EditableTitle projectId={project.id} title={project.title} />
+        <div className="flex min-w-0 flex-1 gap-3">
+          <ProjectThumbnailEditor project={project} />
+          <div className="flex min-w-0 flex-1 flex-col gap-2">
+            <EditableTitle projectId={project.id} title={project.title} />
+          </div>
         </div>
         <div className="flex w-full shrink-0 items-center gap-2 sm:w-auto">
+          <ExportProjectButton projectId={project.id} disabled={project.pins.length === 0} />
           <DeleteProjectButton projectId={project.id} />
           <AddModelPickerDialog
             projectId={project.id}
@@ -218,6 +240,72 @@ function ProjectNoticeAlert({
         <X />
       </Button>
     </Alert>
+  )
+}
+
+function ProjectThumbnailEditor({ project }: { project: ProjectDetail }) {
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const upload = useUploadProjectThumbnail(project.id)
+  const remove = useDeleteProjectThumbnail(project.id)
+
+  return (
+    <div className="flex shrink-0 flex-col gap-1.5">
+      <ProjectThumbnail project={project} className="w-20" />
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0]
+          if (file) upload.mutate(file)
+          e.target.value = ""
+        }}
+      />
+      <div className="flex gap-1">
+        <Button
+          variant="outline"
+          size="icon-xs"
+          disabled={upload.isPending}
+          title={project.hasCustomThumbnail ? "Change thumbnail" : "Upload a custom thumbnail"}
+          onClick={() => fileInputRef.current?.click()}
+        >
+          {upload.isPending ? (
+            <Loader2 className="size-3.5 animate-spin" />
+          ) : (
+            <ImagePlus className="size-3.5" />
+          )}
+        </Button>
+        {project.hasCustomThumbnail && (
+          <Button
+            variant="outline"
+            size="icon-xs"
+            disabled={remove.isPending}
+            title="Remove custom thumbnail"
+            onClick={() => remove.mutate()}
+          >
+            <X className="size-3.5" />
+          </Button>
+        )}
+      </div>
+      {upload.isError && <p className="max-w-20 text-[10px] text-destructive">{upload.error.message}</p>}
+    </div>
+  )
+}
+
+function ExportProjectButton({ projectId, disabled }: { projectId: number; disabled?: boolean }) {
+  return (
+    <Button
+      variant="outline"
+      size="sm"
+      disabled={disabled}
+      title="Download every pinned model's files at its pinned commit as a zip"
+      nativeButton={false}
+      render={<a href={projectExportUrl(projectId)} download />}
+    >
+      <Download className="size-4" />
+      Export
+    </Button>
   )
 }
 

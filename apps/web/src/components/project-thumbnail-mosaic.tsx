@@ -1,7 +1,40 @@
 import type { Project } from "@model-hub/shared"
 import { Boxes } from "lucide-react"
-import { thumbnailUrl } from "@/lib/model-loader"
+import { projectThumbnailUrl, thumbnailUrl } from "@/lib/model-loader"
 import { cn } from "@/lib/utils"
+
+/**
+ * A project's thumbnail: a user-uploaded custom image when one is set
+ * (project.hasCustomThumbnail — see project-detail.tsx's upload control),
+ * falling back to an auto-generated mosaic of its pinned models' thumbnails.
+ */
+export function ProjectThumbnail({
+  project,
+  className,
+}: {
+  project: Pick<Project, "id" | "previewPins" | "pinCount" | "hasCustomThumbnail" | "updatedAt">
+  className?: string
+}) {
+  if (project.hasCustomThumbnail) {
+    return (
+      <div className={cn("relative aspect-square overflow-hidden rounded-md border", className)}>
+        <img
+          src={projectThumbnailUrl(project.id, project.updatedAt)}
+          alt=""
+          className="size-full object-cover"
+        />
+      </div>
+    )
+  }
+
+  return (
+    <ProjectThumbnailMosaic
+      previewPins={project.previewPins}
+      pinCount={project.pinCount}
+      className={className}
+    />
+  )
+}
 
 export function ProjectThumbnailMosaic({
   previewPins,
