@@ -25,12 +25,21 @@ type SortDir = "asc" | "desc"
 interface TagPanelProps {
   tags: TagWithCount[] | undefined
   isLoading: boolean
-  activeTag: string | null
-  onSelectTag: (tag: string | null) => void
+  /** Tag names required to match (AND) — a model must carry every one of these. */
+  activeTags: string[]
+  onToggleTag: (tag: string) => void
+  onClearTags: () => void
   className?: string
 }
 
-export function TagPanel({ tags, isLoading, activeTag, onSelectTag, className }: TagPanelProps) {
+export function TagPanel({
+  tags,
+  isLoading,
+  activeTags,
+  onToggleTag,
+  onClearTags,
+  className,
+}: TagPanelProps) {
   const [isOpen, setIsOpen] = useState(false)
   const [search, setSearch] = useState("")
   const [sortKey, setSortKey] = useState<SortKey>("name")
@@ -65,7 +74,9 @@ export function TagPanel({ tags, isLoading, activeTag, onSelectTag, className }:
         <span className="flex items-center gap-2">
           <TagIcon className="size-4" />
           Tags
-          {activeTag && <span className="text-muted-foreground">— {activeTag}</span>}
+          {activeTags.length > 0 && (
+            <span className="text-muted-foreground">— {activeTags.join(", ")}</span>
+          )}
         </span>
         <ChevronDown className={cn("size-4 transition-transform", isOpen && "rotate-180")} />
       </button>
@@ -124,49 +135,53 @@ export function TagPanel({ tags, isLoading, activeTag, onSelectTag, className }:
               </p>
             ) : (
               <ul>
-                {visibleTags.map((tag) => (
-                  <li key={tag.id} className="group flex items-center">
-                    <button
-                      type="button"
-                      onClick={() => onSelectTag(activeTag === tag.name ? null : tag.name)}
-                      className={cn(
-                        "grid min-w-0 flex-1 grid-cols-[1fr_auto] items-center gap-x-2 px-3 py-1.5 text-left text-sm hover:bg-muted",
-                        activeTag === tag.name && "bg-muted font-medium",
-                      )}
-                    >
-                      <span className="flex min-w-0 items-center gap-1.5">
-                        <span
-                          className="size-2 shrink-0 rounded-full"
-                          style={{ backgroundColor: tag.color }}
+                {visibleTags.map((tag) => {
+                  const isActive = activeTags.includes(tag.name)
+                  return (
+                    <li key={tag.id} className="group flex items-center">
+                      <button
+                        type="button"
+                        aria-pressed={isActive}
+                        onClick={() => onToggleTag(tag.name)}
+                        className={cn(
+                          "grid min-w-0 flex-1 grid-cols-[1fr_auto] items-center gap-x-2 px-3 py-1.5 text-left text-sm hover:bg-muted",
+                          isActive && "bg-muted font-medium",
+                        )}
+                      >
+                        <span className="flex min-w-0 items-center gap-1.5">
+                          <span
+                            className="size-2 shrink-0 rounded-full"
+                            style={{ backgroundColor: tag.color }}
+                          />
+                          <span className="truncate">{tag.name}</span>
+                        </span>
+                        <span className="text-xs text-muted-foreground">{tag.modelCount}</span>
+                      </button>
+                      <div className="flex items-center pr-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100">
+                        <EditTagDialog tag={tag} />
+                        <DeleteTagButton
+                          tag={tag}
+                          onDeleted={() => {
+                            if (isActive) onToggleTag(tag.name)
+                          }}
                         />
-                        <span className="truncate">{tag.name}</span>
-                      </span>
-                      <span className="text-xs text-muted-foreground">{tag.modelCount}</span>
-                    </button>
-                    <div className="flex items-center pr-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100">
-                      <EditTagDialog tag={tag} />
-                      <DeleteTagButton
-                        tag={tag}
-                        onDeleted={() => {
-                          if (activeTag === tag.name) onSelectTag(null)
-                        }}
-                      />
-                    </div>
-                  </li>
-                ))}
+                      </div>
+                    </li>
+                  )
+                })}
               </ul>
             )}
           </div>
 
-          {activeTag && (
+          {activeTags.length > 0 && (
             <div className="shrink-0 border-t p-2">
               <button
                 type="button"
-                onClick={() => onSelectTag(null)}
+                onClick={onClearTags}
                 className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
               >
                 <X className="size-3.5" />
-                Clear filter
+                Clear {activeTags.length > 1 ? `filters (${activeTags.length})` : "filter"}
               </button>
             </div>
           )}

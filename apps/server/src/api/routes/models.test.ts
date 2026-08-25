@@ -7,8 +7,9 @@ import Fastify, { type FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createDbClient, type DbClient } from "../../db/client.js";
 import { runMigrations } from "../../db/migrate.js";
-import { models as modelsTable, type ModelRow } from "../../db/schema.js";
+import { models as modelsTable, modelTags as modelTagsTable, type ModelRow } from "../../db/schema.js";
 import { ensureMarkerId } from "../../lib/fs-utils.js";
+import { getOrCreateTag } from "../../lib/tags.js";
 import { LOCAL_UPLOAD_IDENTITY, reconcileModelCore } from "../../sync/reconcile.js";
 import { registerModelRoutes } from "./models.js";
 
@@ -46,6 +47,12 @@ async function createTestModel(
   });
 
   return db.select().from(modelsTable).where(eq(modelsTable.id, inserted.id)).get()!;
+}
+
+/** Tags a model, creating the tag if it doesn't already exist (case-insensitive). */
+function tagModel(db: DbClient, modelId: number, tagName: string): void {
+  const tag = getOrCreateTag(db, tagName);
+  db.insert(modelTagsTable).values({ modelId, tagId: tag.id }).onConflictDoNothing().run();
 }
 
 describe("duplicate detection surfaced on model routes", () => {
@@ -292,5 +299,92 @@ describe("sourceUrl on the model routes", () => {
 
     expect(res.statusCode).toBe(400);
     expect(res.json()).toMatchObject({ error: expect.stringContaining("sourceUrl") });
+  });
+});
+
+describe("filtering the model list by tag", () => {
+  let libraryRoot: string;
+  let db: DbClient;
+  let app: FastifyInstance;
+
+  beforeEach(async () => {
+    libraryRoot = await mkdtemp(join(tmpdir(), "model-hub-tag-filter-"));
+    db = createDbClient(":memory:");
+    runMigrations(db);
+    app = await buildTestApp(db, libraryRoot);
+  });
+
+  afterEach(async () => {
+    await app.close();
+    await rm(libraryRoot, { recursive: true, force: true });
+  });
+
+  it("a single ?tag= still returns only models with that tag", async () => {
+    const articulated = await createTestModel(db, libraryRoot, "Articulated Dragon", {
+      "model.stl": "solid a\nendsolid a\n",
+    });
+    const plain = await createTestModel(db, libraryRoot, "Plain Cube", {
+      "model.stl": "solid b\nendsolid b\n",
+    });
+    tagModel(db, articulated.id, "articulated");
+
+    const res = await app.inject({ method: "GET", url: "/api/models?tag=articulated" });
+    const body = res.json() as { data: { id: number }[] };
+    expect(body.data.map((m) => m.id)).toEqual([articulated.id]);
+    expect(body.data.map((m) => m.id)).not.toContain(plain.id);
+  });
+
+  it("repeated ?tag=a&tag=b returns only models with ALL listed tags (AND, not OR)", async () => {
+    const both = await createTestModel(db, libraryRoot, "Articulated Miniature Dragon", {
+      "model.stl": "solid a\nendsolid a\n",
+    });
+    const onlyArticulated = await createTestModel(db, libraryRoot, "Articulated Full-Size Dragon", {
+      "model.stl": "solid b\nendsolid b\n",
+    });
+    const onlyMiniature = await createTestModel(db, libraryRoot, "Static Miniature Dragon", {
+      "model.stl": "solid c\nendsolid c\n",
+    });
+    tagModel(db, both.id, "articulated");
+    tagModel(db, both.id, "miniature");
+    tagModel(db, onlyArticulated.id, "articulated");
+    tagModel(db, onlyMiniature.id, "miniature");
+
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/models?tag=articulated&tag=miniature",
+    });
+    const body = res.json() as { data: { id: number }[]; total: number };
+
+    expect(body.total).toBe(1);
+    expect(body.data.map((m) => m.id)).toEqual([both.id]);
+  });
+
+  it("is case-insensitive across multiple tags, same as single-tag filtering", async () => {
+    const model = await createTestModel(db, libraryRoot, "Dragon", {
+      "model.stl": "solid a\nendsolid a\n",
+    });
+    tagModel(db, model.id, "Articulated");
+    tagModel(db, model.id, "Miniature");
+
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/models?tag=ARTICULATED&tag=miniature",
+    });
+    const body = res.json() as { data: { id: number }[] };
+    expect(body.data.map((m) => m.id)).toEqual([model.id]);
+  });
+
+  it("returns no models when one of the requested tags doesn't exist at all", async () => {
+    const model = await createTestModel(db, libraryRoot, "Dragon", {
+      "model.stl": "solid a\nendsolid a\n",
+    });
+    tagModel(db, model.id, "articulated");
+
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/models?tag=articulated&tag=nonexistent",
+    });
+    const body = res.json() as { data: { id: number }[]; total: number };
+    expect(body.total).toBe(0);
   });
 });
