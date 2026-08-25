@@ -114,4 +114,26 @@ describe("loadConfig", () => {
       }),
     ).toThrow(/SESSION_SECRET is required/);
   });
+
+  it("applies sane defaults for rate limiting when unset", () => {
+    const config = loadConfig(BASE_ENV);
+    expect(config.authRateLimitMax).toBe(10);
+    expect(config.authRateLimitWindowMs).toBe(60_000);
+    expect(config.uploadRateLimitMax).toBe(30);
+    expect(config.uploadRateLimitWindowMs).toBe(60_000);
+  });
+
+  it("honors rate limit overrides", () => {
+    const config = loadConfig({
+      ...BASE_ENV,
+      AUTH_RATE_LIMIT_MAX: "5",
+      AUTH_RATE_LIMIT_WINDOW_MS: "30000",
+      UPLOAD_RATE_LIMIT_MAX: "100",
+      UPLOAD_RATE_LIMIT_WINDOW_MS: "120000",
+    });
+    expect(config.authRateLimitMax).toBe(5);
+    expect(config.authRateLimitWindowMs).toBe(30_000);
+    expect(config.uploadRateLimitMax).toBe(100);
+    expect(config.uploadRateLimitWindowMs).toBe(120_000);
+  });
 });

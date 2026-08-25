@@ -31,6 +31,10 @@ const OIDC_CONFIG: Config = {
     redirectUrl: "http://localhost:4000/auth/callback",
   },
   sessionSecret: "a".repeat(32),
+  authRateLimitMax: 10,
+  authRateLimitWindowMs: 60_000,
+  uploadRateLimitMax: 30,
+  uploadRateLimitWindowMs: 60_000,
 };
 
 function insertUser(db: DbClient, overrides: Partial<typeof usersTable.$inferInsert> = {}): UserRow {
