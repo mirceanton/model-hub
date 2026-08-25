@@ -313,6 +313,145 @@ describe("trash routes", () => {
     expect(patchRes.statusCode).toBe(404);
   });
 
+  it("permanently deleting a pinned model from trash writes a dismissible notice on the affected project, but restoring first does not", async () => {
+    const pinned = await createTestModel(db, libraryRoot, "Pinned Thing");
+    const untouched = await createTestModel(db, libraryRoot, "Unrelated Thing");
+
+    const projectRes = await app.inject({
+      method: "POST",
+      url: "/api/projects",
+      payload: { title: "Notice Project" },
+    });
+    const project = projectRes.json() as { id: number };
+
+    const otherProjectRes = await app.inject({
+      method: "POST",
+      url: "/api/projects",
+      payload: { title: "Other Project" },
+    });
+    const otherProject = otherProjectRes.json() as { id: number };
+
+    // Pin the model into both projects so we can confirm the notice lands on
+    // every affected project, not just one.
+    await app.inject({
+      method: "POST",
+      url: `/api/projects/${project.id}/pins`,
+      payload: { modelId: pinned.id },
+    });
+    await app.inject({
+      method: "POST",
+      url: `/api/projects/${otherProject.id}/pins`,
+      payload: { modelId: pinned.id },
+    });
+    // A project with no pin on the deleted model should never get a notice.
+    await app.inject({
+      method: "POST",
+      url: `/api/projects/${project.id}/pins`,
+      payload: { modelId: untouched.id },
+    });
+
+    await app.inject({ method: "DELETE", url: `/api/models/${pinned.id}` });
+
+    // Soft-delete (trash) alone must not produce a notice: the pin is
+    // untouched while the model sits in trash, and could still be restored.
+    const beforePurge = await app.inject({ method: "GET", url: `/api/projects/${project.id}` });
+    expect((beforePurge.json() as { notices: unknown[] }).notices).toHaveLength(0);
+
+    const purgeRes = await app.inject({ method: "DELETE", url: `/api/trash/${pinned.id}` });
+    expect(purgeRes.statusCode).toBe(204);
+
+    const projectAfter = (
+      await app.inject({ method: "GET", url: `/api/projects/${project.id}` })
+    ).json() as { notices: { id: number; message: string; createdAt: number }[]; pins: unknown[] };
+    expect(projectAfter.pins).toHaveLength(1); // only "Unrelated Thing" left
+    expect(projectAfter.notices).toHaveLength(1);
+    expect(projectAfter.notices[0]!.message).toContain("Pinned Thing");
+    expect(projectAfter.notices[0]!.message).toContain("removed from this project");
+
+    const otherProjectAfter = (
+      await app.inject({ method: "GET", url: `/api/projects/${otherProject.id}` })
+    ).json() as { notices: unknown[] };
+    expect(otherProjectAfter.notices).toHaveLength(1);
+
+    // Dismiss and confirm it stays dismissed (soft: doesn't reappear).
+    const noticeId = projectAfter.notices[0]!.id;
+    const dismissRes = await app.inject({
+      method: "POST",
+      url: `/api/projects/${project.id}/notices/${noticeId}/dismiss`,
+    });
+    expect(dismissRes.statusCode).toBe(204);
+
+    const projectAfterDismiss = (
+      await app.inject({ method: "GET", url: `/api/projects/${project.id}` })
+    ).json() as { notices: unknown[] };
+    expect(projectAfterDismiss.notices).toHaveLength(0);
+
+    // Dismissing again (already dismissed / unknown id) 404s instead of silently no-oping twice.
+    const redismissRes = await app.inject({
+      method: "POST",
+      url: `/api/projects/${project.id}/notices/${noticeId}/dismiss`,
+    });
+    expect(redismissRes.statusCode).toBe(404);
+  });
+
+  it("restoring a pinned model from trash before purge produces no notice at all", async () => {
+    const model = await createTestModel(db, libraryRoot, "Restored In Time");
+    const projectRes = await app.inject({
+      method: "POST",
+      url: "/api/projects",
+      payload: { title: "Restore Race Project" },
+    });
+    const project = projectRes.json() as { id: number };
+    await app.inject({
+      method: "POST",
+      url: `/api/projects/${project.id}/pins`,
+      payload: { modelId: model.id },
+    });
+
+    await app.inject({ method: "DELETE", url: `/api/models/${model.id}` });
+    const restoreRes = await app.inject({
+      method: "POST",
+      url: `/api/trash/${model.id}/restore`,
+    });
+    expect(restoreRes.statusCode).toBe(200);
+
+    const projectAfter = (
+      await app.inject({ method: "GET", url: `/api/projects/${project.id}` })
+    ).json() as { notices: unknown[]; pins: { modelId: number }[] };
+    expect(projectAfter.notices).toHaveLength(0);
+    expect(projectAfter.pins.map((p) => p.modelId)).toEqual([model.id]);
+  });
+
+  it("the 7-day auto-purge path also writes the notice", async () => {
+    const model = await createTestModel(db, libraryRoot, "Auto Purged");
+    const projectRes = await app.inject({
+      method: "POST",
+      url: "/api/projects",
+      payload: { title: "Auto Purge Project" },
+    });
+    const project = projectRes.json() as { id: number };
+    await app.inject({
+      method: "POST",
+      url: `/api/projects/${project.id}/pins`,
+      payload: { modelId: model.id },
+    });
+
+    await app.inject({ method: "DELETE", url: `/api/models/${model.id}` });
+    db.update(modelsTable)
+      .set({ deletedAt: new Date(Date.now() - TRASH_RETENTION_MS - 1000) })
+      .where(eq(modelsTable.id, model.id))
+      .run();
+
+    const result = await purgeExpiredTrash(db);
+    expect(result.purged).toBe(1);
+
+    const projectAfter = (
+      await app.inject({ method: "GET", url: `/api/projects/${project.id}` })
+    ).json() as { notices: { message: string }[] };
+    expect(projectAfter.notices).toHaveLength(1);
+    expect(projectAfter.notices[0]!.message).toContain("Auto Purged");
+  });
+
   it("a DELETE that loses a race against a concurrent trash of the same model bails cleanly instead of crashing", async () => {
     const model = await createTestModel(db, libraryRoot, "Raced");
 

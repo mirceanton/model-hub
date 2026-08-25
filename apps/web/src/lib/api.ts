@@ -299,6 +299,10 @@ export function removeProjectPin(projectId: number, modelId: number): Promise<vo
   return request<void>(`/api/projects/${projectId}/pins/${modelId}`, { method: "DELETE" })
 }
 
+export function dismissProjectNotice(projectId: number, noticeId: number): Promise<void> {
+  return request<void>(`/api/projects/${projectId}/notices/${noticeId}/dismiss`, { method: "POST" })
+}
+
 export interface AuthUser {
   id: number
   name: string | null

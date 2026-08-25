@@ -1,4 +1,5 @@
-import { AlertCircle, ArrowLeft, Loader2, Trash2 } from "lucide-react"
+import type { ProjectActivityNotice } from "@model-hub/shared"
+import { AlertCircle, ArrowLeft, Loader2, PackageX, Trash2, X } from "lucide-react"
 import { useState } from "react"
 import { Link, useNavigate, useParams } from "react-router"
 import { AddModelPickerDialog } from "@/components/add-model-picker-dialog"
@@ -9,7 +10,7 @@ import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Textarea } from "@/components/ui/textarea"
-import { useDeleteProject, useProject, useUpdateProject } from "@/lib/queries"
+import { useDeleteProject, useDismissProjectNotice, useProject, useUpdateProject } from "@/lib/queries"
 
 export function ProjectDetailPage() {
   const params = useParams<{ id: string }>()
@@ -56,6 +57,14 @@ export function ProjectDetailPage() {
       </div>
 
       <EditableDescription projectId={project.id} description={project.description} />
+
+      {project.notices.length > 0 && (
+        <div className="flex flex-col gap-2">
+          {project.notices.map((notice) => (
+            <ProjectNoticeAlert key={notice.id} projectId={project.id} notice={notice} />
+          ))}
+        </div>
+      )}
 
       <Separator />
 
@@ -173,6 +182,42 @@ function EditableDescription({
       placeholder="What is this project?"
       rows={3}
     />
+  )
+}
+
+function ProjectNoticeAlert({
+  projectId,
+  notice,
+}: {
+  projectId: number
+  notice: ProjectActivityNotice
+}) {
+  const dismiss = useDismissProjectNotice(projectId)
+  const date = new Date(notice.createdAt).toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  })
+
+  return (
+    <Alert>
+      <PackageX />
+      <AlertTitle>Model removed from this project</AlertTitle>
+      <AlertDescription>
+        {notice.message} ({date})
+      </AlertDescription>
+      <Button
+        data-slot="alert-action"
+        variant="ghost"
+        size="icon-xs"
+        className="absolute top-1.5 right-1.5"
+        disabled={dismiss.isPending}
+        onClick={() => dismiss.mutate(notice.id)}
+        aria-label="Dismiss"
+      >
+        <X />
+      </Button>
+    </Alert>
   )
 }
 

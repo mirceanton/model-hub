@@ -14,6 +14,7 @@ import {
   deleteProject,
   deleteRoleMapping,
   deleteTag,
+  dismissProjectNotice,
   fetchAdminUsers,
   fetchApiTokens,
   fetchAuthMe,
@@ -340,6 +341,14 @@ export function useRemovePin(projectId: number) {
   const invalidate = useInvalidateProject(projectId)
   return useMutation({
     mutationFn: (modelId: number) => removeProjectPin(projectId, modelId),
+    onSuccess: invalidate,
+  })
+}
+
+export function useDismissProjectNotice(projectId: number) {
+  const invalidate = useInvalidateProject(projectId)
+  return useMutation({
+    mutationFn: (noticeId: number) => dismissProjectNotice(projectId, noticeId),
     onSuccess: invalidate,
   })
 }
