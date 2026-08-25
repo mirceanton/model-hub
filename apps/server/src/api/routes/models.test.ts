@@ -388,3 +388,162 @@ describe("filtering the model list by tag", () => {
     expect(body.total).toBe(0);
   });
 });
+
+describe("file-attribute filters and lastSyncedAt sort on the model list", () => {
+  let libraryRoot: string;
+  let db: DbClient;
+  let app: FastifyInstance;
+
+  beforeEach(async () => {
+    libraryRoot = await mkdtemp(join(tmpdir(), "model-hub-file-filters-"));
+    db = createDbClient(":memory:");
+    runMigrations(db);
+    app = await buildTestApp(db, libraryRoot);
+  });
+
+  afterEach(async () => {
+    await app.close();
+    await rm(libraryRoot, { recursive: true, force: true });
+  });
+
+  it("sort=lastSyncedAt orders models by their last-synced time", async () => {
+    const older = await createTestModel(db, libraryRoot, "Older", {
+      "a.stl": "solid a\nendsolid a\n",
+    });
+    const newer = await createTestModel(db, libraryRoot, "Newer", {
+      "b.stl": "solid b\nendsolid b\n",
+    });
+
+    // Pin exact timestamps so ordering is deterministic regardless of how
+    // fast the two createTestModel calls above actually ran.
+    db.update(modelsTable)
+      .set({ lastSyncedAt: new Date(1000) })
+      .where(eq(modelsTable.id, older.id))
+      .run();
+    db.update(modelsTable)
+      .set({ lastSyncedAt: new Date(2000) })
+      .where(eq(modelsTable.id, newer.id))
+      .run();
+
+    const descRes = await app.inject({
+      method: "GET",
+      url: "/api/models?sort=lastSyncedAt&order=desc",
+    });
+    const descBody = descRes.json() as { data: { id: number }[] };
+    expect(descBody.data.map((m) => m.id)).toEqual([newer.id, older.id]);
+
+    const ascRes = await app.inject({
+      method: "GET",
+      url: "/api/models?sort=lastSyncedAt&order=asc",
+    });
+    const ascBody = ascRes.json() as { data: { id: number }[] };
+    expect(ascBody.data.map((m) => m.id)).toEqual([older.id, newer.id]);
+  });
+
+  it("?extension= matches a model file extension", async () => {
+    const objModel = await createTestModel(db, libraryRoot, "ObjModel", {
+      "part.obj": "o cube\n",
+    });
+    const stlModel = await createTestModel(db, libraryRoot, "StlModel", {
+      "part.stl": "solid a\nendsolid a\n",
+    });
+
+    const res = await app.inject({ method: "GET", url: "/api/models?extension=obj" });
+    const body = res.json() as { data: { id: number }[] };
+    expect(body.data.map((m) => m.id)).toEqual([objModel.id]);
+    expect(body.data.map((m) => m.id)).not.toContain(stlModel.id);
+  });
+
+  it("?extension= also matches attachment files (e.g. a PDF instruction sheet), not just model files", async () => {
+    const withManual = await createTestModel(db, libraryRoot, "WithManual", {
+      "model.stl": "solid a\nendsolid a\n",
+      "instructions.pdf": "pdf-bytes",
+    });
+    const withoutManual = await createTestModel(db, libraryRoot, "WithoutManual", {
+      "model.stl": "solid b\nendsolid b\n",
+    });
+
+    const res = await app.inject({ method: "GET", url: "/api/models?extension=pdf" });
+    const body = res.json() as { data: { id: number }[] };
+    expect(body.data.map((m) => m.id)).toEqual([withManual.id]);
+    expect(body.data.map((m) => m.id)).not.toContain(withoutManual.id);
+  });
+
+  it("extension matching is case-insensitive", async () => {
+    const model = await createTestModel(db, libraryRoot, "CaseTest", {
+      "part.OBJ": "o cube\n",
+    });
+
+    const res = await app.inject({ method: "GET", url: "/api/models?extension=obj" });
+    const body = res.json() as { data: { id: number }[] };
+    expect(body.data.map((m) => m.id)).toEqual([model.id]);
+  });
+
+  it("?minSizeBytes=/?maxSizeBytes= filter by each model's total file size", async () => {
+    const small = await createTestModel(db, libraryRoot, "Small", {
+      "a.stl": "x".repeat(10),
+    });
+    const large = await createTestModel(db, libraryRoot, "Large", {
+      "a.stl": "x".repeat(1000),
+    });
+
+    const minRes = await app.inject({ method: "GET", url: "/api/models?minSizeBytes=500" });
+    expect((minRes.json() as { data: { id: number }[] }).data.map((m) => m.id)).toEqual([large.id]);
+
+    const maxRes = await app.inject({ method: "GET", url: "/api/models?maxSizeBytes=500" });
+    expect((maxRes.json() as { data: { id: number }[] }).data.map((m) => m.id)).toEqual([small.id]);
+
+    const rangeRes = await app.inject({
+      method: "GET",
+      url: "/api/models?minSizeBytes=5&maxSizeBytes=2000",
+    });
+    const rangeIds = (rangeRes.json() as { data: { id: number }[] }).data.map((m) => m.id).sort();
+    expect(rangeIds).toEqual([small.id, large.id].sort());
+  });
+
+  it("?minFiles=/?maxFiles= filter by each model's total tracked file count (model files + attachments)", async () => {
+    const oneFile = await createTestModel(db, libraryRoot, "OneFile", {
+      "a.stl": "solid a\nendsolid a\n",
+    });
+    const threeFiles = await createTestModel(db, libraryRoot, "ThreeFiles", {
+      "a.stl": "solid a\nendsolid a\n",
+      "photo.jpg": "jpeg-bytes",
+      "manual.pdf": "pdf-bytes",
+    });
+
+    const minRes = await app.inject({ method: "GET", url: "/api/models?minFiles=2" });
+    expect((minRes.json() as { data: { id: number }[] }).data.map((m) => m.id)).toEqual([threeFiles.id]);
+
+    const maxRes = await app.inject({ method: "GET", url: "/api/models?maxFiles=1" });
+    expect((maxRes.json() as { data: { id: number }[] }).data.map((m) => m.id)).toEqual([oneFile.id]);
+  });
+
+  it("combines a file-attribute filter with q/tag/favorite filters using AND semantics", async () => {
+    const match = await createTestModel(db, libraryRoot, "Articulated Dragon", {
+      "model.obj": "o cube\n",
+    });
+    tagModel(db, match.id, "articulated");
+    db.update(modelsTable).set({ favorite: true }).where(eq(modelsTable.id, match.id)).run();
+
+    // Same extension and tag, but not a favorite — should be excluded once
+    // favorite=true is added to the AND chain.
+    const sameTagNotFavorite = await createTestModel(db, libraryRoot, "Articulated Statue", {
+      "model.obj": "o cube\n",
+    });
+    tagModel(db, sameTagNotFavorite.id, "articulated");
+
+    // Matches q/tag/favorite but not the extension filter.
+    const wrongExtension = await createTestModel(db, libraryRoot, "Articulated Figure", {
+      "model.stl": "solid a\nendsolid a\n",
+    });
+    tagModel(db, wrongExtension.id, "articulated");
+    db.update(modelsTable).set({ favorite: true }).where(eq(modelsTable.id, wrongExtension.id)).run();
+
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/models?q=Articulated&tag=articulated&favorite=true&extension=obj",
+    });
+    const body = res.json() as { data: { id: number }[] };
+    expect(body.data.map((m) => m.id)).toEqual([match.id]);
+  });
+});

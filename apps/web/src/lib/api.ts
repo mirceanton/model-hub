@@ -31,6 +31,12 @@ export interface ModelFilters {
   /** All listed tags must match (AND) — sent as repeated `?tag=` params. */
   tags?: string[]
   favorite?: boolean
+  /** Only models with at least one tracked file (model file or attachment) of this extension, e.g. "obj" or "pdf". */
+  extension?: string
+  minSizeBytes?: number
+  maxSizeBytes?: number
+  minFiles?: number
+  maxFiles?: number
   page?: number
   perPage?: number
   sort?: ModelSortField
@@ -42,6 +48,11 @@ export function fetchModels(filters: ModelFilters = {}): Promise<ModelListResult
   if (filters.q) params.set("q", filters.q)
   for (const tag of filters.tags ?? []) params.append("tag", tag)
   if (filters.favorite) params.set("favorite", "true")
+  if (filters.extension) params.set("extension", filters.extension)
+  if (filters.minSizeBytes !== undefined) params.set("minSizeBytes", String(filters.minSizeBytes))
+  if (filters.maxSizeBytes !== undefined) params.set("maxSizeBytes", String(filters.maxSizeBytes))
+  if (filters.minFiles !== undefined) params.set("minFiles", String(filters.minFiles))
+  if (filters.maxFiles !== undefined) params.set("maxFiles", String(filters.maxFiles))
   if (filters.perPage) params.set("perPage", String(filters.perPage))
   if (filters.page) params.set("page", String(filters.page))
   if (filters.sort) params.set("sort", filters.sort)

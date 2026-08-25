@@ -1,5 +1,5 @@
 import type { Model, ModelSortField, SortOrder } from "@model-hub/shared"
-import { AlertCircle, ChevronLeft, ChevronRight, FolderOpen, Search, Star } from "lucide-react"
+import { AlertCircle, ChevronLeft, ChevronRight, FolderOpen, ListFilter, Search, Star, X } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
 import { Link, useSearchParams } from "react-router"
 import { useMainMaxWidth } from "@/components/app-shell"
@@ -73,8 +73,35 @@ const SORT_OPTIONS: SortOption[] = [
   { value: "title-desc", label: "Name (Z–A)", sort: "title", order: "desc" },
   { value: "createdAt-desc", label: "Recently added", sort: "createdAt", order: "desc" },
   { value: "createdAt-asc", label: "Oldest first", sort: "createdAt", order: "asc" },
+  { value: "lastSyncedAt-desc", label: "Recently updated", sort: "lastSyncedAt", order: "desc" },
 ]
 const DEFAULT_SORT = SORT_OPTIONS[0]
+
+const MB = 1024 * 1024
+
+interface FileFilterInputs {
+  extension: string
+  minSizeMB: string
+  maxSizeMB: string
+  minFiles: string
+  maxFiles: string
+}
+
+const EMPTY_FILE_FILTERS: FileFilterInputs = {
+  extension: "",
+  minSizeMB: "",
+  maxSizeMB: "",
+  minFiles: "",
+  maxFiles: "",
+}
+
+/** Parses a trimmed numeric text input into a non-negative number, or undefined if blank/invalid. */
+function parsePositiveNumber(raw: string): number | undefined {
+  const trimmed = raw.trim()
+  if (!trimmed) return undefined
+  const n = Number(trimmed)
+  return Number.isFinite(n) && n >= 0 ? n : undefined
+}
 
 export function ModelListPage() {
   const [searchInput, setSearchInput] = useState("")
@@ -90,6 +117,11 @@ export function ModelListPage() {
   const [perPageIndex, setPerPageIndex] = useState(DEFAULT_PER_PAGE_INDEX)
   const [page, setPage] = useState(1)
   const [sortValue, setSortValue] = useState(DEFAULT_SORT.value)
+  // File-attribute filters (extension present, size range, file-count range)
+  // — session-local like search/sort above, not part of the shareable URL.
+  const [filtersOpen, setFiltersOpen] = useState(false)
+  const [fileFilterInputs, setFileFilterInputs] = useState<FileFilterInputs>(EMPTY_FILE_FILTERS)
+  const [fileFilters, setFileFilters] = useState<FileFilterInputs>(EMPTY_FILE_FILTERS)
 
   const perPage = PER_PAGE_ROW_MULTIPLIERS[perPageIndex] * columns
   const sortOption = SORT_OPTIONS.find((option) => option.value === sortValue) ?? DEFAULT_SORT
@@ -102,8 +134,25 @@ export function ModelListPage() {
   }, [searchInput])
 
   useEffect(() => {
+    const timer = setTimeout(() => setFileFilters(fileFilterInputs), SEARCH_DEBOUNCE_MS)
+    return () => clearTimeout(timer)
+  }, [fileFilterInputs])
+
+  useEffect(() => {
     setPage(1)
-  }, [search, activeTags, favoritesOnly, perPage, sortValue])
+  }, [search, activeTags, favoritesOnly, fileFilters, perPage, sortValue])
+
+  const extensionFilter = fileFilters.extension.trim().toLowerCase() || undefined
+  const minSizeMB = parsePositiveNumber(fileFilters.minSizeMB)
+  const maxSizeMB = parsePositiveNumber(fileFilters.maxSizeMB)
+  const minFilesFilter = parsePositiveNumber(fileFilters.minFiles)
+  const maxFilesFilter = parsePositiveNumber(fileFilters.maxFiles)
+  const hasFileFilters =
+    extensionFilter !== undefined ||
+    minSizeMB !== undefined ||
+    maxSizeMB !== undefined ||
+    minFilesFilter !== undefined ||
+    maxFilesFilter !== undefined
 
   function toggleTag(tag: string) {
     setSearchParams(
@@ -141,88 +190,209 @@ export function ModelListPage() {
     q: search || undefined,
     tags: activeTags.length > 0 ? activeTags : undefined,
     favorite: favoritesOnly || undefined,
+    extension: extensionFilter,
+    minSizeBytes: minSizeMB !== undefined ? Math.round(minSizeMB * MB) : undefined,
+    maxSizeBytes: maxSizeMB !== undefined ? Math.round(maxSizeMB * MB) : undefined,
+    minFiles: minFilesFilter,
+    maxFiles: maxFilesFilter,
     page,
     perPage,
     sort: sortOption.sort,
     order: sortOption.order,
   })
 
-  const isFiltered = search.trim().length > 0 || activeTags.length > 0 || favoritesOnly
+  const isFiltered =
+    search.trim().length > 0 || activeTags.length > 0 || favoritesOnly || hasFileFilters
   const total = models?.total ?? 0
   const totalPages = Math.max(1, Math.ceil(total / perPage))
 
+  function clearFileFilters() {
+    setFileFilterInputs(EMPTY_FILE_FILTERS)
+  }
+
   return (
     <div className="grid grid-cols-1 gap-y-4 [grid-template-areas:'search'_'tags'_'content'] lg:grid-cols-[minmax(0,1fr)_18rem] lg:gap-x-6 lg:[grid-template-areas:'search_tags'_'content_tags']">
-      <div className="flex flex-wrap items-center justify-between gap-2 [grid-area:search]">
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="relative w-full sm:max-w-xs">
-            <Search className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              value={searchInput}
-              onChange={(e) => setSearchInput(e.target.value)}
-              placeholder="Search by title…"
-              className="pl-8"
-            />
+      <div className="flex flex-col gap-3 [grid-area:search]">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative w-full sm:max-w-xs">
+              <Search className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+                placeholder="Search by title…"
+                className="pl-8"
+              />
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              aria-pressed={favoritesOnly}
+              onClick={() => setFavoritesOnly((v) => !v)}
+              className={cn(favoritesOnly && "border-amber-400/50 bg-amber-400/10 text-amber-600 dark:text-amber-400")}
+            >
+              <Star className={cn("size-3.5", favoritesOnly && "fill-current")} />
+              Favorites
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              aria-pressed={filtersOpen}
+              onClick={() => setFiltersOpen((v) => !v)}
+              className={cn(hasFileFilters && "border-primary/50 bg-primary/10 text-primary")}
+            >
+              <ListFilter className="size-3.5" />
+              Filters
+              {hasFileFilters && (
+                <Badge variant="secondary" className="ml-0.5 h-4 min-w-4 rounded-full px-1 text-[10px]">
+                  {
+                    [extensionFilter, minSizeMB, maxSizeMB, minFilesFilter, maxFilesFilter].filter(
+                      (v) => v !== undefined,
+                    ).length
+                  }
+                </Badge>
+              )}
+            </Button>
+            <Select value={sortValue} onValueChange={(value) => value && setSortValue(value)}>
+              <SelectTrigger size="sm" aria-label="Sort by">
+                <SelectValue>
+                  {(value: string) => SORT_OPTIONS.find((option) => option.value === value)?.label}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {SORT_OPTIONS.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select
+              value={String(columns)}
+              onValueChange={(value) => setColumns(Number(value) as (typeof COLUMN_OPTIONS)[number])}
+            >
+              <SelectTrigger size="sm" aria-label="Columns">
+                <SelectValue>{(value: string) => `${value} columns`}</SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {COLUMN_OPTIONS.map((option) => (
+                  <SelectItem key={option} value={String(option)}>
+                    {option} columns
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select
+              value={String(perPageIndex)}
+              onValueChange={(value) => setPerPageIndex(Number(value))}
+            >
+              <SelectTrigger size="sm" aria-label="Items per page">
+                <SelectValue>
+                  {(value: string) => `${PER_PAGE_ROW_MULTIPLIERS[Number(value)] * columns} per page`}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {PER_PAGE_ROW_MULTIPLIERS.map((multiplier, index) => (
+                  <SelectItem key={multiplier} value={String(index)}>
+                    {multiplier * columns} per page
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            aria-pressed={favoritesOnly}
-            onClick={() => setFavoritesOnly((v) => !v)}
-            className={cn(favoritesOnly && "border-amber-400/50 bg-amber-400/10 text-amber-600 dark:text-amber-400")}
-          >
-            <Star className={cn("size-3.5", favoritesOnly && "fill-current")} />
-            Favorites
-          </Button>
-          <Select value={sortValue} onValueChange={(value) => value && setSortValue(value)}>
-            <SelectTrigger size="sm" aria-label="Sort by">
-              <SelectValue>
-                {(value: string) => SORT_OPTIONS.find((option) => option.value === value)?.label}
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              {SORT_OPTIONS.map((option) => (
-                <SelectItem key={option.value} value={option.value}>
-                  {option.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Select
-            value={String(columns)}
-            onValueChange={(value) => setColumns(Number(value) as (typeof COLUMN_OPTIONS)[number])}
-          >
-            <SelectTrigger size="sm" aria-label="Columns">
-              <SelectValue>{(value: string) => `${value} columns`}</SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              {COLUMN_OPTIONS.map((option) => (
-                <SelectItem key={option} value={String(option)}>
-                  {option} columns
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Select
-            value={String(perPageIndex)}
-            onValueChange={(value) => setPerPageIndex(Number(value))}
-          >
-            <SelectTrigger size="sm" aria-label="Items per page">
-              <SelectValue>
-                {(value: string) => `${PER_PAGE_ROW_MULTIPLIERS[Number(value)] * columns} per page`}
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              {PER_PAGE_ROW_MULTIPLIERS.map((multiplier, index) => (
-                <SelectItem key={multiplier} value={String(index)}>
-                  {multiplier * columns} per page
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <CreateModelDialog />
         </div>
-        <CreateModelDialog />
+
+        {filtersOpen && (
+          <div className="flex flex-wrap items-end gap-3 rounded-lg border bg-muted/30 p-3">
+            <div className="flex flex-col gap-1">
+              <label htmlFor="filter-extension" className="text-xs text-muted-foreground">
+                File extension
+              </label>
+              <Input
+                id="filter-extension"
+                value={fileFilterInputs.extension}
+                onChange={(e) =>
+                  setFileFilterInputs((prev) => ({ ...prev, extension: e.target.value }))
+                }
+                placeholder="e.g. stl, pdf"
+                className="h-8 w-32"
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label htmlFor="filter-min-size" className="text-xs text-muted-foreground">
+                Min size (MB)
+              </label>
+              <Input
+                id="filter-min-size"
+                type="number"
+                min={0}
+                value={fileFilterInputs.minSizeMB}
+                onChange={(e) =>
+                  setFileFilterInputs((prev) => ({ ...prev, minSizeMB: e.target.value }))
+                }
+                placeholder="0"
+                className="h-8 w-24"
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label htmlFor="filter-max-size" className="text-xs text-muted-foreground">
+                Max size (MB)
+              </label>
+              <Input
+                id="filter-max-size"
+                type="number"
+                min={0}
+                value={fileFilterInputs.maxSizeMB}
+                onChange={(e) =>
+                  setFileFilterInputs((prev) => ({ ...prev, maxSizeMB: e.target.value }))
+                }
+                placeholder="Any"
+                className="h-8 w-24"
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label htmlFor="filter-min-files" className="text-xs text-muted-foreground">
+                Min files
+              </label>
+              <Input
+                id="filter-min-files"
+                type="number"
+                min={0}
+                value={fileFilterInputs.minFiles}
+                onChange={(e) =>
+                  setFileFilterInputs((prev) => ({ ...prev, minFiles: e.target.value }))
+                }
+                placeholder="0"
+                className="h-8 w-20"
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label htmlFor="filter-max-files" className="text-xs text-muted-foreground">
+                Max files
+              </label>
+              <Input
+                id="filter-max-files"
+                type="number"
+                min={0}
+                value={fileFilterInputs.maxFiles}
+                onChange={(e) =>
+                  setFileFilterInputs((prev) => ({ ...prev, maxFiles: e.target.value }))
+                }
+                placeholder="Any"
+                className="h-8 w-20"
+              />
+            </div>
+            {hasFileFilters && (
+              <Button type="button" variant="ghost" size="sm" onClick={clearFileFilters}>
+                <X className="size-3.5" />
+                Clear
+              </Button>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="min-w-0 [grid-area:content]">
