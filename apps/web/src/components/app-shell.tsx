@@ -24,6 +24,7 @@ export function useMainMaxWidth(width: string | null) {
 }
 
 function TopNav() {
+  const { data } = useAuthMe()
   const linkClass = ({ isActive }: { isActive: boolean }) =>
     cn(
       "rounded-md px-3 py-1 text-sm font-medium transition-colors",
@@ -38,6 +39,11 @@ function TopNav() {
       <NavLink to="/projects" className={linkClass}>
         Projects
       </NavLink>
+      {data?.user?.role === "admin" && (
+        <NavLink to="/admin" className={linkClass}>
+          Admin
+        </NavLink>
+      )}
     </nav>
   )
 }

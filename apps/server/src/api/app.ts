@@ -4,6 +4,7 @@ import Fastify, { type FastifyInstance } from "fastify";
 import { registerAuthGuard } from "../auth/guard.js";
 import type { Config } from "../config.js";
 import type { DbClient } from "../db/client.js";
+import { registerAdminRoutes } from "./routes/admin.js";
 import { registerAuthRoutes } from "./routes/auth.js";
 import { registerDownloadRoutes } from "./routes/download.js";
 import { registerFileRoutes } from "./routes/files.js";
@@ -34,6 +35,7 @@ export function buildApp(db: DbClient, config: Config): FastifyInstance {
   registerHealthRoute(app);
   registerAuthGuard(app, db, config);
   registerAuthRoutes(app, db, config);
+  registerAdminRoutes(app, db);
   registerModelRoutes(app, db, config.libraryRoot);
   registerProjectRoutes(app, db);
   registerFileRoutes(app, db);

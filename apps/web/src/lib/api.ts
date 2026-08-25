@@ -1,14 +1,18 @@
 import type {
+  AdminUser,
   Model,
   ModelDetail,
   ModelListResult,
   ModelSortField,
+  OidcRoleMapping,
+  OidcRoleMappingConfig,
   PinnedModel,
   Project,
   ProjectDetail,
   SortOrder,
   Tag,
   TagWithCount,
+  UserRole,
 } from "@model-hub/shared"
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -244,6 +248,7 @@ export interface AuthUser {
   id: number
   name: string | null
   email: string | null
+  role: UserRole
 }
 
 export interface AuthMe {
@@ -258,4 +263,43 @@ export function fetchAuthMe(): Promise<AuthMe> {
 
 export function logout(): Promise<void> {
   return request<void>("/auth/logout", { method: "POST" })
+}
+
+export function fetchAdminUsers(): Promise<AdminUser[]> {
+  return request<AdminUser[]>("/api/admin/users")
+}
+
+export function fetchRoleMapping(): Promise<OidcRoleMappingConfig> {
+  return request<OidcRoleMappingConfig>("/api/admin/role-mapping")
+}
+
+export function updateRoleMappingSettings(patch: {
+  groupsClaim?: string
+  defaultRole?: UserRole
+}): Promise<{ groupsClaim: string; defaultRole: UserRole }> {
+  return request("/api/admin/role-mapping/settings", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  })
+}
+
+export function createRoleMapping(input: { groupName: string; role: UserRole }): Promise<OidcRoleMapping> {
+  return request<OidcRoleMapping>("/api/admin/role-mapping/groups", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  })
+}
+
+export function updateRoleMapping(id: number, role: UserRole): Promise<OidcRoleMapping> {
+  return request<OidcRoleMapping>(`/api/admin/role-mapping/groups/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ role }),
+  })
+}
+
+export function deleteRoleMapping(id: number): Promise<void> {
+  return request<void>(`/api/admin/role-mapping/groups/${id}`, { method: "DELETE" })
 }

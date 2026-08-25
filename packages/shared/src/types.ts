@@ -5,6 +5,39 @@ export type ModelExtension = "stl" | "3mf" | "obj";
 export type ModelSortField = "title" | "createdAt";
 export type SortOrder = "asc" | "desc";
 
+/**
+ * admin: full access, including user/role management and instance settings.
+ * editor: create/upload/edit/tag/favorite models and projects, but cannot
+ *   delete models/projects, manage users, or change instance settings.
+ * viewer: read-only — browse, view, download, no mutations.
+ */
+export type UserRole = "admin" | "editor" | "viewer";
+
+export interface AdminUser {
+  id: number;
+  name: string | null;
+  email: string | null;
+  role: UserRole;
+  isLocalOwner: boolean;
+  createdAt: number;
+}
+
+/** One "OIDC group claim value -> app role" rule. */
+export interface OidcRoleMapping {
+  id: number;
+  groupName: string;
+  role: UserRole;
+}
+
+export interface OidcRoleMappingConfig {
+  // The claim in the ID token whose value lists the user's OIDC groups
+  // (provider-specific — e.g. "groups" for Authelia/Authentik/Keycloak).
+  groupsClaim: string;
+  // Role assigned when none of a user's groups match a mapping below.
+  defaultRole: UserRole;
+  mappings: OidcRoleMapping[];
+}
+
 export interface Tag {
   id: number;
   name: string;
