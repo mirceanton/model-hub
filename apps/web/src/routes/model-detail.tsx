@@ -3,6 +3,7 @@ import {
   AlertCircle,
   ArrowLeft,
   Camera,
+  Copy,
   Download,
   File,
   GitCommitHorizontal,
@@ -15,6 +16,7 @@ import {
 } from "lucide-react"
 import { lazy, Suspense, useState } from "react"
 import { Link, useNavigate, useParams } from "react-router"
+import { DuplicateBadge } from "@/components/duplicate-badge"
 import { FavoriteToggle } from "@/components/favorite-toggle"
 import { MarkdownContent } from "@/components/markdown-content"
 import { ModelThumbnail } from "@/components/model-thumbnail"
@@ -91,6 +93,7 @@ export function ModelDetailPage() {
           <div className="flex flex-wrap items-center gap-2">
             <EditableTitle modelId={model.id} title={model.title} />
             <SyncStatusBadge status={model.syncStatus} />
+            <DuplicateBadge duplicates={model.duplicateModels} />
             <ModelFavoriteToggle modelId={model.id} favorite={model.favorite} />
           </div>
           <p className="break-all font-mono text-xs text-muted-foreground">{model.path}</p>
@@ -140,6 +143,23 @@ export function ModelDetailPage() {
         <p className="-mt-4 text-xs text-muted-foreground/70">
           Last synced {formatDateTime(model.lastSyncedAt)}
         </p>
+      )}
+
+      {model.duplicateModels.length > 0 && (
+        <Alert className="border-amber-400/50 bg-amber-400/10 text-amber-700 dark:text-amber-400">
+          <Copy />
+          <AlertTitle>Possible duplicate</AlertTitle>
+          <AlertDescription className="text-amber-700/80 dark:text-amber-400/80">
+            This model shares a file with{" "}
+            {model.duplicateModels.map((dup, index) => (
+              <span key={dup.modelId}>
+                {index > 0 && ", "}
+                <Link to={`/models/${dup.modelId}`}>{dup.modelTitle}</Link>
+              </span>
+            ))}
+            .
+          </AlertDescription>
+        </Alert>
       )}
 
       {model.syncStatus === "error" && model.syncError && (

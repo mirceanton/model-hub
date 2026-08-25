@@ -4,6 +4,7 @@ import { useEffect, useState } from "react"
 import { Link } from "react-router"
 import { useMainMaxWidth } from "@/components/app-shell"
 import { CreateModelDialog } from "@/components/create-model-dialog"
+import { DuplicateBadge } from "@/components/duplicate-badge"
 import { FavoriteToggle } from "@/components/favorite-toggle"
 import { ModelThumbnail } from "@/components/model-thumbnail"
 import { SyncStatusBadge } from "@/components/sync-status-badge"
@@ -289,6 +290,11 @@ function ModelCard({ model }: { model: Model }) {
           <p className="line-clamp-1 text-xs text-muted-foreground">
             {model.primaryFilePath ?? "No model files"}
           </p>
+          {model.duplicateModels.length > 0 && (
+            <div>
+              <DuplicateBadge duplicates={model.duplicateModels} className="text-[10px]" />
+            </div>
+          )}
           {model.tags.length > 0 && (
             <div className="flex flex-wrap gap-1">
               {model.tags.map((tag) => (

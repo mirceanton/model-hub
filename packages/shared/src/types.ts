@@ -44,6 +44,12 @@ export interface Tag {
   color: string;
 }
 
+/** One other active model this model shares an identical-content file with — see lib/duplicates.ts. */
+export interface DuplicateModelRef {
+  modelId: number;
+  modelTitle: string;
+}
+
 export interface TagWithCount extends Tag {
   modelCount: number;
 }
@@ -72,6 +78,9 @@ export interface Model {
   createdAt: number;
   updatedAt: number;
   tags: Tag[];
+  // Other active models sharing a file with an identical content hash — see
+  // lib/duplicates.ts. Empty when this model has no flagged duplicates.
+  duplicateModels: DuplicateModelRef[];
 }
 
 /** One row in the Trash view — a model whose directory was moved to LIBRARY_ROOT/.trash/ pending restore or auto-purge. */
