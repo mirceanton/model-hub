@@ -1,6 +1,7 @@
-import { and, eq, isNotNull, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull } from "drizzle-orm";
 import type { DbClient } from "../db/client.js";
 import { files as filesTable, models as modelsTable } from "../db/schema.js";
+import { MODEL_EXTENSIONS } from "./fs-utils.js";
 
 export interface DuplicateModelRef {
   modelId: number;
@@ -17,6 +18,12 @@ export interface DuplicateModelRef {
  * to be purged (see CLAUDE.md's trash/recycle bin section), matching
  * lib/model-lookup.ts's getActiveModel filtering used elsewhere.
  *
+ * Only MODEL_EXTENSIONS files are considered, not the full set of
+ * git-tracked/hashed files (attachments like images/PDFs are hashed too —
+ * see fs-utils.ts) — two unrelated models sharing a generic stock photo or
+ * boilerplate instructions PDF shouldn't be flagged as possible duplicates
+ * when their actual mesh files are completely different.
+ *
  * This re-scans all active files' hashes on every call rather than
  * maintaining a running index — simplest thing that works for a self-hosted
  * library's scale; revisit if it ever shows up in profiling.
@@ -30,7 +37,13 @@ export function computeDuplicateModelMap(db: DbClient): Map<number, DuplicateMod
     })
     .from(filesTable)
     .innerJoin(modelsTable, eq(filesTable.modelId, modelsTable.id))
-    .where(and(isNull(modelsTable.deletedAt), isNotNull(filesTable.contentHash)))
+    .where(
+      and(
+        isNull(modelsTable.deletedAt),
+        isNotNull(filesTable.contentHash),
+        inArray(filesTable.extension, Array.from(MODEL_EXTENSIONS)),
+      ),
+    )
     .all();
 
   const modelsByHash = new Map<string, Map<number, string>>();
