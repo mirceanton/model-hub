@@ -1,6 +1,7 @@
 import type { BulkResponse, GitLogEntry, SourceSnapshotStatus } from "@model-hub/shared"
 import {
   AlertCircle,
+  Archive,
   ArrowLeft,
   Camera,
   Copy,
@@ -47,7 +48,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { UploadVersionDialog } from "@/components/upload-version-dialog"
 import { useSelection } from "@/hooks/use-selection"
 import { formatBytes, formatDateTime } from "@/lib/format"
-import { archiveUrl, fileUrl, isViewableExtension } from "@/lib/model-loader"
+import { archiveUrl, fileUrl, isViewableExtension, modelExportUrl } from "@/lib/model-loader"
 import {
   useBulkDeleteModelFiles,
   useCaptureThumbnail,
@@ -141,6 +142,7 @@ export function ModelDetailPage() {
             disabled={model.files.length === 0 && model.attachments.length === 0}
             className="flex-1 sm:flex-none"
           />
+          <ExportModelButton modelId={model.id} className="flex-1 sm:flex-none" />
           <UploadVersionDialog modelId={model.id} className="flex-1 sm:flex-none" />
         </div>
       </div>
@@ -575,6 +577,30 @@ function DownloadModelButton({
     >
       <Download className="size-4" />
       Download
+    </Button>
+  )
+}
+
+/**
+ * Unlike DownloadModelButton above (plain files-only zip), this hits
+ * GET /api/models/:id/export, which also writes a metadata.json sidecar
+ * (title, description, tags, favorite, lastSyncedCommitSha) — see
+ * apps/server/src/api/routes/model-export.ts. Not disabled when the model
+ * has no files (unlike Download): the metadata sidecar alone is still a
+ * meaningful export.
+ */
+function ExportModelButton({ modelId, className }: { modelId: number; className?: string }) {
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      title="Export files + metadata (tags, description, favorite) as a zip"
+      className={className}
+      nativeButton={false}
+      render={<a href={modelExportUrl(modelId)} download />}
+    >
+      <Archive className="size-4" />
+      Export
     </Button>
   )
 }

@@ -4,7 +4,7 @@ import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { DbClient } from "../../db/client.js";
 import { projects as projectsTable } from "../../db/schema.js";
-import { isDotPath, isTrackedExtension, sanitizeModelDirName } from "../../lib/fs-utils.js";
+import { isDotPath, isTrackedExtension, makeDirNamePicker, sanitizeModelDirName } from "../../lib/fs-utils.js";
 import { getPinsForExport } from "../../lib/project-pins.js";
 import { catFileBlobStream, listFilesAtCommit } from "../../sync/git.js";
 
@@ -28,22 +28,6 @@ interface ExportManifest {
   projectDescription: string;
   exportedAt: string;
   models: ExportManifestModel[];
-}
-
-/** Picks a filesystem-safe, collision-free subdirectory name for a pinned model, preferring its title. */
-function makeDirNamePicker() {
-  const used = new Set<string>();
-  return (title: string, modelId: number): string => {
-    const base = sanitizeModelDirName(title) ?? `model-${modelId}`;
-    let candidate = base;
-    let suffix = 2;
-    while (used.has(candidate)) {
-      candidate = `${base} (${suffix})`;
-      suffix++;
-    }
-    used.add(candidate);
-    return candidate;
-  };
 }
 
 /**

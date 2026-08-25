@@ -197,3 +197,26 @@ export function sanitizeModelDirName(rawTitle: string): string | null {
 
   return truncated || null;
 }
+
+/**
+ * Picks a filesystem-safe, collision-free subdirectory name for a model
+ * being written into a multi-model zip export, preferring its title. Shared
+ * by every export route that bundles more than one model into a single zip
+ * (project export's pinned models, and models.ts's multi/full-library
+ * export) so two models sanitizing to the same name never collide inside
+ * the archive.
+ */
+export function makeDirNamePicker() {
+  const used = new Set<string>();
+  return (title: string, modelId: number): string => {
+    const base = sanitizeModelDirName(title) ?? `model-${modelId}`;
+    let candidate = base;
+    let suffix = 2;
+    while (used.has(candidate)) {
+      candidate = `${base} (${suffix})`;
+      suffix++;
+    }
+    used.add(candidate);
+    return candidate;
+  };
+}
