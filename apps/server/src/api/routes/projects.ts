@@ -2,7 +2,8 @@ import type { PinnedModel, Project, ProjectDetail } from "@model-hub/shared";
 import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { DbClient } from "../../db/client.js";
-import { models as modelsTable, projects as projectsTable, type ProjectRow } from "../../db/schema.js";
+import { projects as projectsTable, type ProjectRow } from "../../db/schema.js";
+import { getActiveModel } from "../../lib/model-lookup.js";
 import {
   addPin,
   getPinsForProject,
@@ -152,7 +153,11 @@ export function registerProjectRoutes(app: FastifyInstance, db: DbClient): void 
         return reply.code(400).send({ error: "modelId is required" });
       }
 
-      const model = db.select().from(modelsTable).where(eq(modelsTable.id, modelId)).get();
+      // Excludes trashed models: a model's repo is still physically present
+      // under .trash/ until purge, but it must not be selectable as a new
+      // pin target — see CLAUDE.md's Projects section and the trash feature
+      // notes in schema.ts.
+      const model = getActiveModel(db, modelId);
       if (!model) {
         return reply.code(404).send({ error: "model not found" });
       }
@@ -187,7 +192,10 @@ export function registerProjectRoutes(app: FastifyInstance, db: DbClient): void 
       if (!project) {
         return reply.code(404).send({ error: "project not found" });
       }
-      const model = db.select().from(modelsTable).where(eq(modelsTable.id, modelId)).get();
+      // Same exclusion as the create-pin route above: re-pinning (including
+      // the "bump to latest" quick action) is a normal-route operation and
+      // must not act on a model that's since been trashed.
+      const model = getActiveModel(db, modelId);
       if (!model) {
         return reply.code(404).send({ error: "model not found" });
       }

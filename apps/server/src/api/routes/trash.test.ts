@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rename, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import multipart from "@fastify/multipart";
@@ -10,9 +10,13 @@ import { runMigrations } from "../../db/migrate.js";
 import { models as modelsTable, type ModelRow } from "../../db/schema.js";
 import { ensureMarkerId, TRASH_DIRNAME } from "../../lib/fs-utils.js";
 import { getLog } from "../../sync/git.js";
+import { runExclusive } from "../../sync/queue.js";
 import { LOCAL_UPLOAD_IDENTITY, reconcileModelCore } from "../../sync/reconcile.js";
 import { TRASH_RETENTION_MS, purgeExpiredTrash } from "../../sync/scanner.js";
+import { registerDownloadRoutes } from "./download.js";
+import { registerFileRoutes } from "./files.js";
 import { registerModelRoutes } from "./models.js";
+import { registerProjectRoutes } from "./projects.js";
 import { registerTrashRoutes } from "./trash.js";
 
 async function dirExists(path: string): Promise<boolean> {
@@ -26,6 +30,9 @@ function buildTestApp(db: DbClient, libraryRoot: string): FastifyInstance {
   app.register(multipart);
   registerModelRoutes(app, db, libraryRoot);
   registerTrashRoutes(app, db, libraryRoot);
+  registerFileRoutes(app, db);
+  registerDownloadRoutes(app, db);
+  registerProjectRoutes(app, db);
   return app;
 }
 
@@ -209,5 +216,108 @@ describe("trash routes", () => {
     const freshRow = db.select().from(modelsTable).where(eq(modelsTable.id, freshModel.id)).get();
     expect(freshRow?.deletedAt).not.toBeNull();
     expect(await dirExists(freshRow!.path)).toBe(true);
+  });
+
+  it("excludes a trashed model from file serving, download, and project pin creation", async () => {
+    const model = await createTestModel(db, libraryRoot, "Trashed Target");
+    await app.inject({ method: "DELETE", url: `/api/models/${model.id}` });
+
+    const filesRes = await app.inject({
+      method: "GET",
+      url: `/api/models/${model.id}/files/model.stl`,
+    });
+    expect(filesRes.statusCode).toBe(404);
+
+    const downloadRes = await app.inject({
+      method: "GET",
+      url: `/api/models/${model.id}/download`,
+    });
+    expect(downloadRes.statusCode).toBe(404);
+
+    const projectRes = await app.inject({
+      method: "POST",
+      url: "/api/projects",
+      payload: { title: "Some Project" },
+    });
+    expect(projectRes.statusCode).toBe(201);
+    const project = projectRes.json() as { id: number };
+
+    const pinRes = await app.inject({
+      method: "POST",
+      url: `/api/projects/${project.id}/pins`,
+      payload: { modelId: model.id },
+    });
+    expect(pinRes.statusCode).toBe(404);
+  });
+
+  it("blocks re-pinning ('bump to latest') a pin whose model has since been trashed", async () => {
+    const model = await createTestModel(db, libraryRoot, "Pinned Then Trashed");
+
+    const projectRes = await app.inject({
+      method: "POST",
+      url: "/api/projects",
+      payload: { title: "Another Project" },
+    });
+    const project = projectRes.json() as { id: number };
+
+    const pinRes = await app.inject({
+      method: "POST",
+      url: `/api/projects/${project.id}/pins`,
+      payload: { modelId: model.id },
+    });
+    expect(pinRes.statusCode).toBe(201);
+
+    await app.inject({ method: "DELETE", url: `/api/models/${model.id}` });
+
+    const patchRes = await app.inject({
+      method: "PATCH",
+      url: `/api/projects/${project.id}/pins/${model.id}`,
+      payload: {},
+    });
+    expect(patchRes.statusCode).toBe(404);
+  });
+
+  it("a DELETE that loses a race against a concurrent trash of the same model bails cleanly instead of crashing", async () => {
+    const model = await createTestModel(db, libraryRoot, "Raced");
+
+    // Hold the per-path lock open so the real DELETE request below has
+    // already passed its pre-lock "is this trashed?" check and is queued
+    // behind us, not yet inside its own runExclusive callback.
+    let releaseLock: () => void = () => {};
+    const heldLock = runExclusive(
+      model.path,
+      () => new Promise<void>((resolve) => (releaseLock = resolve)),
+    );
+
+    const deletePromise = app.inject({ method: "DELETE", url: `/api/models/${model.id}` });
+
+    // Give the DELETE handler's initial (unlocked) getActiveModel read a
+    // chance to run and see deletedAt still null, same as the real race.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    // Simulate a different trigger having already fully trashed this exact
+    // model while the request above was waiting for the lock.
+    const alreadyTrashedPath = join(libraryRoot, TRASH_DIRNAME, `${model.fsId}-already-trashed`);
+    await mkdir(join(libraryRoot, TRASH_DIRNAME), { recursive: true });
+    await rename(model.path, alreadyTrashedPath);
+    db.update(modelsTable)
+      .set({ path: alreadyTrashedPath, deletedAt: new Date() })
+      .where(eq(modelsTable.id, model.id))
+      .run();
+
+    releaseLock();
+    await heldLock;
+
+    const deleteRes = await deletePromise;
+    // Not a 500/ENOENT crash: the queued handler re-checks deletedAt inside
+    // the lock, sees it's already trashed, and reports 404 instead of
+    // trying to rename a directory that's no longer there.
+    expect(deleteRes.statusCode).toBe(404);
+
+    // The directory the simulated "other" trash created is untouched —
+    // no second move, no corruption.
+    expect(await dirExists(alreadyTrashedPath)).toBe(true);
+    const row = db.select().from(modelsTable).where(eq(modelsTable.id, model.id)).get()!;
+    expect(row.path).toBe(alreadyTrashedPath);
   });
 });

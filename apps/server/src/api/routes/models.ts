@@ -14,6 +14,7 @@ import {
   type ModelRow,
 } from "../../db/schema.js";
 import { ensureMarkerId, sanitizeModelDirName, sanitizeUploadFilename, TRASH_DIRNAME } from "../../lib/fs-utils.js";
+import { getActiveModel } from "../../lib/model-lookup.js";
 import { getOrCreateTag, getTagsForModel, getTagsForModels, InvalidTagNameError } from "../../lib/tags.js";
 import { getLog } from "../../sync/git.js";
 import { runExclusive } from "../../sync/queue.js";
@@ -243,11 +244,7 @@ export function registerModelRoutes(app: FastifyInstance, db: DbClient, libraryR
       return reply.code(400).send({ error: "invalid model id" });
     }
 
-    const row = db
-      .select()
-      .from(modelsTable)
-      .where(and(eq(modelsTable.id, id), isNull(modelsTable.deletedAt)))
-      .get();
+    const row = getActiveModel(db, id);
     if (!row) {
       return reply.code(404).send({ error: "model not found" });
     }
@@ -277,11 +274,7 @@ export function registerModelRoutes(app: FastifyInstance, db: DbClient, libraryR
       return reply.code(400).send({ error: "invalid model id" });
     }
 
-    const row = db
-      .select()
-      .from(modelsTable)
-      .where(and(eq(modelsTable.id, id), isNull(modelsTable.deletedAt)))
-      .get();
+    const row = getActiveModel(db, id);
     if (!row) {
       return reply.code(404).send({ error: "model not found" });
     }
@@ -333,11 +326,7 @@ export function registerModelRoutes(app: FastifyInstance, db: DbClient, libraryR
       return reply.code(400).send({ error: "invalid model id" });
     }
 
-    const row = db
-      .select()
-      .from(modelsTable)
-      .where(and(eq(modelsTable.id, id), isNull(modelsTable.deletedAt)))
-      .get();
+    const row = getActiveModel(db, id);
     if (!row) {
       return reply.code(404).send({ error: "model not found" });
     }
@@ -347,20 +336,32 @@ export function registerModelRoutes(app: FastifyInstance, db: DbClient, libraryR
     // instead of destroying it, and marks deletedAt instead of dropping the
     // DB row — see apps/server/src/api/routes/trash.ts for restore/purge.
     // Runs under the same per-path lock as sync so it can't race an
-    // in-flight commit for this model.
+    // in-flight commit for this model. The DB mutation happens *inside* the
+    // lock too (not after), and re-checks deletedAt on a fresh read first —
+    // otherwise a second near-simultaneous DELETE for the same id (two
+    // tabs, a naive retry) could still see deletedAt=null, acquire the
+    // (by-then-free) lock, and try to rename a path that's already been
+    // moved away.
     const trashRoot = join(libraryRoot, TRASH_DIRNAME);
     const trashPath = join(trashRoot, `${row.fsId}-${Date.now()}`);
-    const now = new Date();
 
-    await runExclusive(row.path, async () => {
+    const trashed = await runExclusive(row.path, async () => {
+      const fresh = db.select().from(modelsTable).where(eq(modelsTable.id, id)).get();
+      if (!fresh || fresh.deletedAt != null) return false;
+
       await mkdir(trashRoot, { recursive: true });
-      await rename(row.path, trashPath);
+      await rename(fresh.path, trashPath);
+
+      db.update(modelsTable)
+        .set({ path: trashPath, deletedAt: new Date(), updatedAt: new Date() })
+        .where(eq(modelsTable.id, id))
+        .run();
+      return true;
     });
 
-    db.update(modelsTable)
-      .set({ path: trashPath, deletedAt: now, updatedAt: now })
-      .where(eq(modelsTable.id, id))
-      .run();
+    if (!trashed) {
+      return reply.code(404).send({ error: "model not found" });
+    }
 
     return reply.code(204).send();
   });
