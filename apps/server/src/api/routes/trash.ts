@@ -5,6 +5,7 @@ import type { FastifyInstance } from "fastify";
 import type { DbClient } from "../../db/client.js";
 import { models as modelsTable, type ModelRow } from "../../db/schema.js";
 import { sanitizeModelDirName } from "../../lib/fs-utils.js";
+import { recordPinDropNotices } from "../../lib/project-notices.js";
 import { runExclusive } from "../../sync/queue.js";
 import { LOCAL_UPLOAD_IDENTITY, reconcileModelCore } from "../../sync/reconcile.js";
 import { maybeEnqueueThumbnail } from "../../thumbnails/trigger.js";
@@ -118,6 +119,12 @@ export function registerTrashRoutes(app: FastifyInstance, db: DbClient, libraryR
       const fresh = db.select().from(modelsTable).where(eq(modelsTable.id, id)).get();
       if (!fresh || fresh.deletedAt == null) return false;
       await rm(fresh.path, { recursive: true, force: true });
+      // Must run before the delete below: ON DELETE CASCADE removes the pin
+      // rows this reads to find which projects are affected, and once
+      // they're gone there's nothing left to query. See project-notices.ts
+      // for why this only fires here (and in purgeExpiredTrash) and not at
+      // the earlier soft-delete/trash step.
+      recordPinDropNotices(db, fresh.id, fresh.title);
       db.delete(modelsTable).where(eq(modelsTable.id, id)).run();
       return true;
     });

@@ -206,6 +206,19 @@ export interface Project {
   updatedAt: number;
 }
 
+/**
+ * A persistent, dismissible notice on a project — currently used only for
+ * "a pinned model was permanently removed from the library" (see issue #69
+ * and the server's lib/project-notices.ts). Not a general activity timeline.
+ */
+export interface ProjectActivityNotice {
+  id: number;
+  message: string;
+  createdAt: number;
+}
+
 export interface ProjectDetail extends Project {
   pins: PinnedModel[];
+  // Non-dismissed notices only — see lib/project-notices.ts's getActiveNoticesForProject.
+  notices: ProjectActivityNotice[];
 }

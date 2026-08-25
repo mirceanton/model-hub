@@ -4,6 +4,7 @@ import type { FastifyInstance } from "fastify";
 import type { DbClient } from "../../db/client.js";
 import { projects as projectsTable, type ProjectRow } from "../../db/schema.js";
 import { getActiveModel } from "../../lib/model-lookup.js";
+import { dismissNotice, getActiveNoticesForProject } from "../../lib/project-notices.js";
 import {
   addPin,
   getPinsForProject,
@@ -82,7 +83,8 @@ export function registerProjectRoutes(app: FastifyInstance, db: DbClient): void 
     }
 
     const pins = getPinsForProject(db, id);
-    const detail: ProjectDetail = { ...toApiProject(row, pins), pins };
+    const notices = getActiveNoticesForProject(db, id);
+    const detail: ProjectDetail = { ...toApiProject(row, pins), pins, notices };
     return detail;
   });
 
@@ -230,6 +232,23 @@ export function registerProjectRoutes(app: FastifyInstance, db: DbClient): void 
 
       removePin(db, id, modelId);
       db.update(projectsTable).set({ updatedAt: new Date() }).where(eq(projectsTable.id, id)).run();
+      return reply.code(204).send();
+    },
+  );
+
+  app.post<{ Params: { id: string; noticeId: string } }>(
+    "/api/projects/:id/notices/:noticeId/dismiss",
+    async (request, reply) => {
+      const id = Number(request.params.id);
+      const noticeId = Number(request.params.noticeId);
+      if (!Number.isInteger(id) || !Number.isInteger(noticeId)) {
+        return reply.code(400).send({ error: "invalid id" });
+      }
+
+      const dismissed = dismissNotice(db, id, noticeId);
+      if (!dismissed) {
+        return reply.code(404).send({ error: "notice not found" });
+      }
       return reply.code(204).send();
     },
   );

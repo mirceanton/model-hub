@@ -4,6 +4,7 @@ import { and, eq, isNotNull, isNull, lt } from "drizzle-orm";
 import type { DbClient } from "../db/client.js";
 import { models as modelsTable, type ModelRow } from "../db/schema.js";
 import { ensureMarkerId, TRASH_DIRNAME } from "../lib/fs-utils.js";
+import { recordPinDropNotices } from "../lib/project-notices.js";
 import { recordScanCompleted } from "../metrics/sync-metrics.js";
 import { maybeEnqueueThumbnail } from "../thumbnails/trigger.js";
 import { runExclusive } from "./queue.js";
@@ -151,6 +152,9 @@ export async function purgeExpiredTrash(db: DbClient): Promise<PurgeResult> {
       const fresh = db.select().from(modelsTable).where(eq(modelsTable.id, row.id)).get();
       if (!fresh || fresh.deletedAt == null) return false;
       await rm(fresh.path, { recursive: true, force: true });
+      // Same ordering requirement as trash.ts's permanent-delete route: must
+      // run before the cascade-triggering delete below.
+      recordPinDropNotices(db, fresh.id, fresh.title);
       db.delete(modelsTable).where(eq(modelsTable.id, row.id)).run();
       return true;
     });

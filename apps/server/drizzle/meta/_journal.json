@@ -50,6 +50,13 @@
       "when": 1787660276032,
       "tag": "0006_odd_patriot",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1787661192552,
+      "tag": "0007_chief_shen",
+      "breakpoints": true
     }
   ]
 }

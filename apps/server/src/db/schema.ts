@@ -162,6 +162,43 @@ export const projectModelPins = sqliteTable(
   }),
 );
 
+/**
+ * A persistent, dismissible notice on a Project — currently used for exactly
+ * one thing: recording that a pinned model was permanently removed from the
+ * library, since ON DELETE CASCADE on projectModelPins.modelId (see above)
+ * silently drops the pin row with no trace of its own. This is deliberately
+ * NOT a general project activity timeline (per CLAUDE.md's "no
+ * snapshot/version history for the Project itself") — just enough storage to
+ * hold these removal notices until a user dismisses them.
+ *
+ * message is fully composed at write time (denormalized, same reasoning as
+ * projectModelPins.pinnedCommitMessage) rather than reconstructed from a
+ * modelId, because by the time this is worth writing the model row is
+ * already gone (or about to be, in the same transaction-less sequence of
+ * calls) — there's nothing left to join against later.
+ *
+ * projectId cascades: deleting the project itself (a pure DB entity, see
+ * api/routes/projects.ts) should take its notices with it.
+ */
+export const projectActivity = sqliteTable(
+  "project_activity",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    projectId: integer("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    message: text("message").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+    // Null = still showing. Set (not deleted) when a user dismisses it, so
+    // dismissal is a soft, permanent "stop showing me this" rather than data
+    // loss — see api/routes/projects.ts's dismiss route.
+    dismissedAt: integer("dismissed_at", { mode: "timestamp_ms" }),
+  },
+  (table) => ({
+    projectIdIdx: index("project_activity_project_id_idx").on(table.projectId),
+  }),
+);
+
 export const users = sqliteTable("users", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   // Null for the synthetic single-user-mode "local owner" row.
@@ -264,6 +301,8 @@ export type ProjectRow = typeof projects.$inferSelect;
 export type NewProjectRow = typeof projects.$inferInsert;
 export type ProjectModelPinRow = typeof projectModelPins.$inferSelect;
 export type NewProjectModelPinRow = typeof projectModelPins.$inferInsert;
+export type ProjectActivityRow = typeof projectActivity.$inferSelect;
+export type NewProjectActivityRow = typeof projectActivity.$inferInsert;
 export type UserRow = typeof users.$inferSelect;
 export type SessionRow = typeof sessions.$inferSelect;
 export type PersonalAccessTokenRow = typeof personalAccessTokens.$inferSelect;
