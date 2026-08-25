@@ -13,6 +13,15 @@ export const THUMBNAILS_DIRNAME = ".thumbnails";
 // so a misclick is recoverable within the retention window.
 export const TRASH_DIRNAME = ".trash";
 export const MODEL_EXTENSIONS = new Set(["stl", "3mf", "obj"]);
+// Images and PDFs: recognized as model *attachments* (build photos,
+// instruction sheets) alongside the mesh files, but deliberately never a
+// candidate for the 3D viewer or the primary-file/thumbnail-source ranking
+// (EXTENSION_RANK/pickPrimaryFile below both only ever consider
+// MODEL_EXTENSIONS). Kept as a separate set (not merged into
+// MODEL_EXTENSIONS) so every existing MODEL_EXTENSIONS check keeps meaning
+// exactly "a mesh file", not "any tracked file".
+export const ATTACHMENT_EXTENSIONS = new Set(["png", "jpg", "jpeg", "webp", "gif", "pdf"]);
+const TRACKED_EXTENSIONS = new Set([...MODEL_EXTENSIONS, ...ATTACHMENT_EXTENSIONS]);
 
 const GITIGNORE_MANAGED_ENTRIES = [`${THUMBNAILS_DIRNAME}/`, ".DS_Store"];
 
@@ -71,8 +80,9 @@ function extensionOf(filename: string): string {
 }
 
 /**
- * Recursively lists model files (.stl/.3mf/.obj) under a model directory.
- * Skips dotfiles/dot-directories (.git, .thumbnails, .modelhub-id, .gitignore).
+ * Recursively lists model files (.stl/.3mf/.obj) and attachment files
+ * (images/pdf — ATTACHMENT_EXTENSIONS) under a model directory. Skips
+ * dotfiles/dot-directories (.git, .thumbnails, .modelhub-id, .gitignore).
  */
 export async function listModelFiles(modelDir: string): Promise<FileEntry[]> {
   const results: FileEntry[] = [];
@@ -90,7 +100,7 @@ export async function listModelFiles(modelDir: string): Promise<FileEntry[]> {
       if (!entry.isFile()) continue;
 
       const extension = extensionOf(entry.name);
-      if (!MODEL_EXTENSIONS.has(extension)) continue;
+      if (!TRACKED_EXTENSIONS.has(extension)) continue;
 
       const info = await stat(fullPath);
       results.push({
@@ -109,19 +119,25 @@ export async function listModelFiles(modelDir: string): Promise<FileEntry[]> {
 // Preference order when a model has multiple file types: .stl (single, unambiguous
 // mesh) > .obj (single mesh, no embedded slicer metadata) > .3mf (can be a
 // multi-plate "sliced project" export with no mesh at all — see MODEL_EXTENSIONS
-// callers' EmptyGeometryError handling). Unlisted extensions can't reach here
-// since callers only ever pass MODEL_EXTENSIONS-filtered files.
+// callers' EmptyGeometryError handling). Unlisted extensions (including every
+// ATTACHMENT_EXTENSIONS entry) fall through to the ?? 99 default below, but in
+// practice never reach this ranking at all — pickPrimaryFile filters to
+// MODEL_EXTENSIONS before this is ever consulted.
 const EXTENSION_RANK: Record<string, number> = { stl: 0, obj: 1, "3mf": 2 };
 
 /**
  * Picks the file to render for the model thumbnail: prefer .stl, then .obj,
  * then .3mf, then the largest file, breaking ties by path for determinism.
+ * Attachment files (images/pdf) are filtered out up front — never candidates
+ * for the viewer or thumbnail source, regardless of EXTENSION_RANK's fallback
+ * for unlisted extensions.
  */
 export function pickPrimaryFile(files: FileEntry[]): string | null {
-  if (files.length === 0) return null;
+  const modelFiles = files.filter((f) => MODEL_EXTENSIONS.has(f.extension));
+  if (modelFiles.length === 0) return null;
 
   const rank = (file: FileEntry): number => EXTENSION_RANK[file.extension] ?? 99;
-  const sorted = [...files].sort((a, b) => {
+  const sorted = [...modelFiles].sort((a, b) => {
     const rankDiff = rank(a) - rank(b);
     if (rankDiff !== 0) return rankDiff;
     if (b.sizeBytes !== a.sizeBytes) return b.sizeBytes - a.sizeBytes;
@@ -133,14 +149,15 @@ export function pickPrimaryFile(files: FileEntry[]): string | null {
 
 /**
  * Reduces an uploaded filename to a safe basename within the model dir, or
- * null if it's not a usable model file. Strips any directory components
- * (defends against path traversal in a crafted multipart filename) and
- * rejects anything outside the .stl/.3mf/.obj allowlist.
+ * null if it's not a usable model or attachment file. Strips any directory
+ * components (defends against path traversal in a crafted multipart
+ * filename) and rejects anything outside the MODEL_EXTENSIONS/
+ * ATTACHMENT_EXTENSIONS allowlist.
  */
 export function sanitizeUploadFilename(rawName: string): string | null {
   const base = basename(rawName.replace(/\\/g, "/")).trim();
   if (!base || base === "." || base === "..") return null;
-  if (!MODEL_EXTENSIONS.has(extensionOf(base))) return null;
+  if (!TRACKED_EXTENSIONS.has(extensionOf(base))) return null;
   return base;
 }
 

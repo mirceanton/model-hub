@@ -11,9 +11,20 @@ const CONTENT_TYPE_BY_EXTENSION: Record<string, string> = {
   stl: "model/stl",
   "3mf": "model/3mf",
   obj: "model/obj",
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  webp: "image/webp",
+  gif: "image/gif",
+  pdf: "application/pdf",
 };
 
-/** Streams raw model file bytes for the viewer/thumbnail renderer. Only serves files already indexed in the `files` table — never arbitrary paths. */
+/**
+ * Streams raw file bytes for the viewer/thumbnail renderer, and for the web
+ * app's Attachments tab (image gallery, inline PDF preview) and download
+ * links. Only serves files already indexed in the `files` table — never
+ * arbitrary paths.
+ */
 export function registerFileRoutes(app: FastifyInstance, db: DbClient): void {
   app.get<{ Params: { id: string; "*": string } }>(
     "/api/models/:id/files/*",

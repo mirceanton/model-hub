@@ -6,6 +6,27 @@ export type ModelSortField = "title" | "createdAt";
 export type SortOrder = "asc" | "desc";
 
 /**
+ * Image/PDF extensions recognized as model *attachments* (build photos,
+ * instruction sheets) — a first-class file category distinct from
+ * ModelExtension. Never a candidate for the 3D viewer or the
+ * primary-file/thumbnail-source ranking (see apps/server/src/lib/fs-utils.ts's
+ * EXTENSION_RANK and pickPrimaryFile). Kept here (not just server-side) since
+ * the web app also needs to classify a FileEntry to decide gallery-vs-pdf
+ * rendering in the Attachments tab.
+ */
+export const ATTACHMENT_IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "webp", "gif"] as const;
+export const ATTACHMENT_PDF_EXTENSIONS = ["pdf"] as const;
+export type AttachmentKind = "image" | "pdf";
+
+/** Classifies a file extension as an attachment kind, or null if it's not an attachment (e.g. a model file). */
+export function classifyAttachmentExtension(extension: string): AttachmentKind | null {
+  const ext = extension.toLowerCase();
+  if ((ATTACHMENT_IMAGE_EXTENSIONS as readonly string[]).includes(ext)) return "image";
+  if ((ATTACHMENT_PDF_EXTENSIONS as readonly string[]).includes(ext)) return "pdf";
+  return null;
+}
+
+/**
  * admin: full access, including user/role management and instance settings.
  * editor: create/upload/edit/tag/favorite models and projects, but cannot
  *   delete models/projects, manage users, or change instance settings.
@@ -114,6 +135,12 @@ export interface ModelListResult {
 
 export interface ModelDetail extends Model {
   files: FileEntry[];
+  // Image/PDF files (see classifyAttachmentExtension) found in the model
+  // directory, kept separate from `files` (which stays model-file-only, as
+  // it was before attachments existed) so the Attachments tab doesn't need
+  // to re-filter, and so `files` continues to be exactly the set of viewer/
+  // primary-file candidates.
+  attachments: FileEntry[];
   gitLog: GitLogEntry[];
 }
 

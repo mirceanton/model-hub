@@ -19,6 +19,7 @@ import { Link, useNavigate, useParams } from "react-router"
 import { DuplicateBadge } from "@/components/duplicate-badge"
 import { FavoriteToggle } from "@/components/favorite-toggle"
 import { MarkdownContent } from "@/components/markdown-content"
+import { ModelAttachments } from "@/components/model-attachments"
 import { ModelThumbnail } from "@/components/model-thumbnail"
 import { SyncStatusBadge } from "@/components/sync-status-badge"
 import { TagEditor } from "@/components/tag-editor"
@@ -111,7 +112,7 @@ export function ModelDetailPage() {
           <RegenerateThumbnailButton modelId={model.id} className="flex-1 sm:flex-none" />
           <DownloadModelButton
             modelId={model.id}
-            disabled={model.files.length === 0}
+            disabled={model.files.length === 0 && model.attachments.length === 0}
             className="flex-1 sm:flex-none"
           />
           <UploadVersionDialog modelId={model.id} className="flex-1 sm:flex-none" />
@@ -186,6 +187,7 @@ export function ModelDetailPage() {
       <Tabs defaultValue="files">
         <TabsList>
           <TabsTrigger value="files">Files ({model.files.length})</TabsTrigger>
+          <TabsTrigger value="attachments">Attachments ({model.attachments.length})</TabsTrigger>
           <TabsTrigger value="history">History ({model.gitLog.length})</TabsTrigger>
         </TabsList>
 
@@ -227,6 +229,10 @@ export function ModelDetailPage() {
               ))}
             </ul>
           )}
+        </TabsContent>
+
+        <TabsContent value="attachments" className="mt-4">
+          <ModelAttachments modelId={model.id} attachments={model.attachments} />
         </TabsContent>
 
         <TabsContent value="history" className="mt-4">
