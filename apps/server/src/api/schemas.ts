@@ -26,6 +26,18 @@ export const errorResponseSchema = {
   required: ["error"],
 } as const;
 
+// Only for the two upload routes (POST /api/models, POST /api/models/:id/upload)
+// whose 400 responses also carry `skippedFiles` — a plain errorResponseSchema
+// here would have fast-json-stringify silently strip that field.
+export const errorResponseWithSkippedFilesSchema = {
+  type: "object",
+  properties: {
+    error: { type: "string" },
+    skippedFiles: { type: "array", items: { type: "string" } },
+  },
+  required: ["error"],
+} as const;
+
 export const tagSchema = {
   type: "object",
   properties: {

@@ -18,7 +18,13 @@ import { getLog, restoreToCommit } from "../../sync/git.js";
 import { runExclusive } from "../../sync/queue.js";
 import { LOCAL_UPLOAD_IDENTITY, reconcileModelCore } from "../../sync/reconcile.js";
 import { maybeEnqueueThumbnail } from "../../thumbnails/trigger.js";
-import { bulkResponseSchema, errorResponseSchema, modelDiffSchema, numericIdParamSchema } from "../schemas.js";
+import {
+  bulkResponseSchema,
+  errorResponseSchema,
+  errorResponseWithSkippedFilesSchema,
+  modelDiffSchema,
+  numericIdParamSchema,
+} from "../schemas.js";
 
 type DeleteFileOutcome =
   | { ok: true; committed: boolean }
@@ -96,7 +102,7 @@ export function registerVersionRoutes(app: FastifyInstance, db: DbClient, config
             },
             required: ["ok", "committed", "writtenFiles", "skippedFiles"],
           },
-          400: errorResponseSchema,
+          400: errorResponseWithSkippedFilesSchema,
           404: errorResponseSchema,
           500: errorResponseSchema,
         },

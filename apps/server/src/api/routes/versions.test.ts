@@ -217,3 +217,39 @@ describe("GET /api/models/:id/diff", () => {
     expect(res.statusCode).toBe(404);
   });
 });
+
+describe("POST /api/models/:id/upload", () => {
+  let libraryRoot: string;
+  let db: DbClient;
+  let app: FastifyInstance;
+
+  beforeEach(async () => {
+    libraryRoot = await mkdtemp(join(tmpdir(), "model-hub-upload-"));
+    db = createDbClient(":memory:");
+    runMigrations(db);
+    app = buildTestApp(db, libraryRoot);
+  });
+
+  afterEach(async () => {
+    await app.close();
+    await rm(libraryRoot, { recursive: true, force: true });
+  });
+
+  it("includes skippedFiles in the 400 response when no file has a trackable extension", async () => {
+    const model = await createTestModel(db, libraryRoot, "Widget", { "a.stl": "v1\n" });
+
+    const form = new FormData();
+    form.append("files", new Blob(["hi"]), "notes.txt");
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/models/${model.id}/upload`,
+      payload: form,
+    });
+
+    expect(res.statusCode).toBe(400);
+    const body = res.json() as { error: string; skippedFiles: string[] };
+    expect(body.error).toContain("no valid model or attachment files");
+    expect(body.skippedFiles).toEqual(["notes.txt"]);
+  });
+});
