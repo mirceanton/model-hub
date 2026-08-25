@@ -14,6 +14,7 @@ import type {
 import { classifyAttachmentExtension } from "@model-hub/shared";
 import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
+import { requireRole } from "../../auth/guard.js";
 import type { Config } from "../../config.js";
 import type { DbClient } from "../../db/client.js";
 import {
@@ -539,87 +540,105 @@ export function registerModelRoutes(
   // See CLAUDE.md / packages/shared/src/types.ts's BulkResponse doc comment
   // for the shape shared across every bulk endpoint in this app. Every
   // action here reuses the exact same per-item logic (and, for "delete",
-  // the exact same trashModel helper) as its single-item route above —
-  // deliberately, so a bulk mutation can never drift from its single-item
-  // equivalent's behavior or RBAC gating (there is none beyond the global
-  // auth guard today — see auth/guard.ts — so none is added here either).
+  // the exact same trashModel helper) as its single-item route above.
   // Items are processed sequentially, not in parallel: better-sqlite3 is
   // synchronous/single-threaded anyway, and this keeps one slow/failing
   // item from racing another's runExclusive lock in confusing ways.
-  app.post<{ Body: ModelsBulkRequest }>("/api/models/bulk", async (request, reply) => {
-    const { ids, action, tagName, tagId } = request.body ?? ({} as ModelsBulkRequest);
-    if (!Array.isArray(ids) || ids.length === 0 || ids.some((id) => !Number.isInteger(id))) {
-      return reply.code(400).send({ error: "ids must be a non-empty array of model ids" });
-    }
-    const validActions: ModelBulkAction[] = ["delete", "favorite", "unfavorite", "add-tag", "remove-tag"];
-    if (!validActions.includes(action)) {
-      return reply.code(400).send({ error: `action must be one of: ${validActions.join(", ")}` });
-    }
-
-    // Whole-request (not per-item) validation for action-specific
-    // parameters — these describe the batch itself, not any one item, so a
-    // problem here means the request is malformed, not that a particular
-    // model failed.
-    let resolvedTag: { id: number } | null = null;
-    if (action === "add-tag") {
-      if (!tagName) {
-        return reply.code(400).send({ error: "tagName is required for the add-tag action" });
+  //
+  // Gated behind requireRole("editor") even though none of the single-item
+  // routes it batches are gated yet (see auth/guard.ts's comment: the RBAC
+  // sweep was deliberately deferred to follow-up PRs that touch those
+  // routes anyway — this bulk PR is exactly such a PR). Gating is warranted
+  // here specifically because a bulk mutation is qualitatively more
+  // dangerous than a single-item one — one confirm click can delete dozens
+  // of models at once — so it doesn't inherit the single-item routes'
+  // "ungated for now" pass.
+  app.post<{ Body: ModelsBulkRequest }>(
+    "/api/models/bulk",
+    { preHandler: requireRole("editor") },
+    async (request, reply) => {
+      const { ids, action, tagName, tagId } = request.body ?? ({} as ModelsBulkRequest);
+      if (!Array.isArray(ids) || ids.length === 0 || ids.some((id) => !Number.isInteger(id))) {
+        return reply.code(400).send({ error: "ids must be a non-empty array of model ids" });
       }
-      try {
-        resolvedTag = getOrCreateTag(db, tagName);
-      } catch (err) {
-        if (err instanceof InvalidTagNameError) {
-          return reply.code(400).send({ error: err.message });
+      const validActions: ModelBulkAction[] = [
+        "delete",
+        "favorite",
+        "unfavorite",
+        "add-tag",
+        "remove-tag",
+      ];
+      if (!validActions.includes(action)) {
+        return reply.code(400).send({ error: `action must be one of: ${validActions.join(", ")}` });
+      }
+
+      // Whole-request (not per-item) validation for action-specific
+      // parameters — these describe the batch itself, not any one item, so a
+      // problem here means the request is malformed, not that a particular
+      // model failed.
+      let resolvedTag: { id: number } | null = null;
+      if (action === "add-tag") {
+        if (!tagName) {
+          return reply.code(400).send({ error: "tagName is required for the add-tag action" });
         }
-        throw err;
-      }
-    } else if (action === "remove-tag") {
-      if (typeof tagId !== "number" || !Number.isInteger(tagId)) {
-        return reply.code(400).send({ error: "tagId is required for the remove-tag action" });
-      }
-    }
-
-    const results: BulkResult[] = [];
-    for (const id of ids) {
-      const row = getActiveModel(db, id);
-      if (!row) {
-        results.push({ id, success: false, error: "model not found" });
-        continue;
-      }
-
-      try {
-        if (action === "delete") {
-          const trashed = await trashModel(db, libraryRoot, row);
-          results.push(trashed ? { id, success: true } : { id, success: false, error: "model not found" });
-        } else if (action === "favorite" || action === "unfavorite") {
-          db.update(modelsTable)
-            .set({ favorite: action === "favorite", updatedAt: new Date() })
-            .where(eq(modelsTable.id, id))
-            .run();
-          results.push({ id, success: true });
-        } else if (action === "add-tag") {
-          db.insert(modelTagsTable)
-            .values({ modelId: id, tagId: resolvedTag!.id })
-            .onConflictDoNothing()
-            .run();
-          results.push({ id, success: true });
-        } else {
-          // remove-tag
-          db.delete(modelTagsTable)
-            .where(and(eq(modelTagsTable.modelId, id), eq(modelTagsTable.tagId, tagId!)))
-            .run();
-          results.push({ id, success: true });
+        try {
+          resolvedTag = getOrCreateTag(db, tagName);
+        } catch (err) {
+          if (err instanceof InvalidTagNameError) {
+            return reply.code(400).send({ error: err.message });
+          }
+          throw err;
         }
-      } catch (err) {
-        results.push({ id, success: false, error: err instanceof Error ? err.message : String(err) });
+      } else if (action === "remove-tag") {
+        if (typeof tagId !== "number" || !Number.isInteger(tagId)) {
+          return reply.code(400).send({ error: "tagId is required for the remove-tag action" });
+        }
       }
-    }
 
-    if (action === "remove-tag" && typeof tagId === "number") {
-      deleteTagIfUnused(db, tagId);
-    }
+      const results: BulkResult[] = [];
+      for (const id of ids) {
+        const row = getActiveModel(db, id);
+        if (!row) {
+          results.push({ id, success: false, error: "model not found" });
+          continue;
+        }
 
-    const response: BulkResponse = { results };
-    return response;
-  });
+        try {
+          if (action === "delete") {
+            const trashed = await trashModel(db, libraryRoot, row);
+            results.push(
+              trashed ? { id, success: true } : { id, success: false, error: "model not found" },
+            );
+          } else if (action === "favorite" || action === "unfavorite") {
+            db.update(modelsTable)
+              .set({ favorite: action === "favorite", updatedAt: new Date() })
+              .where(eq(modelsTable.id, id))
+              .run();
+            results.push({ id, success: true });
+          } else if (action === "add-tag") {
+            db.insert(modelTagsTable)
+              .values({ modelId: id, tagId: resolvedTag!.id })
+              .onConflictDoNothing()
+              .run();
+            results.push({ id, success: true });
+          } else {
+            // remove-tag
+            db.delete(modelTagsTable)
+              .where(and(eq(modelTagsTable.modelId, id), eq(modelTagsTable.tagId, tagId!)))
+              .run();
+            results.push({ id, success: true });
+          }
+        } catch (err) {
+          results.push({ id, success: false, error: err instanceof Error ? err.message : String(err) });
+        }
+      }
+
+      if (action === "remove-tag" && typeof tagId === "number") {
+        deleteTagIfUnused(db, tagId);
+      }
+
+      const response: BulkResponse = { results };
+      return response;
+    },
+  );
 }

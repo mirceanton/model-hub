@@ -9,6 +9,7 @@ import type {
 } from "@model-hub/shared";
 import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
+import { requireRole } from "../../auth/guard.js";
 import type { DbClient } from "../../db/client.js";
 import { projects as projectsTable, type ProjectRow } from "../../db/schema.js";
 import { getActiveModel } from "../../lib/model-lookup.js";
@@ -153,29 +154,43 @@ export function registerProjectRoutes(app: FastifyInstance, db: DbClient): void 
   // filesystem/git of their own (see the single-item DELETE above), so
   // there's no lock or "missing directory" case to worry about here — a
   // missing project id is the only per-item failure mode.
-  app.post<{ Body: ProjectsBulkRequest }>("/api/projects/bulk", async (request, reply) => {
-    const { ids, action } = request.body ?? ({} as ProjectsBulkRequest);
-    if (!Array.isArray(ids) || ids.length === 0 || ids.some((id) => !Number.isInteger(id))) {
-      return reply.code(400).send({ error: "ids must be a non-empty array of project ids" });
-    }
-    if (action !== "delete") {
-      return reply.code(400).send({ error: 'action must be "delete"' });
-    }
-
-    const results: BulkResult[] = [];
-    for (const id of ids) {
-      const row = db.select({ id: projectsTable.id }).from(projectsTable).where(eq(projectsTable.id, id)).get();
-      if (!row) {
-        results.push({ id, success: false, error: "project not found" });
-        continue;
+  //
+  // Gated behind requireRole("editor") — see models.ts's POST
+  // /api/models/bulk for the general reasoning. Doubly warranted here
+  // specifically: unlike a bulk model delete (which moves to trash and is
+  // recoverable), a project delete is an unconditional hard delete with no
+  // trash to fall back on — see the single-item DELETE above.
+  app.post<{ Body: ProjectsBulkRequest }>(
+    "/api/projects/bulk",
+    { preHandler: requireRole("editor") },
+    async (request, reply) => {
+      const { ids, action } = request.body ?? ({} as ProjectsBulkRequest);
+      if (!Array.isArray(ids) || ids.length === 0 || ids.some((id) => !Number.isInteger(id))) {
+        return reply.code(400).send({ error: "ids must be a non-empty array of project ids" });
       }
-      db.delete(projectsTable).where(eq(projectsTable.id, id)).run();
-      results.push({ id, success: true });
-    }
+      if (action !== "delete") {
+        return reply.code(400).send({ error: 'action must be "delete"' });
+      }
 
-    const response: BulkResponse = { results };
-    return response;
-  });
+      const results: BulkResult[] = [];
+      for (const id of ids) {
+        const row = db
+          .select({ id: projectsTable.id })
+          .from(projectsTable)
+          .where(eq(projectsTable.id, id))
+          .get();
+        if (!row) {
+          results.push({ id, success: false, error: "project not found" });
+          continue;
+        }
+        db.delete(projectsTable).where(eq(projectsTable.id, id)).run();
+        results.push({ id, success: true });
+      }
+
+      const response: BulkResponse = { results };
+      return response;
+    },
+  );
 
   app.post<{ Params: { id: string }; Body: { modelId?: number; commitSha?: string } }>(
     "/api/projects/:id/pins",
@@ -284,6 +299,13 @@ export function registerProjectRoutes(app: FastifyInstance, db: DbClient): void 
   // removePin, same as the single-item DELETE route, but first checks
   // pinExists so an id that was never (or no longer) pinned here shows up
   // as a per-item failure instead of a silent no-op success.
+  //
+  // Deliberately left ungated (unlike POST /api/models/bulk and POST
+  // /api/projects/bulk above): both actions here are reversible and not
+  // data-destructive — "remove" only drops a pin (the target model is
+  // untouched and can be re-added), "bump" only repoints one — so neither
+  // carries the "one click destroys dozens of things" risk that motivated
+  // gating the other two bulk routes.
   app.post<{ Params: { id: string }; Body: ProjectPinsBulkRequest }>(
     "/api/projects/:id/pins/bulk",
     async (request, reply) => {

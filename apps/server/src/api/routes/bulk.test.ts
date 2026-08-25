@@ -2,10 +2,11 @@ import { mkdir, mkdtemp, rename, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import multipart from "@fastify/multipart";
-import type { BulkResponse } from "@model-hub/shared";
+import type { BulkResponse, UserRole } from "@model-hub/shared";
 import { eq } from "drizzle-orm";
 import Fastify, { type FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { registerAuthGuard } from "../../auth/guard.js";
 import { createDbClient, type DbClient } from "../../db/client.js";
 import { runMigrations } from "../../db/migrate.js";
 import { files as filesTable, models as modelsTable, projects as projectsTable, type ModelRow } from "../../db/schema.js";
@@ -24,10 +25,29 @@ async function dirExists(path: string): Promise<boolean> {
     .catch(() => false);
 }
 
-function buildTestApp(db: DbClient, libraryRoot: string): FastifyInstance {
+/**
+ * Builds the test app with the real auth guard wired in (single-user mode:
+ * every request resolves to the synthetic local owner, whose role is
+ * always "admin" — see auth/session.ts's ensureLocalOwner) so the
+ * requireRole("editor") preHandlers on the gated bulk routes see a real
+ * request.user instead of 401ing outright. `roleOverride`, when given,
+ * adds a second onRequest hook (registered after the auth guard's, so it
+ * runs after and wins) that swaps in a fresh user object with that role for
+ * every request on this app instance — lets role-gating tests exercise the
+ * viewer/editor boundary without standing up OIDC or mutating the shared
+ * local-owner row (which ensureLocalOwner would just reset back to admin
+ * anyway).
+ */
+function buildTestApp(db: DbClient, libraryRoot: string, roleOverride?: UserRole): FastifyInstance {
   const app = Fastify({ logger: false });
   app.register(multipart);
   const config = buildTestConfig();
+  registerAuthGuard(app, db, config);
+  if (roleOverride) {
+    app.addHook("onRequest", async (request) => {
+      if (request.user) request.user = { ...request.user, role: roleOverride };
+    });
+  }
   registerModelRoutes(app, db, libraryRoot, config);
   registerVersionRoutes(app, db, config);
   registerProjectRoutes(app, db);
@@ -505,4 +525,74 @@ describe("bulk operations", () => {
       expect(badAction.statusCode).toBe(400);
     });
   });
+});
+
+// The three most data-destructive bulk routes (a bulk model delete, a bulk
+// file delete, and a bulk project delete — the last with no trash to fall
+// back on) are gated behind requireRole("editor"), even though none of the
+// single-item routes they batch are gated yet — see each route's own
+// comment in models.ts/versions.ts/projects.ts for the reasoning. The
+// pins-bulk route (remove/bump) is deliberately left ungated since neither
+// action there is destructive, so it's not covered here.
+describe("role gating on the data-destructive bulk routes", () => {
+  let libraryRoot: string;
+  let db: DbClient;
+
+  beforeEach(async () => {
+    libraryRoot = await mkdtemp(join(tmpdir(), "model-hub-bulk-role-"));
+    db = createDbClient(":memory:");
+    runMigrations(db);
+  });
+
+  afterEach(async () => {
+    await rm(libraryRoot, { recursive: true, force: true });
+  });
+
+  const cases: {
+    name: string;
+    request: () => { method: "POST"; url: string; payload: Record<string, unknown> };
+  }[] = [
+    {
+      name: "POST /api/models/bulk",
+      request: () => ({
+        method: "POST",
+        url: "/api/models/bulk",
+        payload: { ids: [1], action: "favorite" },
+      }),
+    },
+    {
+      name: "POST /api/models/:id/files/bulk",
+      request: () => ({
+        method: "POST",
+        url: "/api/models/1/files/bulk",
+        payload: { ids: ["a.stl"], action: "delete" },
+      }),
+    },
+    {
+      name: "POST /api/projects/bulk",
+      request: () => ({
+        method: "POST",
+        url: "/api/projects/bulk",
+        payload: { ids: [1], action: "delete" },
+      }),
+    },
+  ];
+
+  for (const { name, request } of cases) {
+    it(`${name} rejects a viewer with 403`, async () => {
+      const app = buildTestApp(db, libraryRoot, "viewer");
+      const res = await app.inject(request());
+      expect(res.statusCode).toBe(403);
+      expect((res.json() as { error: string }).error).toContain("editor");
+      await app.close();
+    });
+
+    it(`${name} lets an editor through (past the role gate — a 404/empty-batch response is fine, a 403 is not)`, async () => {
+      const app = buildTestApp(db, libraryRoot, "editor");
+      const res = await app.inject(request());
+      expect(res.statusCode).not.toBe(403);
+      expect(res.statusCode).not.toBe(401);
+      await app.close();
+    });
+  }
 });

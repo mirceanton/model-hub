@@ -5,6 +5,7 @@ import { pipeline } from "node:stream/promises";
 import type { BulkResponse, BulkResult, ModelFilesBulkRequest } from "@model-hub/shared";
 import { and, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
+import { requireRole } from "../../auth/guard.js";
 import type { Config } from "../../config.js";
 import type { DbClient } from "../../db/client.js";
 import { files as filesTable, type ModelRow } from "../../db/schema.js";
@@ -235,8 +236,16 @@ export function registerVersionRoutes(app: FastifyInstance, db: DbClient, config
   // calling the single DELETE route N times — just with per-item results
   // instead of the caller having to fire N requests and stitch failures
   // together itself.
+  //
+  // Gated behind requireRole("editor") — see models.ts's POST
+  // /api/models/bulk for the same reasoning (a bulk delete is qualitatively
+  // more dangerous than deleting one file at a time, and this PR is the
+  // "follow-up PR that touches this route" auth/guard.ts's comment refers
+  // to). The single-file DELETE route above stays ungated for now, matching
+  // every other still-ungated single-item route.
   app.post<{ Params: { id: string }; Body: ModelFilesBulkRequest }>(
     "/api/models/:id/files/bulk",
+    { preHandler: requireRole("editor") },
     async (request, reply) => {
       const id = Number(request.params.id);
       if (!Number.isInteger(id)) {
