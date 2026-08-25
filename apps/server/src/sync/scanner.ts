@@ -1,10 +1,11 @@
-import { readdir, stat } from "node:fs/promises";
+import { readdir, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
-import { eq } from "drizzle-orm";
+import { and, eq, isNotNull, isNull, lt } from "drizzle-orm";
 import type { DbClient } from "../db/client.js";
 import { models as modelsTable, type ModelRow } from "../db/schema.js";
-import { ensureMarkerId } from "../lib/fs-utils.js";
+import { ensureMarkerId, TRASH_DIRNAME } from "../lib/fs-utils.js";
 import { maybeEnqueueThumbnail } from "../thumbnails/trigger.js";
+import { runExclusive } from "./queue.js";
 import { reconcileModel } from "./reconcile.js";
 
 export interface ScanResult {
@@ -15,7 +16,9 @@ export interface ScanResult {
 
 async function listTopLevelDirNames(libraryRoot: string): Promise<string[]> {
   const entries = await readdir(libraryRoot, { withFileTypes: true });
-  return entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name);
+  return entries
+    .filter((entry) => entry.isDirectory() && entry.name !== TRASH_DIRNAME)
+    .map((entry) => entry.name);
 }
 
 /**
@@ -34,7 +37,12 @@ export async function scanLibraryRoot(db: DbClient, libraryRoot: string): Promis
     return { scanned: 0, skipped: true, reason: `Cannot read LIBRARY_ROOT: ${message}` };
   }
 
-  const existingModels = db.select().from(modelsTable).all();
+  // Trashed rows are entirely out of scope for this pass: their directories
+  // live under .trash/ (already excluded from dirNames above), and they must
+  // never get flipped to "missing" just because a normal top-level scan
+  // naturally can't find them at their old path — see purgeExpiredTrash below
+  // for what actually happens to them.
+  const existingModels = db.select().from(modelsTable).where(isNull(modelsTable.deletedAt)).all();
   const knownPresentCount = existingModels.filter((m) => m.missingSince == null).length;
 
   // A network mount hiccup can make LIBRARY_ROOT briefly look empty; never let
@@ -101,4 +109,47 @@ export async function scanLibraryRoot(db: DbClient, libraryRoot: string): Promis
   }
 
   return { scanned: presentRows.length, skipped: false };
+}
+
+export const TRASH_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
+
+export interface PurgeResult {
+  purged: number;
+}
+
+/**
+ * Permanently removes anything in .trash/ older than TRASH_RETENTION_MS:
+ * deletes the on-disk directory and hard-deletes the DB row (cascading, via
+ * FK, to its files/tags/project pins — same as the old immediate-delete
+ * behavior). Called on the same periodic tick as scanLibraryRoot (see
+ * index.ts) rather than its own interval, since trash bookkeeping is just
+ * another pass over the same LIBRARY_ROOT, not a separate subsystem.
+ *
+ * Re-checks deletedAt (and re-reads path) from the DB *inside* the per-path
+ * lock before touching anything: a manual restore or manual purge triggered
+ * from the Trash view (api/routes/trash.ts) locks on this same row's current
+ * path, so if one of those wins the race for a given row, this loop's stale
+ * copy of that row must not blindly rm+delete out from under it.
+ */
+export async function purgeExpiredTrash(db: DbClient): Promise<PurgeResult> {
+  const cutoff = new Date(Date.now() - TRASH_RETENTION_MS);
+  const expired = db
+    .select()
+    .from(modelsTable)
+    .where(and(isNotNull(modelsTable.deletedAt), lt(modelsTable.deletedAt, cutoff)))
+    .all();
+
+  let purged = 0;
+  for (const row of expired) {
+    const didPurge = await runExclusive(row.path, async () => {
+      const fresh = db.select().from(modelsTable).where(eq(modelsTable.id, row.id)).get();
+      if (!fresh || fresh.deletedAt == null) return false;
+      await rm(fresh.path, { recursive: true, force: true });
+      db.delete(modelsTable).where(eq(modelsTable.id, row.id)).run();
+      return true;
+    });
+    if (didPurge) purged++;
+  }
+
+  return { purged };
 }

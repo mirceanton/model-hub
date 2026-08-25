@@ -6,6 +6,12 @@ import type { FileEntry } from "@model-hub/shared";
 export const MARKER_FILENAME = ".modelhub-id";
 export const GITIGNORE_FILENAME = ".gitignore";
 export const THUMBNAILS_DIRNAME = ".thumbnails";
+// A trashed model's directory is moved here (see api/routes/models.ts's DELETE
+// handler and api/routes/trash.ts), one level under LIBRARY_ROOT — kept
+// physically out of the scanner's/watcher's normal model-discovery walk
+// (sync/scanner.ts excludes this exact top-level name) rather than deleted,
+// so a misclick is recoverable within the retention window.
+export const TRASH_DIRNAME = ".trash";
 export const MODEL_EXTENSIONS = new Set(["stl", "3mf", "obj"]);
 
 const GITIGNORE_MANAGED_ENTRIES = [`${THUMBNAILS_DIRNAME}/`, ".DS_Store"];

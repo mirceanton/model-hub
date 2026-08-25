@@ -18,6 +18,7 @@ const baseModel: ModelRow = {
   syncError: null,
   missingSince: null,
   favorite: false,
+  deletedAt: null,
   createdAt: new Date(),
   updatedAt: new Date(),
 };

@@ -1,9 +1,9 @@
 import { createWriteStream } from "node:fs";
-import { mkdir, rm, stat } from "node:fs/promises";
+import { mkdir, rename, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { pipeline } from "node:stream/promises";
 import type { Model, ModelDetail, Tag } from "@model-hub/shared";
-import { and, asc, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { DbClient } from "../../db/client.js";
 import {
@@ -13,14 +13,14 @@ import {
   tags as tagsTable,
   type ModelRow,
 } from "../../db/schema.js";
-import { ensureMarkerId, sanitizeModelDirName, sanitizeUploadFilename } from "../../lib/fs-utils.js";
+import { ensureMarkerId, sanitizeModelDirName, sanitizeUploadFilename, TRASH_DIRNAME } from "../../lib/fs-utils.js";
 import { getOrCreateTag, getTagsForModel, getTagsForModels, InvalidTagNameError } from "../../lib/tags.js";
 import { getLog } from "../../sync/git.js";
 import { runExclusive } from "../../sync/queue.js";
 import { LOCAL_UPLOAD_IDENTITY, reconcileModelCore } from "../../sync/reconcile.js";
 import { enqueueThumbnail, maybeEnqueueThumbnail } from "../../thumbnails/trigger.js";
 
-function toApiModel(row: ModelRow, tags: Tag[]): Model {
+export function toApiModel(row: ModelRow, tags: Tag[]): Model {
   return {
     id: row.id,
     fsId: row.fsId,
@@ -37,6 +37,7 @@ function toApiModel(row: ModelRow, tags: Tag[]): Model {
     syncError: row.syncError,
     missingSince: row.missingSince ? row.missingSince.getTime() : null,
     favorite: row.favorite,
+    deletedAt: row.deletedAt ? row.deletedAt.getTime() : null,
     createdAt: row.createdAt.getTime(),
     updatedAt: row.updatedAt.getTime(),
     tags,
@@ -44,7 +45,7 @@ function toApiModel(row: ModelRow, tags: Tag[]): Model {
 }
 
 /** Finds a directory name under libraryRoot not already used on disk or by another model row, appending " (2)", " (3)", ... on collision. */
-async function pickModelDirPath(libraryRoot: string, db: DbClient, base: string): Promise<string> {
+export async function pickModelDirPath(libraryRoot: string, db: DbClient, base: string): Promise<string> {
   let candidateName = base;
   for (let suffix = 2; ; suffix++) {
     const candidatePath = join(libraryRoot, candidateName);
@@ -79,7 +80,12 @@ export function registerModelRoutes(app: FastifyInstance, db: DbClient, libraryR
     const sortField = request.query.sort === "createdAt" ? "createdAt" : "title";
     const orderFn = request.query.order === "desc" ? desc : asc;
 
-    let rows = db.select().from(modelsTable).orderBy(orderFn(SORT_COLUMNS[sortField])).all();
+    let rows = db
+      .select()
+      .from(modelsTable)
+      .where(isNull(modelsTable.deletedAt))
+      .orderBy(orderFn(SORT_COLUMNS[sortField]))
+      .all();
 
     const needle = request.query.q?.trim().toLowerCase();
     if (needle) {
@@ -237,7 +243,11 @@ export function registerModelRoutes(app: FastifyInstance, db: DbClient, libraryR
       return reply.code(400).send({ error: "invalid model id" });
     }
 
-    const row = db.select().from(modelsTable).where(eq(modelsTable.id, id)).get();
+    const row = db
+      .select()
+      .from(modelsTable)
+      .where(and(eq(modelsTable.id, id), isNull(modelsTable.deletedAt)))
+      .get();
     if (!row) {
       return reply.code(404).send({ error: "model not found" });
     }
@@ -267,7 +277,11 @@ export function registerModelRoutes(app: FastifyInstance, db: DbClient, libraryR
       return reply.code(400).send({ error: "invalid model id" });
     }
 
-    const row = db.select().from(modelsTable).where(eq(modelsTable.id, id)).get();
+    const row = db
+      .select()
+      .from(modelsTable)
+      .where(and(eq(modelsTable.id, id), isNull(modelsTable.deletedAt)))
+      .get();
     if (!row) {
       return reply.code(404).send({ error: "model not found" });
     }
@@ -319,18 +333,35 @@ export function registerModelRoutes(app: FastifyInstance, db: DbClient, libraryR
       return reply.code(400).send({ error: "invalid model id" });
     }
 
-    const row = db.select().from(modelsTable).where(eq(modelsTable.id, id)).get();
+    const row = db
+      .select()
+      .from(modelsTable)
+      .where(and(eq(modelsTable.id, id), isNull(modelsTable.deletedAt)))
+      .get();
     if (!row) {
       return reply.code(404).send({ error: "model not found" });
     }
 
-    // Irreversible: deletes the model's entire directory (repo included) from
-    // disk, then the DB row — cascading (via FK) to its files/tags/project
-    // pins. Runs under the same per-path lock as sync so it can't race an
-    // in-flight commit for this model. force:true makes it a safe no-op if
-    // the directory is already gone (e.g. syncStatus "missing").
-    await runExclusive(row.path, () => rm(row.path, { recursive: true, force: true }));
-    db.delete(modelsTable).where(eq(modelsTable.id, id)).run();
+    // Recoverable: moves the model's entire directory (repo included, plus
+    // the untouched .modelhub-id marker inside it) under LIBRARY_ROOT/.trash/
+    // instead of destroying it, and marks deletedAt instead of dropping the
+    // DB row — see apps/server/src/api/routes/trash.ts for restore/purge.
+    // Runs under the same per-path lock as sync so it can't race an
+    // in-flight commit for this model.
+    const trashRoot = join(libraryRoot, TRASH_DIRNAME);
+    const trashPath = join(trashRoot, `${row.fsId}-${Date.now()}`);
+    const now = new Date();
+
+    await runExclusive(row.path, async () => {
+      await mkdir(trashRoot, { recursive: true });
+      await rename(row.path, trashPath);
+    });
+
+    db.update(modelsTable)
+      .set({ path: trashPath, deletedAt: now, updatedAt: now })
+      .where(eq(modelsTable.id, id))
+      .run();
+
     return reply.code(204).send();
   });
 }

@@ -30,6 +30,16 @@ export const models = sqliteTable("models", {
   missingSince: integer("missing_since", { mode: "timestamp_ms" }),
   // Pins a model to the top of the library list — see api/routes/models.ts's default sort.
   favorite: integer("favorite", { mode: "boolean" }).notNull().default(false),
+  // Non-null means "in the trash": the on-disk directory has been moved under
+  // LIBRARY_ROOT/.trash/ (see lib/fs-utils.ts's TRASH_DIRNAME) and `path`
+  // updated to match, and the row is excluded from GET /api/models and every
+  // other normal model route by default (see api/routes/models.ts,
+  // api/routes/tags.ts's modelCount). The dedicated /api/trash routes
+  // (api/routes/trash.ts) are the only ones that operate on these rows —
+  // restoring clears this and moves the directory back; a background sweep
+  // (sync/scanner.ts's purgeExpiredTrash, riding the same periodic tick as
+  // scanLibraryRoot) hard-deletes anything past the retention window.
+  deletedAt: integer("deleted_at", { mode: "timestamp_ms" }),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
 });

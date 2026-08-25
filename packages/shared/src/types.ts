@@ -64,9 +64,23 @@ export interface Model {
   syncError: string | null;
   missingSince: number | null;
   favorite: boolean;
+  // Always null on every Model returned by the normal model routes (they
+  // filter trashed rows out) — present so a trashed model briefly in flight
+  // through a shared code path still type-checks. See TrashedModel for the
+  // shape actually used by the Trash view.
+  deletedAt: number | null;
   createdAt: number;
   updatedAt: number;
   tags: Tag[];
+}
+
+/** One row in the Trash view — a model whose directory was moved to LIBRARY_ROOT/.trash/ pending restore or auto-purge. */
+export interface TrashedModel {
+  id: number;
+  title: string;
+  thumbnailPath: string | null;
+  thumbnailStatus: ThumbnailStatus;
+  deletedAt: number;
 }
 
 export interface FileEntry {

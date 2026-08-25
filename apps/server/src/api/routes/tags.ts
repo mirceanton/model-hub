@@ -1,5 +1,5 @@
 import type { Tag, TagWithCount } from "@model-hub/shared";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { DbClient } from "../../db/client.js";
 import { modelTags as modelTagsTable, models as modelsTable, tags as tagsTable } from "../../db/schema.js";
@@ -15,15 +15,25 @@ import {
 
 export function registerTagRoutes(app: FastifyInstance, db: DbClient): void {
   app.get("/api/tags", async () => {
+    // The second leftJoin's ON clause (not a WHERE) is what lets a trashed
+    // model's row disappear from the count while the tag itself, and its
+    // count of any *other* (non-trashed) models, still show up: a failed
+    // join condition nulls out modelsTable.id for that row without dropping
+    // it, and count() ignores nulls — counting modelTagsTable.modelId instead
+    // would still count every trashed association.
     const rows: TagWithCount[] = db
       .select({
         id: tagsTable.id,
         name: tagsTable.name,
         color: tagsTable.color,
-        modelCount: sql<number>`count(${modelTagsTable.modelId})`,
+        modelCount: sql<number>`count(${modelsTable.id})`,
       })
       .from(tagsTable)
       .leftJoin(modelTagsTable, eq(modelTagsTable.tagId, tagsTable.id))
+      .leftJoin(
+        modelsTable,
+        and(eq(modelsTable.id, modelTagsTable.modelId), isNull(modelsTable.deletedAt)),
+      )
       .groupBy(tagsTable.id)
       .orderBy(tagsTable.name)
       .all();
