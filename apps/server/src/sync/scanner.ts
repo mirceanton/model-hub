@@ -4,6 +4,7 @@ import { and, eq, isNotNull, isNull, lt } from "drizzle-orm";
 import type { DbClient } from "../db/client.js";
 import { models as modelsTable, type ModelRow } from "../db/schema.js";
 import { ensureMarkerId, TRASH_DIRNAME } from "../lib/fs-utils.js";
+import { recordScanCompleted } from "../metrics/sync-metrics.js";
 import { maybeEnqueueThumbnail } from "../thumbnails/trigger.js";
 import { runExclusive } from "./queue.js";
 import { reconcileModel } from "./reconcile.js";
@@ -29,6 +30,7 @@ async function listTopLevelDirNames(libraryRoot: string): Promise<string[]> {
  * model's git/files state.
  */
 export async function scanLibraryRoot(db: DbClient, libraryRoot: string): Promise<ScanResult> {
+  const startedAtMs = Date.now();
   let dirNames: string[];
   try {
     dirNames = await listTopLevelDirNames(libraryRoot);
@@ -103,10 +105,14 @@ export async function scanLibraryRoot(db: DbClient, libraryRoot: string): Promis
       .run();
   }
 
+  let changed = 0;
   for (const row of presentRows) {
     const result = await reconcileModel(db, row);
+    if (result.status === "ok" && result.committed) changed += 1;
     maybeEnqueueThumbnail(db, row, result);
   }
+
+  recordScanCompleted((Date.now() - startedAtMs) / 1000, changed);
 
   return { scanned: presentRows.length, skipped: false };
 }

@@ -85,6 +85,12 @@ If your library lives on an NFS/SMB mount, set
 unreliable across network filesystems; a periodic full-library scan runs
 regardless as a backstop.
 
+`GET /metrics` exposes Prometheus-format metrics (thumbnail queue depth,
+sync scan duration, HTTP request counts, etc.) and, like `GET /healthz`,
+is unauthenticated by design — even when OIDC is enabled — so it stays
+scrapeable without a session or token. If this instance is reachable
+beyond a trusted network, firewall `/metrics` off at the network level.
+
 ## Development
 
 Monorepo (pnpm workspaces): `apps/server` (Fastify API + sync engine +

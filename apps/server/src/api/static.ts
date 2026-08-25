@@ -1,12 +1,12 @@
 import fastifyStatic from "@fastify/static";
 import type { FastifyInstance } from "fastify";
 
-const SPA_FALLBACK_EXEMPT_PREFIXES = ["/api/", "/auth/", "/healthz"];
+const SPA_FALLBACK_EXEMPT_PREFIXES = ["/api/", "/auth/", "/healthz", "/metrics"];
 
 /**
  * Serves the built web SPA (apps/web/dist) at `/`, with a client-side-
- * routing fallback: any unmatched GET that isn't an API/auth/health route
- * gets index.html instead of a 404, so refreshing e.g. /models/3 works.
+ * routing fallback: any unmatched GET that isn't an API/auth/health/metrics
+ * route gets index.html instead of a 404, so refreshing e.g. /models/3 works.
  * Only registered when STATIC_WEB_DIR is set (production/Docker) — dev
  * relies on the Vite dev server instead.
  */

@@ -3,6 +3,7 @@ import { and, eq, inArray, isNull } from "drizzle-orm";
 import type { DbClient } from "../db/client.js";
 import { models as modelsTable, type ModelRow } from "../db/schema.js";
 import { MODEL_EXTENSIONS } from "../lib/fs-utils.js";
+import { thumbnailJobsCompletedTotal, thumbnailJobsFailedTotal } from "../metrics/thumbnail-metrics.js";
 import type { ReconcileResult } from "../sync/reconcile.js";
 import { generateThumbnail, type ThumbnailContext } from "./generate.js";
 import { ThumbnailQueue } from "./queue.js";
@@ -27,7 +28,15 @@ export function enqueueThumbnail(db: DbClient, model: ThumbnailModel): void {
   if (!queue || !context) return;
   if (!isViewablePrimaryFile(model.primaryFilePath)) return;
   const ctx = context;
-  queue.enqueue(() => generateThumbnail(db, model, ctx));
+  queue.enqueue(() =>
+    generateThumbnail(db, model, ctx).then((outcome) => {
+      if (outcome === "ready") {
+        thumbnailJobsCompletedTotal.inc();
+      } else {
+        thumbnailJobsFailedTotal.inc();
+      }
+    }),
+  );
 }
 
 /**

@@ -105,6 +105,26 @@ contain zero mesh geometry — only G-code + preview images. This is
 detected (`EmptyGeometryError` in `model-mesh.tsx`) and surfaces as
 `thumbnailStatus: "error"` with a clear message, not a blank thumbnail.
 
+### Metrics (`apps/server/src/metrics/`, `GET /metrics`)
+
+`GET /metrics` (`api/routes/metrics.ts`) exposes Prometheus text-exposition
+format via `prom-client`, matching this app's "no heavyweight infra"
+posture elsewhere: one process-wide `Registry` (`registry.ts`, also wired
+to prom-client's default Node/process metrics), no push gateway, no
+separate metrics process. `thumbnail-metrics.ts` exposes the thumbnail
+queue's depth/in-flight (set directly by `queue.ts` as jobs move through
+it) and completed/failed counters (incremented by `trigger.ts` based on
+`generateThumbnail`'s returned outcome, since it deliberately never
+rejects — see the Thumbnails section above). `sync-metrics.ts` exposes the
+most recent full-library scan's duration, completion timestamp, and
+models-changed count, recorded once per completed (non-skipped) pass of
+`scanLibraryRoot`. `http-metrics.ts` registers an `onResponse` hook (first
+thing in `app.ts`'s `buildApp`, so it wraps every route) for standard
+request-count/duration-by-route metrics — labeled by
+`request.routeOptions.url` (the matched route *pattern*, e.g.
+`/api/models/:id`), never the raw URL, to keep label cardinality bounded.
+See the Auth section below for why `/metrics` itself needs no auth.
+
 ### Auth (`apps/server/src/auth/`)
 
 OIDC (Authorization Code + PKCE via `openid-client`'s functional v6 API) is
@@ -119,6 +139,18 @@ per-boot random token (`internal-token.ts`) sent as a header, never exposed
 to real clients. The frontend's `AuthGate` (redirects to `/auth/login` when
 unauthenticated) deliberately does *not* wrap `/internal/render` for the
 same reason — see `App.tsx`'s routing.
+
+**`/healthz` and `/metrics` are unauthenticated by design**, even in OIDC
+mode: `guard.ts`'s 401 check only fires for paths under `/api/` (`/api/
+auth/me` excepted), and neither route lives under that prefix, so both
+routes pass through `registerAuthGuard`'s `onRequest` hook untouched —
+there's no explicit path allowlist to maintain. This is deliberate:
+`/healthz` needs to answer without a session for container
+healthchecks, and `/metrics` needs to be scrapeable by Prometheus without
+a session or token, same as most self-hosted apps' metrics endpoints. If
+this instance is reachable beyond a trusted network, firewall `/metrics`
+(and ideally `/healthz`) off at the network level rather than relying on
+app-level auth — nothing in this app puts either behind OIDC.
 
 **Roles.** `users.role` is one of `admin` (full access, including user/role
 management and instance settings) / `editor` (create/upload/edit/tag/
