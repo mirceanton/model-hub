@@ -304,6 +304,19 @@ export function dismissProjectNotice(projectId: number, noticeId: number): Promi
   return request<void>(`/api/projects/${projectId}/notices/${noticeId}/dismiss`, { method: "POST" })
 }
 
+export function uploadProjectThumbnail(id: number, image: Blob): Promise<{ ok: true }> {
+  const formData = new FormData()
+  formData.append("thumbnail", image, "thumbnail")
+  return request<{ ok: true }>(`/api/projects/${id}/thumbnail`, {
+    method: "POST",
+    body: formData,
+  })
+}
+
+export function deleteProjectThumbnail(id: number): Promise<void> {
+  return request<void>(`/api/projects/${id}/thumbnail`, { method: "DELETE" })
+}
+
 export interface AuthUser {
   id: number
   name: string | null

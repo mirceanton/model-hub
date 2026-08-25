@@ -57,6 +57,13 @@
       "when": 1787661192552,
       "tag": "0007_chief_shen",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1787664228751,
+      "tag": "0008_regular_sally_floyd",
+      "breakpoints": true
     }
   ]
 }

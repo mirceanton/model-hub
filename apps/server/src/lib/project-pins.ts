@@ -129,6 +129,24 @@ export function getPinsForProject(db: DbClient, projectId: number): PinnedModel[
   return rows.map((r) => toPinnedModel(r.pin, r.model)).sort((a, b) => a.pinnedAt - b.pinnedAt);
 }
 
+/** One pin plus its target model's filesystem path — the bits toPinnedModel/PinnedModel deliberately omit (not API-facing) but that project export needs to run git commands against. Deliberately unfiltered by deletedAt: a trashed model's repo is still physically present under LIBRARY_ROOT/.trash/ until purge, so its pin should still be exportable — see the project export route. */
+export interface ExportPin {
+  pin: PinnedModel;
+  modelPath: string;
+}
+
+export function getPinsForExport(db: DbClient, projectId: number): ExportPin[] {
+  const rows = db
+    .select({ pin: projectModelPinsTable, model: modelsTable })
+    .from(projectModelPinsTable)
+    .innerJoin(modelsTable, eq(projectModelPinsTable.modelId, modelsTable.id))
+    .where(eq(projectModelPinsTable.projectId, projectId))
+    .all();
+  return rows
+    .map((r) => ({ pin: toPinnedModel(r.pin, r.model), modelPath: r.model.path }))
+    .sort((a, b) => a.pin.pinnedAt - b.pin.pinnedAt);
+}
+
 export function getPinsForProjects(db: DbClient, projectIds: number[]): Map<number, PinnedModel[]> {
   const result = new Map<number, PinnedModel[]>();
   if (projectIds.length === 0) return result;

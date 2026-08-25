@@ -1,4 +1,4 @@
-import { sqliteTable, integer, text, uniqueIndex, primaryKey, index } from "drizzle-orm/sqlite-core";
+import { sqliteTable, integer, text, uniqueIndex, primaryKey, index, blob } from "drizzle-orm/sqlite-core";
 
 export const models = sqliteTable("models", {
   id: integer("id").primaryKey({ autoIncrement: true }),
@@ -129,6 +129,15 @@ export const projects = sqliteTable("projects", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   title: text("title").notNull(),
   description: text("description").notNull().default(""),
+  // A user-uploaded custom thumbnail, stored directly in the DB (unlike a
+  // model's thumbnail, which lives as a file next to the model's own git
+  // repo) since a Project deliberately has no filesystem of its own — see
+  // CLAUDE.md's Projects section. Null means "no custom thumbnail set", in
+  // which case the web app falls back to the auto-generated mosaic of
+  // pinned models' thumbnails (project-thumbnail-mosaic.tsx). Both columns
+  // are set/cleared together.
+  thumbnailImage: blob("thumbnail_image", { mode: "buffer" }),
+  thumbnailMimeType: text("thumbnail_mime_type"),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
 });

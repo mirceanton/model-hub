@@ -250,6 +250,10 @@ export interface Project {
   pinCount: number;
   // First few pins, for a list-view thumbnail mosaic without an extra fetch per project.
   previewPins: Pick<PinnedModel, "modelId" | "thumbnailPath" | "thumbnailStatus">[];
+  // True when a custom thumbnail (uploaded via POST /api/projects/:id/thumbnail)
+  // is set — fetch it from GET /api/projects/:id/thumbnail. When false, the
+  // web app falls back to the auto-generated mosaic of previewPins.
+  hasCustomThumbnail: boolean;
   createdAt: number;
   updatedAt: number;
 }

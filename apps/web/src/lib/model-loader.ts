@@ -13,6 +13,15 @@ export function thumbnailUrl(modelId: number, cacheBust: number): string {
   return `/api/models/${modelId}/thumbnail?v=${cacheBust}`
 }
 
+/** `cacheBust` should be the project's updatedAt so a newly uploaded custom thumbnail is refetched without a hard reload. */
+export function projectThumbnailUrl(projectId: number, cacheBust: number): string {
+  return `/api/projects/${projectId}/thumbnail?v=${cacheBust}`
+}
+
+export function projectExportUrl(projectId: number): string {
+  return `/api/projects/${projectId}/export`
+}
+
 export function isViewableExtension(extension: string): extension is ModelExtension {
   return extension === "stl" || extension === "3mf" || extension === "obj"
 }

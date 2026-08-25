@@ -12,6 +12,7 @@ import {
   deleteModel,
   deleteModelFile,
   deleteProject,
+  deleteProjectThumbnail,
   deleteRoleMapping,
   deleteTag,
   dismissProjectNotice,
@@ -42,6 +43,7 @@ import {
   updateRoleMappingSettings,
   updateTag,
   uploadModelVersion,
+  uploadProjectThumbnail,
   type ModelFilters,
   type ProjectFilters,
 } from "./api"
@@ -350,6 +352,22 @@ export function useDismissProjectNotice(projectId: number) {
   const invalidate = useInvalidateProject(projectId)
   return useMutation({
     mutationFn: (noticeId: number) => dismissProjectNotice(projectId, noticeId),
+    onSuccess: invalidate,
+  })
+}
+
+export function useUploadProjectThumbnail(projectId: number) {
+  const invalidate = useInvalidateProject(projectId)
+  return useMutation({
+    mutationFn: (image: Blob) => uploadProjectThumbnail(projectId, image),
+    onSuccess: invalidate,
+  })
+}
+
+export function useDeleteProjectThumbnail(projectId: number) {
+  const invalidate = useInvalidateProject(projectId)
+  return useMutation({
+    mutationFn: () => deleteProjectThumbnail(projectId),
     onSuccess: invalidate,
   })
 }

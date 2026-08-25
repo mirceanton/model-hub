@@ -3,7 +3,7 @@ import { AlertCircle, Layers, Search } from "lucide-react"
 import { useEffect, useState } from "react"
 import { Link } from "react-router"
 import { CreateProjectDialog } from "@/components/create-project-dialog"
-import { ProjectThumbnailMosaic } from "@/components/project-thumbnail-mosaic"
+import { ProjectThumbnail } from "@/components/project-thumbnail-mosaic"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -80,7 +80,7 @@ function ProjectCard({ project }: { project: Project }) {
     <Link to={`/projects/${project.id}`}>
       <Card className="h-full gap-3 py-3 transition-colors hover:border-foreground/20">
         <CardHeader className="px-3">
-          <ProjectThumbnailMosaic previewPins={project.previewPins} pinCount={project.pinCount} />
+          <ProjectThumbnail project={project} />
         </CardHeader>
         <CardContent className="flex flex-col gap-1.5 px-3">
           <CardTitle className="line-clamp-1 text-sm">{project.title}</CardTitle>

@@ -31,6 +31,7 @@ function toApiProject(row: ProjectRow, pins: PinnedModel[]): Project {
       thumbnailPath: p.thumbnailPath,
       thumbnailStatus: p.thumbnailStatus,
     })),
+    hasCustomThumbnail: row.thumbnailImage != null,
     createdAt: row.createdAt.getTime(),
     updatedAt: row.updatedAt.getTime(),
   };

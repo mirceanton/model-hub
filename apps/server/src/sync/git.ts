@@ -1,5 +1,7 @@
+import { spawn } from "node:child_process";
 import { rm, stat } from "node:fs/promises";
 import { join } from "node:path";
+import type { Readable } from "node:stream";
 import { simpleGit, type SimpleGit } from "simple-git";
 import type { GitLogEntry } from "@model-hub/shared";
 
@@ -92,6 +94,67 @@ export async function getHeadSha(modelDir: string): Promise<string | null> {
   } catch {
     return null;
   }
+}
+
+export interface CommitTreeEntry {
+  /** Path relative to the repo root, e.g. "part.stl" or "renders/front.png". */
+  path: string;
+  /** The blob's object sha — passed to catFileBlobStream to read its content. */
+  blobSha: string;
+}
+
+/**
+ * Lists every file (recursively, blobs only — trees/submodules skipped) as
+ * it existed at `sha`, without touching the working tree or index. Used by
+ * the project export route to read a pinned model at its pinned commit
+ * rather than its current on-disk state — see api/routes/project-export.ts.
+ */
+export async function listFilesAtCommit(modelDir: string, sha: string): Promise<CommitTreeEntry[]> {
+  const git = clientFor(modelDir);
+  // -z (NUL-terminated records) makes this safe against filenames containing
+  // newlines; --name-only would still leave the mode/type/sha prefix to
+  // parse, so this uses git's default `<mode> SP <type> SP <sha> TAB <path>` format.
+  const raw = await git.raw(["ls-tree", "-r", "-z", sha]);
+  const entries: CommitTreeEntry[] = [];
+  for (const record of raw.split("\0")) {
+    if (!record) continue;
+    const tabIndex = record.indexOf("\t");
+    if (tabIndex === -1) continue;
+    const [, type, blobSha] = record.slice(0, tabIndex).split(" ");
+    if (type !== "blob" || !blobSha) continue; // skip nested trees (shouldn't occur, -r flattens them) and submodules
+    entries.push({ path: record.slice(tabIndex + 1), blobSha });
+  }
+  return entries;
+}
+
+/**
+ * Streams a blob's content straight from git's object store by its sha
+ * (obtained from listFilesAtCommit), without buffering the whole file in
+ * memory — used to feed archiver.append() directly for project export.
+ * Spawned directly (not via simple-git) because simple-git's string-based
+ * API isn't binary-safe, and its only binary option (binaryCatFile)
+ * buffers the entire blob before resolving.
+ */
+export function catFileBlobStream(modelDir: string, blobSha: string): Readable {
+  const child = spawn("git", ["cat-file", "-p", blobSha], {
+    cwd: modelDir,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  // Surface a non-zero exit (e.g. a corrupt/missing object) as an 'error' on
+  // the stream archiver is already listening to, instead of it silently
+  // truncating the entry.
+  let stderrChunks: Buffer[] = [];
+  child.stderr.on("data", (chunk: Buffer) => stderrChunks.push(chunk));
+  child.on("close", (code) => {
+    if (code !== 0) {
+      child.stdout.emit(
+        "error",
+        new Error(`git cat-file -p ${blobSha} exited with code ${code}: ${Buffer.concat(stderrChunks).toString("utf8")}`),
+      );
+    }
+  });
+  child.on("error", (err) => child.stdout.emit("error", err));
+  return child.stdout;
 }
 
 export async function getLog(modelDir: string): Promise<GitLogEntry[]> {
