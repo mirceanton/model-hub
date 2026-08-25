@@ -1,4 +1,4 @@
-import type { GitLogEntry, SourceSnapshotStatus } from "@model-hub/shared"
+import type { BulkResponse, GitLogEntry, SourceSnapshotStatus } from "@model-hub/shared"
 import {
   AlertCircle,
   ArrowLeft,
@@ -10,6 +10,7 @@ import {
   GitCommitHorizontal,
   Globe,
   History,
+  ListChecks,
   Loader2,
   Pencil,
   RefreshCw,
@@ -18,6 +19,7 @@ import {
 } from "lucide-react"
 import { lazy, Suspense, useState } from "react"
 import { Link, useNavigate, useParams } from "react-router"
+import { BulkActionBar, BulkFailureAlert } from "@/components/bulk-action-bar"
 import { DuplicateBadge } from "@/components/duplicate-badge"
 import { FavoriteToggle } from "@/components/favorite-toggle"
 import { MarkdownContent } from "@/components/markdown-content"
@@ -28,6 +30,7 @@ import { TagEditor } from "@/components/tag-editor"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import {
   Dialog,
   DialogContent,
@@ -42,9 +45,11 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { UploadVersionDialog } from "@/components/upload-version-dialog"
+import { useSelection } from "@/hooks/use-selection"
 import { formatBytes, formatDateTime } from "@/lib/format"
 import { archiveUrl, fileUrl, isViewableExtension } from "@/lib/model-loader"
 import {
+  useBulkDeleteModelFiles,
   useCaptureThumbnail,
   useDeleteModel,
   useDeleteModelFile,
@@ -66,6 +71,9 @@ export function ModelDetailPage() {
   const { data: model, isPending, isError, error } = useModel(id)
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
   const [viewerCanvas, setViewerCanvas] = useState<HTMLCanvasElement | null>(null)
+  const fileSelection = useSelection<string>()
+  const bulkDeleteFiles = useBulkDeleteModelFiles(id)
+  const [fileBulkResult, setFileBulkResult] = useState<BulkResponse<string> | undefined>()
 
   if (isPending) {
     return (
@@ -213,39 +221,118 @@ export function ModelDetailPage() {
           {model.files.length === 0 ? (
             <p className="text-sm text-muted-foreground">No model files in this model yet.</p>
           ) : (
-            <ul className="flex flex-col divide-y rounded-lg border">
-              {model.files.map((file) => (
-                <li
-                  key={file.relativePath}
-                  className={cn(
-                    "flex items-center gap-1 pr-2 transition-colors hover:bg-muted/50",
-                    file.relativePath === activePath && "bg-muted/70",
-                  )}
+            <div className="flex flex-col gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  aria-pressed={fileSelection.active}
+                  onClick={() => {
+                    setFileBulkResult(undefined)
+                    fileSelection.setActive(!fileSelection.active)
+                  }}
+                  className={cn(fileSelection.active && "border-primary/50 bg-primary/10 text-primary")}
                 >
-                  <button
+                  <ListChecks className="size-3.5" />
+                  Select
+                </Button>
+                {fileSelection.active && (
+                  <label className="flex items-center gap-2 text-sm">
+                    <Checkbox
+                      checked={model.files.every((f) => fileSelection.isSelected(f.relativePath))}
+                      indeterminate={
+                        fileSelection.selected.size > 0 &&
+                        !model.files.every((f) => fileSelection.isSelected(f.relativePath))
+                      }
+                      onCheckedChange={(checked) =>
+                        checked
+                          ? fileSelection.selectAll(model.files.map((f) => f.relativePath))
+                          : fileSelection.clear()
+                      }
+                    />
+                    Select all
+                  </label>
+                )}
+              </div>
+
+              {fileSelection.active && fileSelection.selected.size > 0 && (
+                <BulkActionBar count={fileSelection.selected.size} onClear={fileSelection.clear}>
+                  <Button
                     type="button"
-                    onClick={() => setSelectedPath(file.relativePath)}
-                    disabled={!isViewableExtension(file.extension)}
-                    className="flex min-w-0 flex-1 items-center justify-between gap-3 px-3 py-2 text-left disabled:cursor-default"
+                    variant="destructive"
+                    size="sm"
+                    disabled={bulkDeleteFiles.isPending}
+                    onClick={() => {
+                      const count = fileSelection.selected.size
+                      if (
+                        !confirm(
+                          `Delete ${count} file${count === 1 ? "" : "s"} from this model? This creates a new commit.`,
+                        )
+                      ) {
+                        return
+                      }
+                      bulkDeleteFiles.mutate([...fileSelection.selected], {
+                        onSuccess: (data) => {
+                          setFileBulkResult(data)
+                          fileSelection.clear()
+                        },
+                      })
+                    }}
                   >
-                    <div className="flex min-w-0 items-center gap-2">
-                      <File className="size-4 shrink-0 text-muted-foreground" />
-                      <span className="truncate text-sm">{file.relativePath}</span>
-                    </div>
-                    <span className="shrink-0 text-xs text-muted-foreground">
-                      {formatBytes(file.sizeBytes)}
-                    </span>
-                  </button>
-                  <SetPrimaryFileButton
-                    modelId={model.id}
-                    isPrimary={file.relativePath === model.primaryFilePath}
-                    relativePath={file.relativePath}
-                  />
-                  <DownloadFileButton modelId={model.id} relativePath={file.relativePath} />
-                  <DeleteFileButton modelId={model.id} relativePath={file.relativePath} />
-                </li>
-              ))}
-            </ul>
+                    {bulkDeleteFiles.isPending ? (
+                      <Loader2 className="size-3.5 animate-spin" />
+                    ) : (
+                      <Trash2 className="size-3.5" />
+                    )}
+                    Delete
+                  </Button>
+                </BulkActionBar>
+              )}
+              <BulkFailureAlert response={fileBulkResult} />
+
+              <ul className="flex flex-col divide-y rounded-lg border">
+                {model.files.map((file) => (
+                  <li
+                    key={file.relativePath}
+                    className={cn(
+                      "flex items-center gap-1 pr-2 transition-colors hover:bg-muted/50",
+                      file.relativePath === activePath && "bg-muted/70",
+                    )}
+                  >
+                    {fileSelection.active && (
+                      <Checkbox
+                        checked={fileSelection.isSelected(file.relativePath)}
+                        onCheckedChange={() => fileSelection.toggle(file.relativePath)}
+                        aria-label={`Select ${file.relativePath}`}
+                        className="ml-3 shrink-0"
+                      />
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setSelectedPath(file.relativePath)}
+                      disabled={!isViewableExtension(file.extension)}
+                      className="flex min-w-0 flex-1 items-center justify-between gap-3 px-3 py-2 text-left disabled:cursor-default"
+                    >
+                      <div className="flex min-w-0 items-center gap-2">
+                        <File className="size-4 shrink-0 text-muted-foreground" />
+                        <span className="truncate text-sm">{file.relativePath}</span>
+                      </div>
+                      <span className="shrink-0 text-xs text-muted-foreground">
+                        {formatBytes(file.sizeBytes)}
+                      </span>
+                    </button>
+                    <SetPrimaryFileButton
+                      modelId={model.id}
+                      isPrimary={file.relativePath === model.primaryFilePath}
+                      relativePath={file.relativePath}
+                    />
+                    <DownloadFileButton modelId={model.id} relativePath={file.relativePath} />
+                    <DeleteFileButton modelId={model.id} relativePath={file.relativePath} />
+                  </li>
+                ))}
+              </ul>
+            </div>
           )}
         </TabsContent>
 

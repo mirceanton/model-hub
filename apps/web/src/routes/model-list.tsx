@@ -1,8 +1,22 @@
-import type { Model, ModelSortField, SortOrder } from "@model-hub/shared"
-import { AlertCircle, ChevronLeft, ChevronRight, FolderOpen, ListFilter, Search, Star, X } from "lucide-react"
+import type { BulkResponse, Model, ModelSortField, SortOrder } from "@model-hub/shared"
+import {
+  AlertCircle,
+  ChevronLeft,
+  ChevronRight,
+  FolderOpen,
+  ListChecks,
+  ListFilter,
+  Loader2,
+  Search,
+  Star,
+  Trash2,
+  X,
+} from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
 import { Link, useSearchParams } from "react-router"
 import { useMainMaxWidth } from "@/components/app-shell"
+import { BulkActionBar, BulkFailureAlert } from "@/components/bulk-action-bar"
+import { BulkAddTagButton, BulkRemoveTagButton } from "@/components/bulk-tag-dialogs"
 import { CreateModelDialog } from "@/components/create-model-dialog"
 import { DuplicateBadge } from "@/components/duplicate-badge"
 import { FavoriteToggle } from "@/components/favorite-toggle"
@@ -13,11 +27,13 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
+import { useSelection } from "@/hooks/use-selection"
 import { formatDateTime } from "@/lib/format"
-import { useModels, useTags, useUpdateModel } from "@/lib/queries"
+import { useBulkModelsAction, useModels, useTags, useUpdateModel } from "@/lib/queries"
 import { tagBadgeStyle } from "@/lib/tag-colors"
 import { cn } from "@/lib/utils"
 
@@ -122,6 +138,14 @@ export function ModelListPage() {
   const [filtersOpen, setFiltersOpen] = useState(false)
   const [fileFilterInputs, setFileFilterInputs] = useState<FileFilterInputs>(EMPTY_FILE_FILTERS)
   const [fileFilters, setFileFilters] = useState<FileFilterInputs>(EMPTY_FILE_FILTERS)
+
+  const selection = useSelection<number>()
+  const bulkAction = useBulkModelsAction()
+  const [bulkResult, setBulkResult] = useState<BulkResponse | undefined>()
+  function handleBulkSuccess(data: BulkResponse) {
+    setBulkResult(data)
+    selection.clear()
+  }
 
   const perPage = PER_PAGE_ROW_MULTIPLIERS[perPageIndex] * columns
   const sortOption = SORT_OPTIONS.find((option) => option.value === sortValue) ?? DEFAULT_SORT
@@ -254,6 +278,20 @@ export function ModelListPage() {
                   }
                 </Badge>
               )}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              aria-pressed={selection.active}
+              onClick={() => {
+                setBulkResult(undefined)
+                selection.setActive(!selection.active)
+              }}
+              className={cn(selection.active && "border-primary/50 bg-primary/10 text-primary")}
+            >
+              <ListChecks className="size-3.5" />
+              Select
             </Button>
             <Select value={sortValue} onValueChange={(value) => value && setSortValue(value)}>
               <SelectTrigger size="sm" aria-label="Sort by">
@@ -422,9 +460,116 @@ export function ModelListPage() {
           </div>
         ) : (
           <>
+            {selection.active && (
+              <div className="mb-3 flex flex-col gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <label className="flex items-center gap-2 text-sm">
+                    <Checkbox
+                      checked={models.data.every((m) => selection.isSelected(m.id))}
+                      indeterminate={
+                        selection.selected.size > 0 &&
+                        !models.data.every((m) => selection.isSelected(m.id))
+                      }
+                      onCheckedChange={(checked) =>
+                        checked
+                          ? selection.selectAll(models.data.map((m) => m.id))
+                          : selection.clear()
+                      }
+                    />
+                    Select all on this page
+                  </label>
+                </div>
+                {selection.selected.size > 0 && (
+                  <BulkActionBar count={selection.selected.size} onClear={selection.clear}>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={bulkAction.isPending}
+                      onClick={() =>
+                        bulkAction.mutate(
+                          { ids: [...selection.selected], action: "favorite" },
+                          { onSuccess: handleBulkSuccess },
+                        )
+                      }
+                    >
+                      <Star className="size-3.5" />
+                      Favorite
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={bulkAction.isPending}
+                      onClick={() =>
+                        bulkAction.mutate(
+                          { ids: [...selection.selected], action: "unfavorite" },
+                          { onSuccess: handleBulkSuccess },
+                        )
+                      }
+                    >
+                      <Star className="size-3.5" />
+                      Unfavorite
+                    </Button>
+                    <BulkAddTagButton
+                      allTags={tags}
+                      disabled={bulkAction.isPending}
+                      onApply={(tagName) =>
+                        bulkAction.mutate(
+                          { ids: [...selection.selected], action: "add-tag", tagName },
+                          { onSuccess: handleBulkSuccess },
+                        )
+                      }
+                    />
+                    <BulkRemoveTagButton
+                      allTags={tags}
+                      disabled={bulkAction.isPending}
+                      pending={bulkAction.isPending}
+                      onApply={(tagId) =>
+                        bulkAction.mutate(
+                          { ids: [...selection.selected], action: "remove-tag", tagId },
+                          { onSuccess: handleBulkSuccess },
+                        )
+                      }
+                    />
+                    <Button
+                      type="button"
+                      variant="destructive"
+                      size="sm"
+                      disabled={bulkAction.isPending}
+                      onClick={() => {
+                        const count = selection.selected.size
+                        if (!confirm(`Move ${count} model${count === 1 ? "" : "s"} to trash?`)) return
+                        bulkAction.mutate(
+                          { ids: [...selection.selected], action: "delete" },
+                          { onSuccess: handleBulkSuccess },
+                        )
+                      }}
+                    >
+                      {bulkAction.isPending ? (
+                        <Loader2 className="size-3.5 animate-spin" />
+                      ) : (
+                        <Trash2 className="size-3.5" />
+                      )}
+                      Delete
+                    </Button>
+                  </BulkActionBar>
+                )}
+                <BulkFailureAlert
+                  response={bulkResult}
+                  labelFor={(id) => models.data.find((m) => m.id === id)?.title ?? `Model #${id}`}
+                />
+              </div>
+            )}
             <div className={cn("grid gap-4", COLUMN_GRID_CLASSES[columns])}>
               {models.data.map((model) => (
-                <ModelCard key={model.id} model={model} />
+                <ModelCard
+                  key={model.id}
+                  model={model}
+                  selectable={selection.active}
+                  selected={selection.isSelected(model.id)}
+                  onToggleSelect={() => selection.toggle(model.id)}
+                />
               ))}
             </div>
             {totalPages > 1 && (
@@ -470,14 +615,45 @@ export function ModelListPage() {
   )
 }
 
-function ModelCard({ model }: { model: Model }) {
+function ModelCard({
+  model,
+  selectable,
+  selected,
+  onToggleSelect,
+}: {
+  model: Model
+  selectable?: boolean
+  selected?: boolean
+  onToggleSelect?: () => void
+}) {
   const update = useUpdateModel(model.id)
 
   return (
-    <Link to={`/models/${model.id}`}>
-      <Card className="h-full gap-3 py-3 transition-colors hover:border-foreground/20">
+    <Link
+      to={`/models/${model.id}`}
+      onClick={(e) => {
+        if (!selectable) return
+        e.preventDefault()
+        onToggleSelect?.()
+      }}
+    >
+      <Card
+        className={cn(
+          "h-full gap-3 py-3 transition-colors hover:border-foreground/20",
+          selected && "border-primary ring-2 ring-primary/30",
+        )}
+      >
         <CardHeader className="relative px-3">
           <ModelThumbnail model={model} />
+          {selectable && (
+            <Checkbox
+              checked={!!selected}
+              onCheckedChange={() => onToggleSelect?.()}
+              onClick={(e) => e.stopPropagation()}
+              aria-label={`Select ${model.title}`}
+              className="absolute top-2 left-2 bg-background/80 backdrop-blur-sm"
+            />
+          )}
           <FavoriteToggle
             favorite={model.favorite}
             onToggle={() => update.mutate({ favorite: !model.favorite })}

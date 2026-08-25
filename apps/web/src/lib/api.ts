@@ -2,8 +2,10 @@ import type {
   AdminUser,
   ApiToken,
   ApiTokenCreated,
+  BulkResponse,
   InstanceStats,
   Model,
+  ModelBulkAction,
   ModelDetail,
   ModelDiff,
   ModelListResult,
@@ -13,6 +15,7 @@ import type {
   PinnedModel,
   Project,
   ProjectDetail,
+  ProjectPinsBulkAction,
   SortOrder,
   Tag,
   TagWithCount,
@@ -106,6 +109,21 @@ export function deleteModel(id: number): Promise<void> {
   return request<void>(`/api/models/${id}`, { method: "DELETE" })
 }
 
+export interface ModelsBulkInput {
+  ids: number[]
+  action: ModelBulkAction
+  tagName?: string
+  tagId?: number
+}
+
+export function bulkModelsAction(input: ModelsBulkInput): Promise<BulkResponse> {
+  return request<BulkResponse>("/api/models/bulk", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  })
+}
+
 export interface UploadResult {
   ok: true
   committed: boolean
@@ -132,6 +150,14 @@ export interface DeleteFileResult {
 export function deleteModelFile(modelId: number, relativePath: string): Promise<DeleteFileResult> {
   const path = relativePath.split("/").map(encodeURIComponent).join("/")
   return request<DeleteFileResult>(`/api/models/${modelId}/files/${path}`, { method: "DELETE" })
+}
+
+export function bulkDeleteModelFiles(modelId: number, relativePaths: string[]): Promise<BulkResponse<string>> {
+  return request<BulkResponse<string>>(`/api/models/${modelId}/files/bulk`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ids: relativePaths, action: "delete" }),
+  })
 }
 
 export interface RestoreResult {
@@ -285,6 +311,14 @@ export function deleteProject(id: number): Promise<void> {
   return request<void>(`/api/projects/${id}`, { method: "DELETE" })
 }
 
+export function bulkDeleteProjects(ids: number[]): Promise<BulkResponse> {
+  return request<BulkResponse>("/api/projects/bulk", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ids, action: "delete" }),
+  })
+}
+
 export function addProjectPin(
   projectId: number,
   input: { modelId: number; commitSha?: string },
@@ -310,6 +344,18 @@ export function updateProjectPin(
 
 export function removeProjectPin(projectId: number, modelId: number): Promise<void> {
   return request<void>(`/api/projects/${projectId}/pins/${modelId}`, { method: "DELETE" })
+}
+
+export function bulkProjectPinsAction(
+  projectId: number,
+  modelIds: number[],
+  action: ProjectPinsBulkAction,
+): Promise<BulkResponse> {
+  return request<BulkResponse>(`/api/projects/${projectId}/pins/bulk`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ids: modelIds, action }),
+  })
 }
 
 export function dismissProjectNotice(projectId: number, noticeId: number): Promise<void> {
