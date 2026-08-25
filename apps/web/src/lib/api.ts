@@ -1,5 +1,7 @@
 import type {
   AdminUser,
+  ApiToken,
+  ApiTokenCreated,
   Model,
   ModelDetail,
   ModelListResult,
@@ -355,4 +357,20 @@ export function updateRoleMapping(id: number, role: UserRole): Promise<OidcRoleM
 
 export function deleteRoleMapping(id: number): Promise<void> {
   return request<void>(`/api/admin/role-mapping/groups/${id}`, { method: "DELETE" })
+}
+
+export function fetchApiTokens(): Promise<ApiToken[]> {
+  return request<ApiToken[]>("/api/tokens")
+}
+
+export function createApiToken(input: { label: string; expiresAt?: number }): Promise<ApiTokenCreated> {
+  return request<ApiTokenCreated>("/api/tokens", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  })
+}
+
+export function revokeApiToken(id: number): Promise<void> {
+  return request<void>(`/api/tokens/${id}`, { method: "DELETE" })
 }

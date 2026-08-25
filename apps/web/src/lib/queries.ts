@@ -4,6 +4,7 @@ import {
   addModelTag,
   addProjectPin,
   captureThumbnail,
+  createApiToken,
   createModel,
   createProject,
   createRoleMapping,
@@ -14,6 +15,7 @@ import {
   deleteRoleMapping,
   deleteTag,
   fetchAdminUsers,
+  fetchApiTokens,
   fetchAuthMe,
   fetchModel,
   fetchModels,
@@ -30,6 +32,7 @@ import {
   removeProjectPin,
   restoreFromTrash,
   restoreModelVersion,
+  revokeApiToken,
   updateModel,
   updateProject,
   updateProjectPin,
@@ -392,5 +395,32 @@ export function useDeleteRoleMapping() {
   return useMutation({
     mutationFn: (id: number) => deleteRoleMapping(id),
     onSuccess: invalidate,
+  })
+}
+
+export function useApiTokens() {
+  return useQuery({
+    queryKey: ["api-tokens"],
+    queryFn: fetchApiTokens,
+  })
+}
+
+export function useCreateApiToken() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (input: { label: string; expiresAt?: number }) => createApiToken(input),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["api-tokens"] })
+    },
+  })
+}
+
+export function useRevokeApiToken() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) => revokeApiToken(id),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["api-tokens"] })
+    },
   })
 }

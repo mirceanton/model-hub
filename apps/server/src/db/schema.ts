@@ -224,6 +224,37 @@ export const sessions = sqliteTable("sessions", {
   expiresAt: integer("expires_at", { mode: "timestamp_ms" }).notNull(),
 });
 
+/**
+ * A personal API token for scripting/automation (see auth/api-tokens.ts) —
+ * lets e.g. a slicer post-processing hook push a new model version without a
+ * browser session. Authenticates AS the owning user with their *current*
+ * role (userId, not a snapshotted role), same as a session.
+ *
+ * Unlike sessions.id (an opaque value used directly as the lookup key —
+ * fine for a short-lived, httpOnly cookie the browser round-trips
+ * automatically), this is a long-lived secret a human copy-pastes into a
+ * script and that could end up in shell history/CI logs, so only its
+ * SHA-256 hash is ever stored — the plaintext is shown once, at creation,
+ * and is unrecoverable after that (see api-tokens.ts's createApiToken).
+ */
+export const personalAccessTokens = sqliteTable(
+  "personal_access_tokens",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    tokenHash: text("token_hash").notNull().unique(),
+    label: text("label").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+    expiresAt: integer("expires_at", { mode: "timestamp_ms" }),
+    lastUsedAt: integer("last_used_at", { mode: "timestamp_ms" }),
+  },
+  (table) => ({
+    userIdIdx: index("personal_access_tokens_user_id_idx").on(table.userId),
+  }),
+);
+
 export type ModelRow = typeof models.$inferSelect;
 export type NewModelRow = typeof models.$inferInsert;
 export type FileRow = typeof files.$inferSelect;
@@ -235,5 +266,7 @@ export type ProjectModelPinRow = typeof projectModelPins.$inferSelect;
 export type NewProjectModelPinRow = typeof projectModelPins.$inferInsert;
 export type UserRow = typeof users.$inferSelect;
 export type SessionRow = typeof sessions.$inferSelect;
+export type PersonalAccessTokenRow = typeof personalAccessTokens.$inferSelect;
+export type NewPersonalAccessTokenRow = typeof personalAccessTokens.$inferInsert;
 export type OidcGroupRoleMappingRow = typeof oidcGroupRoleMappings.$inferSelect;
 export type AuthSettingsRow = typeof authSettings.$inferSelect;

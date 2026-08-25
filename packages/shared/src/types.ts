@@ -61,6 +61,25 @@ export interface OidcRoleMappingConfig {
   mappings: OidcRoleMapping[];
 }
 
+/**
+ * A personal API token's public metadata — never includes the token secret
+ * itself, which is only ever returned once, at creation (see ApiTokenCreated
+ * below). Authenticates as its owning user with their current role, via
+ * `Authorization: Bearer <token>`.
+ */
+export interface ApiToken {
+  id: number;
+  label: string;
+  createdAt: number;
+  expiresAt: number | null;
+  lastUsedAt: number | null;
+}
+
+/** Returned only from the create-token endpoint — `token` is the plaintext secret, shown exactly once and unrecoverable after that. */
+export interface ApiTokenCreated extends ApiToken {
+  token: string;
+}
+
 export interface Tag {
   id: number;
   name: string;
