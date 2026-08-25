@@ -180,6 +180,24 @@ so far only to the admin user-listing and role-mapping routes
 project/tag/etc. routes yet; that's deliberately left to future PRs that
 touch those routes anyway, to avoid one sprawling diff.
 
+**Bootstrap lockout escape hatch.** Because the group→role mapping table
+starts empty and `/admin` itself requires the `admin` role to reach, a
+fresh OIDC deployment has no way to configure that first admin mapping —
+every user, including whoever is supposed to set it up, resolves to
+`defaultRole` (`viewer`). `OIDC_ADMIN_GROUPS` (`config.ts`, parsed into
+`Config.oidcAdminGroups`) is the one deliberate exception to "group→role
+mapping lives in the DB, not env vars": a comma-separated list of group
+names that `lib/auth-settings.ts`'s `enforceAdminGroupMappings` force-
+upserts to `admin` on every boot (called from `index.ts`, after
+`runMigrations`, only when `config.oidc` is set — it's a no-op in
+single-user mode). "The env var always wins" — it overwrites any existing
+non-admin mapping for those groups back to admin on every restart, even if
+an admin changed it via the UI in the meantime. Once bootstrapped, you can
+leave it set (harmless, just keeps re-asserting the same rows) or unset it;
+unsetting stops future enforcement but does *not* retroactively demote
+anyone already mapped to admin through that group — that requires an
+explicit change via the `/admin` UI.
+
 ### Projects (grouping) (`apps/server/src/lib/project-pins.ts`, `apps/server/src/api/routes/projects.ts`)
 
 A **Project** is a separate, DB-only entity from a **Model** (no filesystem

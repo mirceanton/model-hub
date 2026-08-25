@@ -31,6 +31,7 @@ const OIDC_CONFIG: Config = {
     redirectUrl: "http://localhost:4000/auth/callback",
   },
   sessionSecret: "a".repeat(32),
+  oidcAdminGroups: [],
   authRateLimitMax: 10,
   authRateLimitWindowMs: 60_000,
   uploadRateLimitMax: 30,

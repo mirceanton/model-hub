@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { normalizeGroupName } from "./lib/auth-settings.js";
 
 const envSchema = z.object({
   LIBRARY_ROOT: z
@@ -38,6 +39,12 @@ const envSchema = z.object({
   OIDC_CLIENT_SECRET: z.string().min(1).optional(),
   OIDC_REDIRECT_URL: z.string().url().optional(),
   SESSION_SECRET: z.string().min(32, "SESSION_SECRET must be at least 32 characters").optional(),
+  // Comma-separated OIDC group names that always resolve to the admin role,
+  // enforced fresh at every boot -- see lib/auth-settings.ts's
+  // enforceAdminGroupMappings and CLAUDE.md's Auth/Roles section for why
+  // this exists (the group-mapping table starts empty, so without this
+  // there's no way for anyone to reach the /admin UI that configures it).
+  OIDC_ADMIN_GROUPS: z.string().optional(),
   // Rate limiting (apps/server/src/lib/rate-limit.ts). Auth routes are keyed
   // per-IP (unauthenticated by nature); upload/create routes are keyed
   // per-user (see rate-limit.ts for why that's a no-op in single-user mode).
@@ -69,6 +76,8 @@ export type Config = {
   /** null means single-user mode: no auth middleware is mounted at all. */
   oidc: OidcConfig | null;
   sessionSecret: string | null;
+  /** Parsed, trimmed, non-empty OIDC_ADMIN_GROUPS. Empty array if unset. */
+  oidcAdminGroups: string[];
   authRateLimitMax: number;
   authRateLimitWindowMs: number;
   uploadRateLimitMax: number;
@@ -113,6 +122,16 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       }
     : null;
 
+  let oidcAdminGroups: string[] = [];
+  if (parsed.OIDC_ADMIN_GROUPS) {
+    try {
+      oidcAdminGroups = parsed.OIDC_ADMIN_GROUPS.split(",").map((name) => normalizeGroupName(name));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      throw new Error(`Invalid environment configuration:\n  - OIDC_ADMIN_GROUPS: ${message}`);
+    }
+  }
+
   return {
     libraryRoot: parsed.LIBRARY_ROOT,
     databasePath: parsed.DATABASE_PATH,
@@ -127,6 +146,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     staticWebDir: parsed.STATIC_WEB_DIR ?? null,
     oidc,
     sessionSecret: parsed.SESSION_SECRET ?? null,
+    oidcAdminGroups,
     authRateLimitMax: parsed.AUTH_RATE_LIMIT_MAX,
     authRateLimitWindowMs: parsed.AUTH_RATE_LIMIT_WINDOW_MS,
     uploadRateLimitMax: parsed.UPLOAD_RATE_LIMIT_MAX,

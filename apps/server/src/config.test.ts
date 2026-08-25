@@ -136,4 +136,35 @@ describe("loadConfig", () => {
     expect(config.uploadRateLimitMax).toBe(100);
     expect(config.uploadRateLimitWindowMs).toBe(120_000);
   });
+
+  describe("OIDC_ADMIN_GROUPS", () => {
+    it("defaults to an empty array when unset", () => {
+      const config = loadConfig(BASE_ENV);
+      expect(config.oidcAdminGroups).toEqual([]);
+    });
+
+    it("defaults to an empty array when set to an empty string", () => {
+      const config = loadConfig({ ...BASE_ENV, OIDC_ADMIN_GROUPS: "" });
+      expect(config.oidcAdminGroups).toEqual([]);
+    });
+
+    it("parses a single group", () => {
+      const config = loadConfig({ ...BASE_ENV, OIDC_ADMIN_GROUPS: "platform-admins" });
+      expect(config.oidcAdminGroups).toEqual(["platform-admins"]);
+    });
+
+    it("parses multiple comma-separated groups", () => {
+      const config = loadConfig({ ...BASE_ENV, OIDC_ADMIN_GROUPS: "platform-admins,3d-printing-admins" });
+      expect(config.oidcAdminGroups).toEqual(["platform-admins", "3d-printing-admins"]);
+    });
+
+    it("trims surrounding whitespace around each group name", () => {
+      const config = loadConfig({ ...BASE_ENV, OIDC_ADMIN_GROUPS: "  platform-admins , 3d-printing-admins  " });
+      expect(config.oidcAdminGroups).toEqual(["platform-admins", "3d-printing-admins"]);
+    });
+
+    it("fails fast with a clear error when an entry is empty (e.g. a stray comma)", () => {
+      expect(() => loadConfig({ ...BASE_ENV, OIDC_ADMIN_GROUPS: "foo,,bar" })).toThrow(/OIDC_ADMIN_GROUPS/);
+    });
+  });
 });
