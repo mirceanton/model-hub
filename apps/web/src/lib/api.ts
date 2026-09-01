@@ -410,8 +410,8 @@ export function fetchAuthMe(): Promise<AuthMe> {
   return request<AuthMe>("/api/auth/me")
 }
 
-export function logout(): Promise<void> {
-  return request<void>("/auth/logout", { method: "POST" })
+export function logout(): Promise<{ redirectUrl: string }> {
+  return request<{ redirectUrl: string }>("/auth/logout", { method: "POST" })
 }
 
 export function fetchAdminUsers(): Promise<AdminUser[]> {

@@ -69,8 +69,8 @@ export function useAuthMe() {
 export function useLogout() {
   return useMutation({
     mutationFn: logout,
-    onSuccess: () => {
-      window.location.href = "/auth/login"
+    onSuccess: ({ redirectUrl }) => {
+      window.location.href = redirectUrl
     },
   })
 }

@@ -3,7 +3,13 @@ import type { FastifyInstance } from "fastify";
 import { SESSION_COOKIE_NAME } from "../../auth/constants.js";
 import { readSessionCookie } from "../../auth/cookie.js";
 import { consumePendingAuth, createPendingAuth, getOidcClient } from "../../auth/oidc.js";
-import { createSession, deleteSession, ensureLocalOwner, upsertOidcUser } from "../../auth/session.js";
+import {
+  createSession,
+  deleteSession,
+  ensureLocalOwner,
+  getSessionIdToken,
+  upsertOidcUser,
+} from "../../auth/session.js";
 import type { Config } from "../../config.js";
 import type { DbClient } from "../../db/client.js";
 import type { UserRow } from "../../db/schema.js";
@@ -86,7 +92,7 @@ export function registerAuthRoutes(app: FastifyInstance, db: DbClient, config: C
         groups: extractGroups(claims, oidcGroupsClaim),
       });
 
-      const session = createSession(db, user.id);
+      const session = createSession(db, user.id, tokens.id_token);
       reply.setCookie(SESSION_COOKIE_NAME, session.id, {
         path: "/",
         httpOnly: true,
@@ -105,10 +111,28 @@ export function registerAuthRoutes(app: FastifyInstance, db: DbClient, config: C
 
   app.post("/auth/logout", authRouteOptions, async (request, reply) => {
     const sessionId = readSessionCookie(request);
+    let redirectUrl = "/";
     if (sessionId) {
+      const idToken = getSessionIdToken(db, sessionId);
       deleteSession(db, sessionId);
       reply.clearCookie(SESSION_COOKIE_NAME, { path: "/" });
+
+      // Also end the IdP's own SSO session (RP-initiated logout), otherwise a
+      // subsequent /auth/login silently re-authenticates against the still-live
+      // IdP session and the user never appears logged out. Providers that don't
+      // advertise end_session_endpoint fall back to just the local logout above.
+      if (idToken) {
+        try {
+          const endSessionUrl = client.buildEndSessionUrl(getOidcClient(), {
+            id_token_hint: idToken,
+            post_logout_redirect_uri: config.webBaseUrl + "/",
+          });
+          redirectUrl = endSessionUrl.toString();
+        } catch (err) {
+          request.log.warn(err, "IdP does not support RP-initiated logout; falling back to local logout only");
+        }
+      }
     }
-    return reply.code(204).send();
+    return reply.send({ redirectUrl });
   });
 }

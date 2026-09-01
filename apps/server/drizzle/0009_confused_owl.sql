@@ -1,0 +1,1 @@
+ALTER TABLE `sessions` ADD `id_token` text;
