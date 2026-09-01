@@ -7,11 +7,17 @@ import { resolveRoleFromGroups } from "../lib/roles.js";
 
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
-export function createSession(db: DbClient, userId: number): { id: string; expiresAt: Date } {
+export function createSession(
+  db: DbClient,
+  userId: number,
+  idToken?: string | null,
+): { id: string; expiresAt: Date } {
   const id = randomUUID();
   const now = new Date();
   const expiresAt = new Date(now.getTime() + SESSION_TTL_MS);
-  db.insert(sessionsTable).values({ id, userId, createdAt: now, expiresAt }).run();
+  db.insert(sessionsTable)
+    .values({ id, userId, createdAt: now, expiresAt, idToken: idToken ?? null })
+    .run();
   return { id, expiresAt };
 }
 
@@ -24,6 +30,16 @@ export function getUserBySession(db: DbClient, sessionId: string): UserRow | nul
     .where(and(eq(sessionsTable.id, sessionId), gt(sessionsTable.expiresAt, now)))
     .get();
   return row?.user ?? null;
+}
+
+/** Looks up a session's stored ID token, e.g. for RP-initiated logout's id_token_hint. */
+export function getSessionIdToken(db: DbClient, sessionId: string): string | null {
+  const row = db
+    .select({ idToken: sessionsTable.idToken })
+    .from(sessionsTable)
+    .where(eq(sessionsTable.id, sessionId))
+    .get();
+  return row?.idToken ?? null;
 }
 
 export function deleteSession(db: DbClient, sessionId: string): void {

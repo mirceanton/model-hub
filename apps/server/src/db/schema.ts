@@ -268,6 +268,10 @@ export const sessions = sqliteTable("sessions", {
     .references(() => users.id, { onDelete: "cascade" }),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   expiresAt: integer("expires_at", { mode: "timestamp_ms" }).notNull(),
+  // The OIDC ID token issued alongside this session, kept only for RP-initiated
+  // logout's id_token_hint (see /auth/logout) — null for single-user-mode
+  // sessions, which never go through the OIDC flow.
+  idToken: text("id_token"),
 });
 
 /**
