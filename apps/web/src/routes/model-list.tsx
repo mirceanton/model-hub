@@ -40,28 +40,25 @@ import { cn } from "@/lib/utils"
 
 const SEARCH_DEBOUNCE_MS = 250
 
-// Card columns the user can pick, and the responsive breakpoint progression
-// leading up to each — screens narrower than the target still step down
-// through fewer columns, same as before this became user-selectable.
-const COLUMN_OPTIONS = [3, 4, 5] as const
-const DEFAULT_COLUMNS = 3
-const COLUMN_GRID_CLASSES: Record<(typeof COLUMN_OPTIONS)[number], string> = {
-  3: "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3",
-  4: "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4",
-  5: "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5",
-}
+// Column count is auto-calculated from screen width, not user-selected (#94):
+// cards keep a fixed target width, and the grid's auto-fill/minmax decides how
+// many fit per row for the current viewport, from 1 up to MAX_COLUMNS.
+const MAX_COLUMNS = 5
 
-// Items-per-page options scale with the column count so a page is always a
-// whole number of full rows (e.g. 3 columns -> 12/24/48/96, 4 -> 16/32/64/128).
-const PER_PAGE_ROW_MULTIPLIERS = [4, 8, 16, 32]
+// Items-per-page options. Previously scaled with the (user-selected) column
+// count so a page was always a whole number of full rows; now that column
+// count is fluid, these are just fixed values.
+const PER_PAGE_OPTIONS = [20, 40, 80, 160]
 const DEFAULT_PER_PAGE_INDEX = 0
 
-// Card size is pinned to the 3-column layout at the old max-w-6xl (72rem)
-// container; widening the container (not shrinking cards) is how extra
-// columns fit at a given card size. The container's width is shared with
-// the fixed-width tag sidebar (18rem + 1.5rem gap, see the lg:grid-cols
-// below), so that fixed chunk has to be subtracted out before dividing the
-// rest into cards, and added back when computing the new total width.
+// Card size is pinned to the original 3-column layout at the old max-w-6xl
+// (72rem) container, so cards don't change size — only their count per row
+// does. The container's width is shared with the fixed-width tag sidebar
+// (18rem + 1.5rem gap, see the lg:grid-cols below), so that fixed chunk has
+// to be subtracted out before dividing the rest into cards. The container is
+// then widened to fit MAX_COLUMNS cards at that same card size; the grid
+// itself (via auto-fill/minmax) decides how many actually fit at narrower
+// viewports, down to 1.
 const BASE_MAX_WIDTH_REM = 72
 const BASE_COLUMNS = 3
 const GRID_GAP_REM = 1
@@ -69,14 +66,19 @@ const CONTAINER_PADDING_REM = 2
 const SIDEBAR_WIDTH_REM = 18
 const SIDEBAR_GAP_REM = 1.5
 const FIXED_CHROME_REM = CONTAINER_PADDING_REM + SIDEBAR_GAP_REM + SIDEBAR_WIDTH_REM
-const CARD_WIDTH_REM =
-  (BASE_MAX_WIDTH_REM - FIXED_CHROME_REM - GRID_GAP_REM * (BASE_COLUMNS - 1)) / BASE_COLUMNS
-
-function mainMaxWidthForColumns(columns: number) {
-  if (columns === BASE_COLUMNS) return null
-  const width = FIXED_CHROME_REM + columns * CARD_WIDTH_REM + GRID_GAP_REM * (columns - 1)
-  return `${width.toFixed(2)}rem`
-}
+// Rounded once and reused below (rather than carrying the repeating decimal
+// through both computations) so the container is widened using the exact
+// same per-card width the grid's minmax() uses — any mismatch there is what
+// would make auto-fill round down to MAX_COLUMNS - 1 at the target width.
+const CARD_WIDTH_REM = Number(
+  ((BASE_MAX_WIDTH_REM - FIXED_CHROME_REM - GRID_GAP_REM * (BASE_COLUMNS - 1)) / BASE_COLUMNS).toFixed(2),
+)
+const MAIN_MAX_WIDTH_REM = `${(
+  FIXED_CHROME_REM +
+  MAX_COLUMNS * CARD_WIDTH_REM +
+  GRID_GAP_REM * (MAX_COLUMNS - 1)
+).toFixed(2)}rem`
+const GRID_TEMPLATE_COLUMNS = `repeat(auto-fill, minmax(${CARD_WIDTH_REM}rem, 1fr))`
 
 interface SortOption {
   value: string
@@ -125,12 +127,10 @@ export function ModelListPage() {
   const [search, setSearch] = useState("")
   // Active tag filters (AND) live in the URL, not component state, so the
   // filtered view is shareable/bookmarkable — everything else here (search,
-  // sort, pagination, column count) stays session-local, matching prior
-  // behavior.
+  // sort, pagination) stays session-local, matching prior behavior.
   const [searchParams, setSearchParams] = useSearchParams()
   const activeTags = useMemo(() => searchParams.getAll("tag"), [searchParams])
   const [favoritesOnly, setFavoritesOnly] = useState(false)
-  const [columns, setColumns] = useState<(typeof COLUMN_OPTIONS)[number]>(DEFAULT_COLUMNS)
   const [perPageIndex, setPerPageIndex] = useState(DEFAULT_PER_PAGE_INDEX)
   const [page, setPage] = useState(1)
   const [sortValue, setSortValue] = useState(DEFAULT_SORT.value)
@@ -149,10 +149,10 @@ export function ModelListPage() {
     selection.clear()
   }
 
-  const perPage = PER_PAGE_ROW_MULTIPLIERS[perPageIndex] * columns
+  const perPage = PER_PAGE_OPTIONS[perPageIndex]
   const sortOption = SORT_OPTIONS.find((option) => option.value === sortValue) ?? DEFAULT_SORT
 
-  useMainMaxWidth(mainMaxWidthForColumns(columns))
+  useMainMaxWidth(MAIN_MAX_WIDTH_REM)
 
   useEffect(() => {
     const timer = setTimeout(() => setSearch(searchInput), SEARCH_DEBOUNCE_MS)
@@ -310,33 +310,16 @@ export function ModelListPage() {
               </SelectContent>
             </Select>
             <Select
-              value={String(columns)}
-              onValueChange={(value) => setColumns(Number(value) as (typeof COLUMN_OPTIONS)[number])}
-            >
-              <SelectTrigger size="sm" aria-label="Columns">
-                <SelectValue>{(value: string) => `${value} columns`}</SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {COLUMN_OPTIONS.map((option) => (
-                  <SelectItem key={option} value={String(option)}>
-                    {option} columns
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select
               value={String(perPageIndex)}
               onValueChange={(value) => setPerPageIndex(Number(value))}
             >
               <SelectTrigger size="sm" aria-label="Items per page">
-                <SelectValue>
-                  {(value: string) => `${PER_PAGE_ROW_MULTIPLIERS[Number(value)] * columns} per page`}
-                </SelectValue>
+                <SelectValue>{(value: string) => `${PER_PAGE_OPTIONS[Number(value)]} per page`}</SelectValue>
               </SelectTrigger>
               <SelectContent>
-                {PER_PAGE_ROW_MULTIPLIERS.map((multiplier, index) => (
-                  <SelectItem key={multiplier} value={String(index)}>
-                    {multiplier * columns} per page
+                {PER_PAGE_OPTIONS.map((option, index) => (
+                  <SelectItem key={option} value={String(index)}>
+                    {option} per page
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -437,7 +420,7 @@ export function ModelListPage() {
 
       <div className="min-w-0 [grid-area:content]">
         {isPending ? (
-          <div className={cn("grid gap-4", COLUMN_GRID_CLASSES[columns])}>
+          <div className="grid gap-4" style={{ gridTemplateColumns: GRID_TEMPLATE_COLUMNS }}>
             {Array.from({ length: 8 }).map((_, i) => (
               <Skeleton key={i} className="aspect-[4/5] w-full rounded-lg" />
             ))}
@@ -586,7 +569,7 @@ export function ModelListPage() {
                 />
               </div>
             )}
-            <div className={cn("grid gap-4", COLUMN_GRID_CLASSES[columns])}>
+            <div className="grid gap-4" style={{ gridTemplateColumns: GRID_TEMPLATE_COLUMNS }}>
               {models.data.map((model) => (
                 <ModelCard
                   key={model.id}
