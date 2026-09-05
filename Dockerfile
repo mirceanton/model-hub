@@ -3,7 +3,7 @@
 # Build and runtime share the exact same base image (not just the same distro
 # family) so better-sqlite3's native addon is guaranteed binary-compatible
 # between the two stages — no glibc version mismatch to worry about.
-ARG PLAYWRIGHT_IMAGE=mcr.microsoft.com/playwright:v1.62.1-noble
+ARG PLAYWRIGHT_IMAGE=mcr.microsoft.com/playwright:v1.63.0-noble
 
 FROM ${PLAYWRIGHT_IMAGE} AS build
 RUN apt-get update \
