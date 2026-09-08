@@ -1,9 +1,10 @@
 import { buildApp } from "./api/app.js";
 import { initOidcClient } from "./auth/oidc.js";
-import { loadConfig } from "./config.js";
+import { applyConfigOverrides, loadConfig } from "./config.js";
 import { createDbClient } from "./db/client.js";
 import { runMigrations } from "./db/migrate.js";
 import { enforceAdminGroupMappings } from "./lib/auth-settings.js";
+import { getConfigOverrides } from "./lib/config-items.js";
 import { initSourceSnapshotPipeline, sweepPendingSourceSnapshots } from "./source-snapshot/trigger.js";
 import { purgeExpiredTrash, scanLibraryRoot } from "./sync/scanner.js";
 import { startWatcher } from "./sync/watcher.js";
@@ -11,9 +12,15 @@ import { closeBrowser } from "./thumbnails/browser.js";
 import { initThumbnailPipeline, sweepPendingThumbnails } from "./thumbnails/trigger.js";
 
 async function main(): Promise<void> {
-  const config = loadConfig();
+  let config = loadConfig();
   const db = createDbClient(config.databasePath);
   runMigrations(db);
+
+  // Merges in DB-stored overrides for the handful of fields that support
+  // them (see config.ts's applyConfigOverrides) — env still wins. Everything
+  // below this line reads `config` exactly once at boot, so this is the one
+  // place that needs to happen before those reads.
+  config = applyConfigOverrides(config, getConfigOverrides(db));
 
   // OIDC_ADMIN_GROUPS is meaningless in single-user mode (the local-owner
   // path already grants full access unconditionally) -- no-op rather than

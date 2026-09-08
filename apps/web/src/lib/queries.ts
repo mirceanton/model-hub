@@ -8,11 +8,13 @@ import {
   bulkModelsAction,
   bulkProjectPinsAction,
   captureThumbnail,
+  clearConfigOverride,
   createApiToken,
   createModel,
   createProject,
   createRoleMapping,
   createTag,
+  deleteAdminUser,
   deleteModel,
   deleteModelFile,
   deleteProject,
@@ -21,6 +23,7 @@ import {
   deleteTag,
   dismissProjectNotice,
   exportModels,
+  fetchAdminConfig,
   fetchAdminUsers,
   fetchApiTokens,
   fetchAuthMe,
@@ -42,6 +45,7 @@ import {
   restoreFromTrash,
   restoreModelVersion,
   revokeApiToken,
+  setConfigOverride,
   updateModel,
   updateProject,
   updateProjectPin,
@@ -464,6 +468,46 @@ export function useAdminUsers() {
   return useQuery({
     queryKey: ["admin", "users"],
     queryFn: fetchAdminUsers,
+  })
+}
+
+export function useDeleteAdminUser() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) => deleteAdminUser(id),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["admin", "users"] })
+    },
+  })
+}
+
+export function useAdminConfig() {
+  return useQuery({
+    queryKey: ["admin", "config"],
+    queryFn: fetchAdminConfig,
+  })
+}
+
+function useInvalidateAdminConfig() {
+  const queryClient = useQueryClient()
+  return () => {
+    void queryClient.invalidateQueries({ queryKey: ["admin", "config"] })
+  }
+}
+
+export function useSetConfigOverride() {
+  const invalidate = useInvalidateAdminConfig()
+  return useMutation({
+    mutationFn: ({ key, value }: { key: string; value: string }) => setConfigOverride(key, value),
+    onSuccess: invalidate,
+  })
+}
+
+export function useClearConfigOverride() {
+  const invalidate = useInvalidateAdminConfig()
+  return useMutation({
+    mutationFn: (key: string) => clearConfigOverride(key),
+    onSuccess: invalidate,
   })
 }
 

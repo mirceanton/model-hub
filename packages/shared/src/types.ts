@@ -61,6 +61,32 @@ export interface OidcRoleMappingConfig {
   mappings: OidcRoleMapping[];
 }
 
+export type ConfigCategory = "library" | "server" | "thumbnails" | "sso" | "rate-limiting";
+
+/**
+ * Where a config value's effective value came from. "env" always wins and is
+ * read-only in the admin UI; "override" is a DB-stored value (only possible
+ * for a field whose env var is unset); "default" is the built-in fallback
+ * used when neither is set; "unset" means there's no value at all.
+ */
+export type ConfigValueSource = "env" | "override" | "default" | "unset";
+
+/** One env-var-backed instance setting, for the admin Config viewer. */
+export interface ConfigItem {
+  /** The env var name, e.g. "OIDC_CLIENT_SECRET". */
+  key: string;
+  label: string;
+  description: string;
+  category: ConfigCategory;
+  /** True for values that should never be sent to the client in full (client secrets, session secret). */
+  secret: boolean;
+  /** True only for the small subset of values that can be set in-app when their env var is unset. */
+  editable: boolean;
+  source: ConfigValueSource;
+  /** The effective value as a string, or a fixed masked placeholder when secret, or null when unset. */
+  value: string | null;
+}
+
 /**
  * A personal API token's public metadata — never includes the token secret
  * itself, which is only ever returned once, at creation (see ApiTokenCreated

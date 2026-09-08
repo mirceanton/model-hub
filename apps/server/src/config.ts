@@ -84,6 +84,48 @@ export type Config = {
   uploadRateLimitWindowMs: number;
 };
 
+/**
+ * Merges DB-stored overrides (lib/config-items.ts's EDITABLE_FIELDS_BY_KEY)
+ * into a loaded Config, env-wins. Called once at boot (index.ts, right
+ * after runMigrations) — see CLAUDE.md's Config viewer notes: every
+ * consumer of these fields (scan interval, watcher, thumbnail pipeline,
+ * rate limits) reads Config exactly once at startup, so there's no such
+ * thing as applying this "live"; a saved override only takes effect on the
+ * next restart.
+ */
+export function applyConfigOverrides(
+  config: Config,
+  overrides: Record<string, string>,
+  env: NodeJS.ProcessEnv = process.env,
+): Config {
+  // Env always wins — an override row can be left stale in the DB after an
+  // env var is later set for the same key (see lib/config-items.ts), so
+  // it must never apply once that var is present.
+  const get = (key: string): string | undefined => (env[key] ? undefined : overrides[key]);
+  const num = (key: string, fallback: number): number => {
+    const raw = get(key);
+    return raw !== undefined ? Number(raw) : fallback;
+  };
+  const bool = (key: string, fallback: boolean): boolean => {
+    const raw = get(key);
+    return raw !== undefined ? raw === "true" : fallback;
+  };
+
+  return {
+    ...config,
+    libraryScanIntervalMs: num("LIBRARY_SCAN_INTERVAL_MS", config.libraryScanIntervalMs),
+    syncDebounceMs: num("SYNC_DEBOUNCE_MS", config.syncDebounceMs),
+    libraryWatchEnabled: bool("LIBRARY_WATCH_ENABLED", config.libraryWatchEnabled),
+    libraryWatchUsePolling: bool("LIBRARY_WATCH_USE_POLLING", config.libraryWatchUsePolling),
+    webBaseUrl: get("WEB_BASE_URL") ?? config.webBaseUrl,
+    thumbnailConcurrency: num("THUMBNAIL_CONCURRENCY", config.thumbnailConcurrency),
+    authRateLimitMax: num("AUTH_RATE_LIMIT_MAX", config.authRateLimitMax),
+    authRateLimitWindowMs: num("AUTH_RATE_LIMIT_WINDOW_MS", config.authRateLimitWindowMs),
+    uploadRateLimitMax: num("UPLOAD_RATE_LIMIT_MAX", config.uploadRateLimitMax),
+    uploadRateLimitWindowMs: num("UPLOAD_RATE_LIMIT_WINDOW_MS", config.uploadRateLimitWindowMs),
+  };
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const result = envSchema.safeParse(env);
   if (!result.success) {

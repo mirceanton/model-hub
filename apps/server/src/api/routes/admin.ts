@@ -1,4 +1,5 @@
 import type { AdminUser, OidcRoleMapping, OidcRoleMappingConfig, UserRole } from "@model-hub/shared";
+import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { requireRole } from "../../auth/guard.js";
 import type { DbClient } from "../../db/client.js";
@@ -41,6 +42,33 @@ export function registerAdminRoutes(app: FastifyInstance, db: DbClient): void {
     const rows = db.select().from(usersTable).orderBy(usersTable.createdAt).all();
     return rows.map(toAdminUser);
   });
+
+  app.delete<{ Params: { id: string } }>(
+    "/api/admin/users/:id",
+    { preHandler: requireRole("admin") },
+    async (request, reply) => {
+      const id = Number(request.params.id);
+      if (!Number.isInteger(id)) {
+        return reply.code(400).send({ error: "invalid user id" });
+      }
+      if (id === request.user?.id) {
+        return reply.code(400).send({ error: "cannot delete your own account" });
+      }
+
+      const target = db.select().from(usersTable).where(eq(usersTable.id, id)).get();
+      if (!target) {
+        return reply.code(404).send({ error: "user not found" });
+      }
+      if (target.isLocalOwner) {
+        return reply.code(400).send({ error: "cannot delete the local owner account" });
+      }
+
+      // sessions.userId and personal_access_tokens.userId both cascade on
+      // delete (schema.ts), so this also removes the user's sessions/tokens.
+      db.delete(usersTable).where(eq(usersTable.id, id)).run();
+      return reply.code(204).send();
+    },
+  );
 
   app.get(
     "/api/admin/role-mapping",
