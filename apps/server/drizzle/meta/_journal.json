@@ -71,6 +71,13 @@
       "when": 1788254379669,
       "tag": "0009_confused_owl",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1788902802822,
+      "tag": "0010_overjoyed_nico_minoru",
+      "breakpoints": true
     }
   ]
 }

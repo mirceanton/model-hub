@@ -260,6 +260,22 @@ export const authSettings = sqliteTable("auth_settings", {
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
 });
 
+/**
+ * A DB-stored override for a config value whose env var is unset — see
+ * CLAUDE.md and lib/config-items.ts. Only ever consulted for the fixed
+ * subset of keys in config-items.ts's EDITABLE_KEYS; every value here is
+ * read once at boot (index.ts, right after runMigrations) and merged into
+ * Config before anything else reads it, so changing a row here has no
+ * effect until the server restarts.
+ */
+export const configOverrides = sqliteTable("config_overrides", {
+  // The env var name this overrides, e.g. "LIBRARY_SCAN_INTERVAL_MS".
+  key: text("key").primaryKey(),
+  // Raw string; parsed per-field the same way config.ts's envSchema would.
+  value: text("value").notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+});
+
 export const sessions = sqliteTable("sessions", {
   // Opaque random token; this value (not the row id) is what's stored in the session cookie.
   id: text("id").primaryKey(),
@@ -322,3 +338,4 @@ export type PersonalAccessTokenRow = typeof personalAccessTokens.$inferSelect;
 export type NewPersonalAccessTokenRow = typeof personalAccessTokens.$inferInsert;
 export type OidcGroupRoleMappingRow = typeof oidcGroupRoleMappings.$inferSelect;
 export type AuthSettingsRow = typeof authSettings.$inferSelect;
+export type ConfigOverrideRow = typeof configOverrides.$inferSelect;

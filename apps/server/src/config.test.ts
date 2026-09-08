@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { loadConfig } from "./config.js";
+import { applyConfigOverrides, loadConfig } from "./config.js";
 
 const BASE_ENV = {
   LIBRARY_ROOT: "/library",
@@ -166,5 +166,37 @@ describe("loadConfig", () => {
     it("fails fast with a clear error when an entry is empty (e.g. a stray comma)", () => {
       expect(() => loadConfig({ ...BASE_ENV, OIDC_ADMIN_GROUPS: "foo,,bar" })).toThrow(/OIDC_ADMIN_GROUPS/);
     });
+  });
+});
+
+describe("applyConfigOverrides", () => {
+  it("merges an override in when the env var is unset", () => {
+    const config = loadConfig(BASE_ENV);
+    const merged = applyConfigOverrides(config, { THUMBNAIL_CONCURRENCY: "4" }, BASE_ENV);
+    expect(merged.thumbnailConcurrency).toBe(4);
+  });
+
+  it("lets env win over a stale override for the same key", () => {
+    const env = { ...BASE_ENV, THUMBNAIL_CONCURRENCY: "2" };
+    const config = loadConfig(env);
+    const merged = applyConfigOverrides(config, { THUMBNAIL_CONCURRENCY: "4" }, env);
+    expect(merged.thumbnailConcurrency).toBe(2);
+  });
+
+  it("leaves fields with no override untouched", () => {
+    const config = loadConfig(BASE_ENV);
+    const merged = applyConfigOverrides(config, {}, BASE_ENV);
+    expect(merged).toEqual(config);
+  });
+
+  it("merges boolean and string overrides", () => {
+    const config = loadConfig(BASE_ENV);
+    const merged = applyConfigOverrides(
+      config,
+      { LIBRARY_WATCH_ENABLED: "false", WEB_BASE_URL: "http://example.com" },
+      BASE_ENV,
+    );
+    expect(merged.libraryWatchEnabled).toBe(false);
+    expect(merged.webBaseUrl).toBe("http://example.com");
   });
 });

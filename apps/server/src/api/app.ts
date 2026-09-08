@@ -10,6 +10,7 @@ import { registerOpenApi } from "./openapi.js";
 import { registerAdminRoutes } from "./routes/admin.js";
 import { registerApiTokenRoutes } from "./routes/api-tokens.js";
 import { registerAuthRoutes } from "./routes/auth.js";
+import { registerConfigRoutes } from "./routes/config.js";
 import { registerDownloadRoutes } from "./routes/download.js";
 import { registerFileRoutes } from "./routes/files.js";
 import { registerHealthRoute } from "./routes/health.js";
@@ -79,6 +80,7 @@ export function buildApp(db: DbClient, config: Config): FastifyInstance {
   app.register(async (instance) => {
     registerAuthRoutes(instance, db, config);
     registerAdminRoutes(instance, db);
+    registerConfigRoutes(instance, db, config);
     registerStatsRoutes(instance, db, config);
     registerApiTokenRoutes(instance, db);
     registerModelRoutes(instance, db, config.libraryRoot, config);

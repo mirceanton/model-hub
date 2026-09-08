@@ -3,6 +3,7 @@ import type {
   ApiToken,
   ApiTokenCreated,
   BulkResponse,
+  ConfigItem,
   InstanceStats,
   Model,
   ModelBulkAction,
@@ -417,6 +418,26 @@ export function logout(): Promise<{ redirectUrl: string }> {
 
 export function fetchAdminUsers(): Promise<AdminUser[]> {
   return request<AdminUser[]>("/api/admin/users")
+}
+
+export function deleteAdminUser(id: number): Promise<void> {
+  return request<void>(`/api/admin/users/${id}`, { method: "DELETE" })
+}
+
+export function fetchAdminConfig(): Promise<ConfigItem[]> {
+  return request<ConfigItem[]>("/api/admin/config")
+}
+
+export function setConfigOverride(key: string, value: string): Promise<ConfigItem> {
+  return request<ConfigItem>(`/api/admin/config/${key}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ value }),
+  })
+}
+
+export function clearConfigOverride(key: string): Promise<ConfigItem> {
+  return request<ConfigItem>(`/api/admin/config/${key}`, { method: "DELETE" })
 }
 
 export function fetchRoleMapping(): Promise<OidcRoleMappingConfig> {
