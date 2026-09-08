@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { formatBytes, formatDateTime } from "@/lib/format"
-import { useAuthMe, useInstanceStats } from "@/lib/queries"
+import { useInstanceStats } from "@/lib/queries"
 import { cn } from "@/lib/utils"
 
 const THUMBNAIL_STATUS_LABELS: Record<ThumbnailStatus, string> = {
@@ -187,33 +187,15 @@ function InstanceInfoCard() {
   )
 }
 
-export function StatsPage() {
-  const { data: authMe, isPending: authPending } = useAuthMe()
+export function StatsTab() {
   const { isPending, isError, error, isFetching, refetch } = useInstanceStats()
-
-  if (authPending) {
-    return <Skeleton className="h-64 w-full rounded-lg" />
-  }
-
-  if (authMe?.user?.role !== "admin") {
-    return (
-      <Alert variant="destructive">
-        <AlertCircle />
-        <AlertTitle>Admins only</AlertTitle>
-        <AlertDescription>You don't have permission to view this page.</AlertDescription>
-      </Alert>
-    )
-  }
 
   if (isPending) {
     return (
-      <div className="flex flex-col gap-4">
-        <h1 className="text-lg font-semibold">Stats</h1>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          {Array.from({ length: 5 }).map((_, i) => (
-            <Skeleton key={i} className="h-40 w-full rounded-lg" />
-          ))}
-        </div>
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        {Array.from({ length: 5 }).map((_, i) => (
+          <Skeleton key={i} className="h-40 w-full rounded-lg" />
+        ))}
       </div>
     )
   }
@@ -230,8 +212,7 @@ export function StatsPage() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between gap-3">
-        <h1 className="text-lg font-semibold">Stats</h1>
+      <div className="flex items-center justify-end gap-3">
         <Button variant="outline" size="sm" onClick={() => void refetch()} disabled={isFetching}>
           <RotateCw className={cn("size-3.5", isFetching && "animate-spin")} />
           Refresh

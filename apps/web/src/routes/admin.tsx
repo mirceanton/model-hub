@@ -27,6 +27,7 @@ import {
   useUpdateRoleMapping,
   useUpdateRoleMappingSettings,
 } from "@/lib/queries"
+import { StatsTab } from "@/routes/stats"
 
 const ROLE_LABELS: Record<UserRole, string> = { admin: "Admin", editor: "Editor", viewer: "Viewer" }
 const ROLE_OPTIONS: UserRole[] = ["admin", "editor", "viewer"]
@@ -342,11 +343,15 @@ export function AdminPage() {
   return (
     <div className="flex flex-col gap-4">
       <h1 className="text-lg font-semibold">Admin</h1>
-      <Tabs defaultValue="users">
+      <Tabs defaultValue="stats">
         <TabsList>
+          <TabsTrigger value="stats">Stats</TabsTrigger>
           <TabsTrigger value="users">Users</TabsTrigger>
           <TabsTrigger value="role-mapping">OIDC role mapping</TabsTrigger>
         </TabsList>
+        <TabsContent value="stats" className="mt-4">
+          <StatsTab />
+        </TabsContent>
         <TabsContent value="users" className="mt-4">
           <UsersTab />
         </TabsContent>

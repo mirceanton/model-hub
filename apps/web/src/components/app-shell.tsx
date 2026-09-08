@@ -1,4 +1,4 @@
-import { Box, LogOut, Trash2, User } from "lucide-react"
+import { Box, LayoutDashboard, LogOut, Trash2, User } from "lucide-react"
 import { createContext, useContext, useEffect, useState } from "react"
 import { Link, NavLink, Outlet } from "react-router"
 import { Button } from "@/components/ui/button"
@@ -31,7 +31,6 @@ export function useMainMaxWidth(width: string | null) {
 }
 
 function TopNav() {
-  const { data } = useAuthMe()
   const linkClass = ({ isActive }: { isActive: boolean }) =>
     cn(
       "rounded-md px-3 py-1 text-sm font-medium transition-colors",
@@ -46,16 +45,6 @@ function TopNav() {
       <NavLink to="/projects" className={linkClass}>
         Projects
       </NavLink>
-      {data?.user?.role === "admin" && (
-        <>
-          <NavLink to="/stats" className={linkClass}>
-            Stats
-          </NavLink>
-          <NavLink to="/admin" className={linkClass}>
-            Admin
-          </NavLink>
-        </>
-      )}
     </nav>
   )
 }
@@ -71,6 +60,7 @@ function TrashLink() {
 function UserMenu() {
   const { data } = useAuthMe()
   const logout = useLogout()
+  const isAdmin = data?.user?.role === "admin"
 
   return (
     <DropdownMenu>
@@ -83,6 +73,12 @@ function UserMenu() {
           <User />
           Profile
         </DropdownMenuItem>
+        {isAdmin && (
+          <DropdownMenuItem render={<Link to="/admin" />}>
+            <LayoutDashboard />
+            Admin
+          </DropdownMenuItem>
+        )}
         {data?.oidcEnabled && (
           <>
             <DropdownMenuSeparator />
