@@ -17,7 +17,13 @@ import { ensureAuthSettings } from "../../lib/auth-settings.js";
 import { authRateLimit } from "../../lib/rate-limit.js";
 
 function toPublicUser(user: UserRow) {
-  return { id: user.id, name: user.name, email: user.email, role: user.role };
+  return {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    role: user.role,
+    oidcSubject: user.oidcSubject,
+  };
 }
 
 /** Reads the configurable groups claim (see auth-settings.ts) off the ID token claims. Tolerant of it being absent or not an array of strings — resolves to []. */

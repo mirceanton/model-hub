@@ -3,9 +3,9 @@ import { Navigate, Route, Routes } from "react-router"
 import { AppShell } from "@/components/app-shell"
 import { AuthGate } from "@/components/auth-gate"
 import { AdminPage } from "@/routes/admin"
-import { ApiTokensPage } from "@/routes/api-tokens"
 import { ModelDetailPage } from "@/routes/model-detail"
 import { ModelListPage } from "@/routes/model-list"
+import { ProfilePage } from "@/routes/profile"
 import { ProjectDetailPage } from "@/routes/project-detail"
 import { ProjectListPage } from "@/routes/project-list"
 import { StatsPage } from "@/routes/stats"
@@ -47,7 +47,7 @@ export default function App() {
         <Route path="projects" element={<ProjectListPage />} />
         <Route path="projects/:id" element={<ProjectDetailPage />} />
         <Route path="trash" element={<TrashPage />} />
-        <Route path="tokens" element={<ApiTokensPage />} />
+        <Route path="profile" element={<ProfilePage />} />
         <Route path="stats" element={<StatsPage />} />
         <Route path="admin" element={<AdminPage />} />
       </Route>

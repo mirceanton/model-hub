@@ -398,6 +398,7 @@ export interface AuthUser {
   name: string | null
   email: string | null
   role: UserRole
+  oidcSubject: string | null
 }
 
 export interface AuthMe {

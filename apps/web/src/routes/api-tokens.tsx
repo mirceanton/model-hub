@@ -211,6 +211,9 @@ function TokenRow({ token }: { token: ApiToken }) {
  * Self-service personal API tokens (issue #60) — every authenticated user
  * manages only their own here; no role gate, since a token can never grant
  * more than its owner's existing role (see api-tokens.ts's guard.ts wiring).
+ *
+ * Embedded as a section of the Profile page (see routes/profile.tsx) rather
+ * than its own top-level route, hence the h2 — Profile owns the page's h1.
  */
 export function ApiTokensPage() {
   const { data: tokens, isPending, isError, error } = useApiTokens()
@@ -220,7 +223,7 @@ export function ApiTokensPage() {
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <h1 className="text-lg font-semibold">API Tokens</h1>
+          <h2 className="text-lg font-semibold">API Tokens</h2>
           <p className="text-sm text-muted-foreground">
             Script against the API without a browser session — send{" "}
             <code className="rounded bg-muted px-1 py-0.5 text-xs">

@@ -1,7 +1,14 @@
-import { Box, LogOut } from "lucide-react"
+import { Box, LogOut, Trash2, User } from "lucide-react"
 import { createContext, useContext, useEffect, useState } from "react"
 import { Link, NavLink, Outlet } from "react-router"
 import { Button } from "@/components/ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { useAuthMe, useLogout } from "@/lib/queries"
 import { cn } from "@/lib/utils"
@@ -39,12 +46,6 @@ function TopNav() {
       <NavLink to="/projects" className={linkClass}>
         Projects
       </NavLink>
-      <NavLink to="/trash" className={linkClass}>
-        Trash
-      </NavLink>
-      <NavLink to="/tokens" className={linkClass}>
-        API Tokens
-      </NavLink>
       {data?.user?.role === "admin" && (
         <>
           <NavLink to="/stats" className={linkClass}>
@@ -59,27 +60,44 @@ function TopNav() {
   )
 }
 
+function TrashLink() {
+  return (
+    <Button variant="ghost" size="icon" aria-label="Trash" render={<NavLink to="/trash" />}>
+      <Trash2 className="size-4" />
+    </Button>
+  )
+}
+
 function UserMenu() {
   const { data } = useAuthMe()
   const logout = useLogout()
 
-  if (!data?.oidcEnabled) return null
-
   return (
-    <div className="flex items-center gap-2">
-      {data.user?.name && (
-        <span className="hidden text-sm text-muted-foreground sm:inline">{data.user.name}</span>
-      )}
-      <Button
-        variant="ghost"
-        size="icon"
-        aria-label="Log out"
-        onClick={() => logout.mutate()}
-        disabled={logout.isPending}
-      >
-        <LogOut className="size-4" />
-      </Button>
-    </div>
+    <DropdownMenu>
+      <DropdownMenuTrigger render={<Button variant="ghost" className="gap-1.5 px-2" />}>
+        <User className="size-4" />
+        {data?.user?.name && <span className="hidden text-sm sm:inline">{data.user.name}</span>}
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem render={<Link to="/profile" />}>
+          <User />
+          Profile
+        </DropdownMenuItem>
+        {data?.oidcEnabled && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              variant="destructive"
+              onClick={() => logout.mutate()}
+              disabled={logout.isPending}
+            >
+              <LogOut />
+              Sign out
+            </DropdownMenuItem>
+          </>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }
 
@@ -96,6 +114,7 @@ export function AppShell() {
           </Link>
           <TopNav />
           <div className="flex items-center gap-1">
+            <TrashLink />
             <UserMenu />
             <ThemeToggle />
           </div>
