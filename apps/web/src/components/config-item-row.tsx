@@ -19,10 +19,12 @@ function SourceBadge({ source }: { source: ConfigItem["source"] }) {
 }
 
 /**
- * One row in the admin Config viewer — reused by the Config tab and the SSO
- * tab's read-only "OIDC Server Configuration" section. Only renders an edit
- * form when `item.editable` and the value isn't currently coming from an env
- * var (env always wins server-side too — see api/routes/config.ts).
+ * One row in the admin Config viewer — reused by each per-category settings
+ * tab (Server, Library & Sync, Thumbnails, Rate Limiting — see admin.tsx's
+ * ConfigCategoryTab) and the SSO tab's read-only "OIDC Server Configuration"
+ * section. Only renders an edit form when `item.editable` and the value
+ * isn't currently coming from an env var (env always wins server-side too —
+ * see api/routes/config.ts).
  */
 export function ConfigItemRow({ item }: { item: ConfigItem }) {
   const [draft, setDraft] = useState<string | null>(null)
