@@ -31,14 +31,16 @@ function toAdminUser(row: UserRow): AdminUser {
 
 /**
  * Maps each env-enforced group name (config.ts's oidcAdminGroups/
- * oidcEditorGroups) to the env var that enforces it, for tagging API
- * responses so the admin UI can show why a mapping can't be edited here —
- * see lib/auth-settings.ts's enforceGroupRoleMappings, which this mirrors.
+ * oidcEditorGroups/oidcReadonlyGroups) to the env var that enforces it, for
+ * tagging API responses so the admin UI can show why a mapping can't be
+ * edited here — see lib/auth-settings.ts's enforceGroupRoleMappings, which
+ * this mirrors.
  */
 function buildGroupLockMap(config: Config): Map<string, string> {
   const lockedByGroup = new Map<string, string>();
   for (const groupName of config.oidcAdminGroups) lockedByGroup.set(groupName, "OIDC_ADMIN_GROUPS");
   for (const groupName of config.oidcEditorGroups) lockedByGroup.set(groupName, "OIDC_EDITOR_GROUPS");
+  for (const groupName of config.oidcReadonlyGroups) lockedByGroup.set(groupName, "OIDC_READONLY_GROUPS");
   return lockedByGroup;
 }
 

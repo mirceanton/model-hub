@@ -40,6 +40,7 @@ const OIDC_CONFIG: Config = {
   oidcDefaultRole: null,
   oidcAdminGroups: [],
   oidcEditorGroups: [],
+  oidcReadonlyGroups: [],
   authRateLimitMax: 1000,
   authRateLimitWindowMs: 60_000,
   uploadRateLimitMax: 1000,
@@ -175,6 +176,7 @@ describe("/api/admin/role-mapping (env-locked settings/groups)", () => {
     oidcDefaultRole: "editor",
     oidcAdminGroups: ["platform-admins"],
     oidcEditorGroups: ["3d-printing-editors"],
+    oidcReadonlyGroups: ["3d-printing-readers"],
   };
 
   beforeEach(async () => {
@@ -210,6 +212,17 @@ describe("/api/admin/role-mapping (env-locked settings/groups)", () => {
     const byGroup = Object.fromEntries(body.mappings.map((m: { groupName: string; lockedBy: string | null }) => [m.groupName, m.lockedBy]));
     expect(byGroup["platform-admins"]).toBe("OIDC_ADMIN_GROUPS");
     expect(byGroup["manual-viewers"]).toBeNull();
+  });
+
+  it("POST rejects creating a mapping for an env-locked readonly group", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/admin/role-mapping/groups",
+      cookies: sessionCookie(app, db, admin.id),
+      payload: { groupName: "3d-printing-readers", role: "editor" },
+    });
+
+    expect(res.statusCode).toBe(400);
   });
 
   it("PATCH settings rejects changing an env-locked groupsClaim", async () => {

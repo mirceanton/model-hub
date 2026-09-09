@@ -190,6 +190,28 @@ describe("loadConfig", () => {
     ).toThrow(/"platform" is listed in both OIDC_ADMIN_GROUPS and OIDC_EDITOR_GROUPS/);
   });
 
+  describe("OIDC_READONLY_GROUPS", () => {
+    it("defaults to an empty array when unset", () => {
+      const config = loadConfig(BASE_ENV);
+      expect(config.oidcReadonlyGroups).toEqual([]);
+    });
+
+    it("parses multiple comma-separated groups", () => {
+      const config = loadConfig({ ...BASE_ENV, OIDC_READONLY_GROUPS: "3d-printing-readers, guests" });
+      expect(config.oidcReadonlyGroups).toEqual(["3d-printing-readers", "guests"]);
+    });
+
+    it("fails fast with a clear error when an entry is empty", () => {
+      expect(() => loadConfig({ ...BASE_ENV, OIDC_READONLY_GROUPS: "foo,,bar" })).toThrow(/OIDC_READONLY_GROUPS/);
+    });
+  });
+
+  it("fails fast when the same group is listed under both OIDC_ADMIN_GROUPS and OIDC_READONLY_GROUPS", () => {
+    expect(() =>
+      loadConfig({ ...BASE_ENV, OIDC_ADMIN_GROUPS: "platform", OIDC_READONLY_GROUPS: "platform" }),
+    ).toThrow(/"platform" is listed in both OIDC_ADMIN_GROUPS and OIDC_READONLY_GROUPS/);
+  });
+
   describe("OIDC_GROUPS_CLAIM / OIDC_DEFAULT_ROLE", () => {
     it("default to null when unset", () => {
       const config = loadConfig(BASE_ENV);

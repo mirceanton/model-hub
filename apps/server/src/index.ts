@@ -30,7 +30,11 @@ async function main(): Promise<void> {
   // and OIDC_ADMIN_GROUPS specifically can never be locked out of the
   // /admin UI that manages the mapping table it writes to.
   if (config.oidc) {
-    enforceGroupRoleMappings(db, { admin: config.oidcAdminGroups, editor: config.oidcEditorGroups });
+    enforceGroupRoleMappings(db, {
+      admin: config.oidcAdminGroups,
+      editor: config.oidcEditorGroups,
+      viewer: config.oidcReadonlyGroups,
+    });
     enforceAuthSettingsFromEnv(db, {
       groupsClaim: config.oidcGroupsClaim ?? undefined,
       defaultRole: config.oidcDefaultRole ?? undefined,
@@ -55,6 +59,9 @@ async function main(): Promise<void> {
   }
   if (config.oidc && config.oidcEditorGroups.length > 0) {
     app.log.info(`enforced ${config.oidcEditorGroups.length} editor group mapping(s) from OIDC_EDITOR_GROUPS`);
+  }
+  if (config.oidc && config.oidcReadonlyGroups.length > 0) {
+    app.log.info(`enforced ${config.oidcReadonlyGroups.length} viewer group mapping(s) from OIDC_READONLY_GROUPS`);
   }
   if (config.oidc && config.oidcGroupsClaim) {
     app.log.info(`OIDC groups claim forced to "${config.oidcGroupsClaim}" from OIDC_GROUPS_CLAIM`);

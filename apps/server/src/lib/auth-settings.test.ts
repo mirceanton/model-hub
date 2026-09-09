@@ -98,10 +98,15 @@ describe("enforceGroupRoleMappings", () => {
   });
 
   it("enforces multiple roles at once, each to its own groups", () => {
-    enforceGroupRoleMappings(db, { admin: ["platform-admins"], editor: ["3d-printing-editors"] });
+    enforceGroupRoleMappings(db, {
+      admin: ["platform-admins"],
+      editor: ["3d-printing-editors"],
+      viewer: ["3d-printing-readers"],
+    });
 
     expect(getMapping("platform-admins")?.role).toBe("admin");
     expect(getMapping("3d-printing-editors")?.role).toBe("editor");
+    expect(getMapping("3d-printing-readers")?.role).toBe("viewer");
   });
 });
 

@@ -185,13 +185,15 @@ DB-backed value fresh on every boot instead — "the env var always wins," the
 same idiom throughout this app (`config.ts`'s `applyConfigOverrides`,
 described in the Config section below). `OIDC_GROUPS_CLAIM` and
 `OIDC_DEFAULT_ROLE` force-write `auth_settings`'s two fields
-(`lib/auth-settings.ts`'s `enforceAuthSettingsFromEnv`); `OIDC_ADMIN_GROUPS`
-and `OIDC_EDITOR_GROUPS` (each a comma-separated group-name list) force-
-upsert every named group to that role (`enforceGroupRoleMappings`, called
-once per role). All four run from `index.ts` after `runMigrations`, only
-when `config.oidc` is set (a no-op in single-user mode). A group name can
-only appear in one of these lists — `config.ts`'s `loadConfig` fails fast at
-boot if the same group is force-mapped to two different roles. The admin
+(`lib/auth-settings.ts`'s `enforceAuthSettingsFromEnv`); `OIDC_ADMIN_GROUPS`,
+`OIDC_EDITOR_GROUPS`, and `OIDC_READONLY_GROUPS` (each a comma-separated
+group-name list, mapping to `admin`/`editor`/`viewer` respectively)
+force-upsert every named group to that role (`enforceGroupRoleMappings`,
+called once per role). All five run from `index.ts` after `runMigrations`,
+only when `config.oidc` is set (a no-op in single-user mode). A group name
+can only appear in one of these three lists — `config.ts`'s `loadConfig`
+fails fast at boot if the same group is force-mapped to two different
+roles. The admin
 UI's SSO tab reflects which fields/mappings are env-locked (`OidcRoleMapping`
 /`OidcRoleMappingConfig`'s `lockedBy`/`*LockedBy` fields, computed in
 `api/routes/admin.ts`) and refuses edits to them from the API side too, not

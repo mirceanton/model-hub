@@ -26,6 +26,7 @@ export function buildTestConfig(overrides: Partial<Config> = {}): Config {
     oidcDefaultRole: null,
     oidcAdminGroups: [],
     oidcEditorGroups: [],
+    oidcReadonlyGroups: [],
     authRateLimitMax: 10,
     authRateLimitWindowMs: 60_000,
     uploadRateLimitMax: 30,
