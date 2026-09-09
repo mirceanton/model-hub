@@ -1,3 +1,4 @@
+import type { UserRole } from "@model-hub/shared";
 import { z } from "zod";
 import { normalizeGroupName } from "./lib/auth-settings.js";
 
@@ -39,12 +40,21 @@ const envSchema = z.object({
   OIDC_CLIENT_SECRET: z.string().min(1).optional(),
   OIDC_REDIRECT_URL: z.string().url().optional(),
   SESSION_SECRET: z.string().min(32, "SESSION_SECRET must be at least 32 characters").optional(),
-  // Comma-separated OIDC group names that always resolve to the admin role,
-  // enforced fresh at every boot -- see lib/auth-settings.ts's
-  // enforceAdminGroupMappings and CLAUDE.md's Auth/Roles section for why
-  // this exists (the group-mapping table starts empty, so without this
-  // there's no way for anyone to reach the /admin UI that configures it).
+  // Every one of these mirrors a value otherwise configured via the /admin
+  // UI's SSO tab (auth_settings/oidc_group_role_mappings tables) -- setting
+  // it here force-enforces that value fresh on every boot, "env always
+  // wins" (see lib/auth-settings.ts's enforceGroupRoleMappings and
+  // enforceAuthSettingsFromEnv, and CLAUDE.md's Auth/Roles section).
+  OIDC_GROUPS_CLAIM: z.string().min(1).optional(),
+  OIDC_DEFAULT_ROLE: z.enum(["admin", "editor", "viewer"]).optional(),
+  // Comma-separated OIDC group names that always resolve to the admin role.
+  // Doubles as the bootstrap escape hatch out of the lockout where the
+  // group-mapping table starts empty and /admin itself requires the admin
+  // role to reach -- without this, nobody could ever configure the first
+  // admin mapping.
   OIDC_ADMIN_GROUPS: z.string().optional(),
+  // Comma-separated OIDC group names that always resolve to the editor role.
+  OIDC_EDITOR_GROUPS: z.string().optional(),
   // Rate limiting (apps/server/src/lib/rate-limit.ts). Auth routes are keyed
   // per-IP (unauthenticated by nature); upload/create routes are keyed
   // per-user (see rate-limit.ts for why that's a no-op in single-user mode).
@@ -76,8 +86,14 @@ export type Config = {
   /** null means single-user mode: no auth middleware is mounted at all. */
   oidc: OidcConfig | null;
   sessionSecret: string | null;
+  /** OIDC_GROUPS_CLAIM. Null if unset, in which case the DB-configured (or default "groups") claim name applies. */
+  oidcGroupsClaim: string | null;
+  /** OIDC_DEFAULT_ROLE. Null if unset, in which case the DB-configured (or default "viewer") role applies. */
+  oidcDefaultRole: UserRole | null;
   /** Parsed, trimmed, non-empty OIDC_ADMIN_GROUPS. Empty array if unset. */
   oidcAdminGroups: string[];
+  /** Parsed, trimmed, non-empty OIDC_EDITOR_GROUPS. Empty array if unset. */
+  oidcEditorGroups: string[];
   authRateLimitMax: number;
   authRateLimitWindowMs: number;
   uploadRateLimitMax: number;
@@ -126,6 +142,39 @@ export function applyConfigOverrides(
   };
 }
 
+/** Parses a comma-separated OIDC_*_GROUPS env var into trimmed, validated group names. [] if unset. */
+function parseGroupListEnv(raw: string | undefined, varName: string): string[] {
+  if (!raw) return [];
+  try {
+    return raw.split(",").map((name) => normalizeGroupName(name));
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new Error(`Invalid environment configuration:\n  - ${varName}: ${message}`);
+  }
+}
+
+/**
+ * Each of OIDC_ADMIN_GROUPS/OIDC_EDITOR_GROUPS force-maps its groups to a
+ * single, different role on every boot (see lib/auth-settings.ts's
+ * enforceGroupRoleMappings) -- a group name listed under more than one of
+ * these would make boot-time enforcement order-dependent and silently
+ * pick a winner, so it's rejected outright instead.
+ */
+function checkNoGroupInMultipleRoles(groupsByVar: Record<string, string[]>): void {
+  const firstVarByGroup = new Map<string, string>();
+  for (const [varName, groups] of Object.entries(groupsByVar)) {
+    for (const group of groups) {
+      const existingVarName = firstVarByGroup.get(group);
+      if (existingVarName) {
+        throw new Error(
+          `Invalid environment configuration:\n  - "${group}" is listed in both ${existingVarName} and ${varName} -- a group can only be force-mapped to one role`,
+        );
+      }
+      firstVarByGroup.set(group, varName);
+    }
+  }
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const result = envSchema.safeParse(env);
   if (!result.success) {
@@ -164,15 +213,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       }
     : null;
 
-  let oidcAdminGroups: string[] = [];
-  if (parsed.OIDC_ADMIN_GROUPS) {
-    try {
-      oidcAdminGroups = parsed.OIDC_ADMIN_GROUPS.split(",").map((name) => normalizeGroupName(name));
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      throw new Error(`Invalid environment configuration:\n  - OIDC_ADMIN_GROUPS: ${message}`);
-    }
-  }
+  const oidcAdminGroups = parseGroupListEnv(parsed.OIDC_ADMIN_GROUPS, "OIDC_ADMIN_GROUPS");
+  const oidcEditorGroups = parseGroupListEnv(parsed.OIDC_EDITOR_GROUPS, "OIDC_EDITOR_GROUPS");
+  checkNoGroupInMultipleRoles({
+    OIDC_ADMIN_GROUPS: oidcAdminGroups,
+    OIDC_EDITOR_GROUPS: oidcEditorGroups,
+  });
 
   return {
     libraryRoot: parsed.LIBRARY_ROOT,
@@ -188,7 +234,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     staticWebDir: parsed.STATIC_WEB_DIR ?? null,
     oidc,
     sessionSecret: parsed.SESSION_SECRET ?? null,
+    oidcGroupsClaim: parsed.OIDC_GROUPS_CLAIM ?? null,
+    oidcDefaultRole: parsed.OIDC_DEFAULT_ROLE ?? null,
     oidcAdminGroups,
+    oidcEditorGroups,
     authRateLimitMax: parsed.AUTH_RATE_LIMIT_MAX,
     authRateLimitWindowMs: parsed.AUTH_RATE_LIMIT_WINDOW_MS,
     uploadRateLimitMax: parsed.UPLOAD_RATE_LIMIT_MAX,

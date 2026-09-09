@@ -3,7 +3,7 @@ import { initOidcClient } from "./auth/oidc.js";
 import { applyConfigOverrides, loadConfig } from "./config.js";
 import { createDbClient } from "./db/client.js";
 import { runMigrations } from "./db/migrate.js";
-import { enforceAdminGroupMappings } from "./lib/auth-settings.js";
+import { enforceAuthSettingsFromEnv, enforceGroupRoleMappings } from "./lib/auth-settings.js";
 import { getConfigOverrides } from "./lib/config-items.js";
 import { initSourceSnapshotPipeline, sweepPendingSourceSnapshots } from "./source-snapshot/trigger.js";
 import { purgeExpiredTrash, scanLibraryRoot } from "./sync/scanner.js";
@@ -22,14 +22,19 @@ async function main(): Promise<void> {
   // place that needs to happen before those reads.
   config = applyConfigOverrides(config, getConfigOverrides(db));
 
-  // OIDC_ADMIN_GROUPS is meaningless in single-user mode (the local-owner
-  // path already grants full access unconditionally) -- no-op rather than
-  // error if it's set there, since someone might leave it set across a mode
-  // switch. "The env var always wins": this runs on every boot so the
-  // configured groups can never be locked out of the /admin UI that
-  // manages the mapping table it writes to.
+  // These OIDC_* SSO env vars are meaningless in single-user mode (the
+  // local-owner path already grants full access unconditionally) -- no-op
+  // rather than error if any are set there, since someone might leave them
+  // set across a mode switch. "The env var always wins": this runs on every
+  // boot so a configured value can never drift from what the env demands,
+  // and OIDC_ADMIN_GROUPS specifically can never be locked out of the
+  // /admin UI that manages the mapping table it writes to.
   if (config.oidc) {
-    enforceAdminGroupMappings(db, config.oidcAdminGroups);
+    enforceGroupRoleMappings(db, { admin: config.oidcAdminGroups, editor: config.oidcEditorGroups });
+    enforceAuthSettingsFromEnv(db, {
+      groupsClaim: config.oidcGroupsClaim ?? undefined,
+      defaultRole: config.oidcDefaultRole ?? undefined,
+    });
   }
 
   // Unlike the thumbnail pipeline, this only ever fetches *other* servers,
@@ -47,6 +52,15 @@ async function main(): Promise<void> {
   app.log.info(config.oidc ? `OIDC auth enabled (issuer: ${config.oidc.issuerUrl})` : "single-user mode (no OIDC configured)");
   if (config.oidc && config.oidcAdminGroups.length > 0) {
     app.log.info(`enforced ${config.oidcAdminGroups.length} admin group mapping(s) from OIDC_ADMIN_GROUPS`);
+  }
+  if (config.oidc && config.oidcEditorGroups.length > 0) {
+    app.log.info(`enforced ${config.oidcEditorGroups.length} editor group mapping(s) from OIDC_EDITOR_GROUPS`);
+  }
+  if (config.oidc && config.oidcGroupsClaim) {
+    app.log.info(`OIDC groups claim forced to "${config.oidcGroupsClaim}" from OIDC_GROUPS_CLAIM`);
+  }
+  if (config.oidc && config.oidcDefaultRole) {
+    app.log.info(`OIDC default role forced to "${config.oidcDefaultRole}" from OIDC_DEFAULT_ROLE`);
   }
   app.addHook("onClose", async () => {
     await closeBrowser();

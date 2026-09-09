@@ -50,14 +50,20 @@ export interface OidcRoleMapping {
   id: number;
   groupName: string;
   role: UserRole;
+  /** Env var name (e.g. "OIDC_ADMIN_GROUPS") that force-enforces this mapping's role on every boot, or null for a plain admin-configured mapping. */
+  lockedBy: string | null;
 }
 
 export interface OidcRoleMappingConfig {
   // The claim in the ID token whose value lists the user's OIDC groups
   // (provider-specific — e.g. "groups" for Authelia/Authentik/Keycloak).
   groupsClaim: string;
+  /** Set to "OIDC_GROUPS_CLAIM" when that env var forces groupsClaim, else null. */
+  groupsClaimLockedBy: string | null;
   // Role assigned when none of a user's groups match a mapping below.
   defaultRole: UserRole;
+  /** Set to "OIDC_DEFAULT_ROLE" when that env var forces defaultRole, else null. */
+  defaultRoleLockedBy: string | null;
   mappings: OidcRoleMapping[];
 }
 

@@ -7,6 +7,7 @@ import type { Config } from "../../config.js";
 import { createDbClient, type DbClient } from "../../db/client.js";
 import { runMigrations } from "../../db/migrate.js";
 import {
+  oidcGroupRoleMappings as mappingsTable,
   personalAccessTokens as tokensTable,
   sessions as sessionsTable,
   users as usersTable,
@@ -35,7 +36,10 @@ const OIDC_CONFIG: Config = {
     redirectUrl: "http://localhost:4000/auth/callback",
   },
   sessionSecret: "a".repeat(32),
+  oidcGroupsClaim: null,
+  oidcDefaultRole: null,
   oidcAdminGroups: [],
+  oidcEditorGroups: [],
   authRateLimitMax: 1000,
   authRateLimitWindowMs: 60_000,
   uploadRateLimitMax: 1000,
@@ -157,5 +161,121 @@ describe("DELETE /api/admin/users/:id", () => {
     });
 
     expect(res.statusCode).toBe(403);
+  });
+});
+
+describe("/api/admin/role-mapping (env-locked settings/groups)", () => {
+  let db: DbClient;
+  let app: FastifyInstance;
+  let admin: UserRow;
+
+  const LOCKED_CONFIG: Config = {
+    ...OIDC_CONFIG,
+    oidcGroupsClaim: "roles",
+    oidcDefaultRole: "editor",
+    oidcAdminGroups: ["platform-admins"],
+    oidcEditorGroups: ["3d-printing-editors"],
+  };
+
+  beforeEach(async () => {
+    db = createDbClient(":memory:");
+    runMigrations(db);
+    app = buildApp(db, LOCKED_CONFIG);
+    await app.ready();
+    admin = insertUser(db, { role: "admin", oidcSubject: "admin-sub" });
+  });
+
+  afterEach(async () => {
+    await app.close();
+  });
+
+  it("GET reports which fields/mappings are env-locked", async () => {
+    db.insert(mappingsTable)
+      .values({ groupName: "platform-admins", role: "admin", createdAt: new Date(), updatedAt: new Date() })
+      .run();
+    db.insert(mappingsTable)
+      .values({ groupName: "manual-viewers", role: "viewer", createdAt: new Date(), updatedAt: new Date() })
+      .run();
+
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/admin/role-mapping",
+      cookies: sessionCookie(app, db, admin.id),
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.groupsClaimLockedBy).toBe("OIDC_GROUPS_CLAIM");
+    expect(body.defaultRoleLockedBy).toBe("OIDC_DEFAULT_ROLE");
+    const byGroup = Object.fromEntries(body.mappings.map((m: { groupName: string; lockedBy: string | null }) => [m.groupName, m.lockedBy]));
+    expect(byGroup["platform-admins"]).toBe("OIDC_ADMIN_GROUPS");
+    expect(byGroup["manual-viewers"]).toBeNull();
+  });
+
+  it("PATCH settings rejects changing an env-locked groupsClaim", async () => {
+    const res = await app.inject({
+      method: "PATCH",
+      url: "/api/admin/role-mapping/settings",
+      cookies: sessionCookie(app, db, admin.id),
+      payload: { groupsClaim: "other-claim" },
+    });
+
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("PATCH settings rejects changing an env-locked defaultRole", async () => {
+    const res = await app.inject({
+      method: "PATCH",
+      url: "/api/admin/role-mapping/settings",
+      cookies: sessionCookie(app, db, admin.id),
+      payload: { defaultRole: "viewer" },
+    });
+
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("POST rejects creating a mapping for an env-locked group", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/admin/role-mapping/groups",
+      cookies: sessionCookie(app, db, admin.id),
+      payload: { groupName: "platform-admins", role: "viewer" },
+    });
+
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("PATCH rejects changing an env-locked mapping's role", async () => {
+    const mapping = db
+      .insert(mappingsTable)
+      .values({ groupName: "3d-printing-editors", role: "editor", createdAt: new Date(), updatedAt: new Date() })
+      .returning()
+      .get();
+
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/api/admin/role-mapping/groups/${mapping.id}`,
+      cookies: sessionCookie(app, db, admin.id),
+      payload: { role: "viewer" },
+    });
+
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("DELETE rejects removing an env-locked mapping", async () => {
+    const mapping = db
+      .insert(mappingsTable)
+      .values({ groupName: "3d-printing-editors", role: "editor", createdAt: new Date(), updatedAt: new Date() })
+      .returning()
+      .get();
+
+    const res = await app.inject({
+      method: "DELETE",
+      url: `/api/admin/role-mapping/groups/${mapping.id}`,
+      cookies: sessionCookie(app, db, admin.id),
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(db.select().from(mappingsTable).where(eq(mappingsTable.id, mapping.id)).get()).toBeDefined();
   });
 });

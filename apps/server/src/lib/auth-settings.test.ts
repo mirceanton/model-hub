@@ -2,9 +2,11 @@ import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 import { createDbClient, type DbClient } from "../db/client.js";
 import { runMigrations } from "../db/migrate.js";
-import { oidcGroupRoleMappings as mappingsTable } from "../db/schema.js";
+import { authSettings as authSettingsTable, oidcGroupRoleMappings as mappingsTable } from "../db/schema.js";
 import {
-  enforceAdminGroupMappings,
+  enforceAuthSettingsFromEnv,
+  enforceGroupRoleMappings,
+  ensureAuthSettings,
   InvalidGroupNameError,
   InvalidRoleError,
   normalizeGroupName,
@@ -43,7 +45,7 @@ describe("parseRole", () => {
   });
 });
 
-describe("enforceAdminGroupMappings", () => {
+describe("enforceGroupRoleMappings", () => {
   let db: DbClient;
 
   beforeEach(() => {
@@ -56,27 +58,27 @@ describe("enforceAdminGroupMappings", () => {
   }
 
   it("creates a new mapping for a previously-unmapped group", () => {
-    enforceAdminGroupMappings(db, ["platform-admins"]);
+    enforceGroupRoleMappings(db, { admin: ["platform-admins"] });
 
     const mapping = getMapping("platform-admins");
     expect(mapping?.role).toBe("admin");
   });
 
-  it("overwrites an existing non-admin mapping to admin", () => {
+  it("overwrites an existing mapping to the enforced role", () => {
     const now = new Date();
     db.insert(mappingsTable).values({ groupName: "platform-admins", role: "viewer", createdAt: now, updatedAt: now }).run();
 
-    enforceAdminGroupMappings(db, ["platform-admins"]);
+    enforceGroupRoleMappings(db, { admin: ["platform-admins"] });
 
     const mapping = getMapping("platform-admins");
     expect(mapping?.role).toBe("admin");
   });
 
-  it("is a no-op when called twice in a row with the same already-admin groups", () => {
-    enforceAdminGroupMappings(db, ["platform-admins"]);
+  it("is a no-op when called twice in a row with the same already-enforced groups", () => {
+    enforceGroupRoleMappings(db, { admin: ["platform-admins"] });
     const first = getMapping("platform-admins")!;
 
-    enforceAdminGroupMappings(db, ["platform-admins"]);
+    enforceGroupRoleMappings(db, { admin: ["platform-admins"] });
     const second = getMapping("platform-admins")!;
 
     expect(second.role).toBe("admin");
@@ -84,14 +86,74 @@ describe("enforceAdminGroupMappings", () => {
     expect(db.select().from(mappingsTable).all()).toHaveLength(1);
   });
 
-  it("leaves mappings for other groups completely untouched", () => {
+  it("leaves mappings for groups named by no role list completely untouched", () => {
     const now = new Date();
     db.insert(mappingsTable).values({ groupName: "editors", role: "editor", createdAt: now, updatedAt: now }).run();
 
-    enforceAdminGroupMappings(db, ["platform-admins"]);
+    enforceGroupRoleMappings(db, { admin: ["platform-admins"] });
 
     const editorsMapping = getMapping("editors");
     expect(editorsMapping?.role).toBe("editor");
     expect(editorsMapping?.updatedAt.getTime()).toBe(now.getTime());
+  });
+
+  it("enforces multiple roles at once, each to its own groups", () => {
+    enforceGroupRoleMappings(db, { admin: ["platform-admins"], editor: ["3d-printing-editors"] });
+
+    expect(getMapping("platform-admins")?.role).toBe("admin");
+    expect(getMapping("3d-printing-editors")?.role).toBe("editor");
+  });
+});
+
+describe("enforceAuthSettingsFromEnv", () => {
+  let db: DbClient;
+
+  beforeEach(() => {
+    db = createDbClient(":memory:");
+    runMigrations(db);
+  });
+
+  it("forces groupsClaim when provided", () => {
+    enforceAuthSettingsFromEnv(db, { groupsClaim: "roles" });
+    expect(ensureAuthSettings(db).oidcGroupsClaim).toBe("roles");
+  });
+
+  it("forces defaultRole when provided", () => {
+    enforceAuthSettingsFromEnv(db, { defaultRole: "editor" });
+    expect(ensureAuthSettings(db).defaultRole).toBe("editor");
+  });
+
+  it("overwrites a value previously configured via the admin UI", () => {
+    db.insert(authSettingsTable)
+      .values({ oidcGroupsClaim: "custom-claim", defaultRole: "admin", updatedAt: new Date() })
+      .run();
+
+    enforceAuthSettingsFromEnv(db, { groupsClaim: "groups", defaultRole: "viewer" });
+
+    const settings = ensureAuthSettings(db);
+    expect(settings.oidcGroupsClaim).toBe("groups");
+    expect(settings.defaultRole).toBe("viewer");
+  });
+
+  it("leaves a field untouched when not provided", () => {
+    db.insert(authSettingsTable)
+      .values({ oidcGroupsClaim: "custom-claim", defaultRole: "admin", updatedAt: new Date() })
+      .run();
+
+    enforceAuthSettingsFromEnv(db, { defaultRole: "viewer" });
+
+    const settings = ensureAuthSettings(db);
+    expect(settings.oidcGroupsClaim).toBe("custom-claim");
+    expect(settings.defaultRole).toBe("viewer");
+  });
+
+  it("is a no-op (no updatedAt bump) when called twice with the same values", () => {
+    enforceAuthSettingsFromEnv(db, { groupsClaim: "roles", defaultRole: "editor" });
+    const first = ensureAuthSettings(db);
+
+    enforceAuthSettingsFromEnv(db, { groupsClaim: "roles", defaultRole: "editor" });
+    const second = ensureAuthSettings(db);
+
+    expect(second.updatedAt.getTime()).toBe(first.updatedAt.getTime());
   });
 });

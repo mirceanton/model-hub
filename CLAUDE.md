@@ -165,13 +165,13 @@ change on the provider side takes effect next sign-in, not immediately.
 
 Group→role mapping is admin-configurable in the DB (`oidc_group_role_mappings`
 table + a singleton `auth_settings` row for the fallback role and the
-groups-claim name), not env vars, so it's editable without a restart —
-mirrors `config.ts`'s OIDC settings pattern but lives in SQLite instead. The
-groups-claim name is configurable because providers vary (Authelia/
-Authentik/Keycloak all name it differently); `auth.ts`'s callback reads it
-straight off the ID token claims (no extra userinfo round-trip). A user
-whose groups match no mapping gets the configured `defaultRole` (recommend
-`viewer`) — deliberately never silently falls through to `admin`.
+groups-claim name) so it's editable without a restart — mirrors `config.ts`'s
+OIDC settings pattern but lives in SQLite instead. The groups-claim name is
+configurable because providers vary (Authelia/Authentik/Keycloak all name it
+differently); `auth.ts`'s callback reads it straight off the ID token claims
+(no extra userinfo round-trip). A user whose groups match no mapping gets the
+configured `defaultRole` (recommend `viewer`) — deliberately never silently
+falls through to `admin`.
 
 `guard.ts`'s `requireRole(minimumRole)` is a per-route Fastify preHandler
 (403, not 401, on an authenticated-but-underprivileged request) — applied
@@ -180,20 +180,31 @@ so far only to the admin user-listing and role-mapping routes
 project/tag/etc. routes yet; that's deliberately left to future PRs that
 touch those routes anyway, to avoid one sprawling diff.
 
+**Every SSO setting is also configurable via env vars**, force-enforcing the
+DB-backed value fresh on every boot instead — "the env var always wins," the
+same idiom throughout this app (`config.ts`'s `applyConfigOverrides`,
+described in the Config section below). `OIDC_GROUPS_CLAIM` and
+`OIDC_DEFAULT_ROLE` force-write `auth_settings`'s two fields
+(`lib/auth-settings.ts`'s `enforceAuthSettingsFromEnv`); `OIDC_ADMIN_GROUPS`
+and `OIDC_EDITOR_GROUPS` (each a comma-separated group-name list) force-
+upsert every named group to that role (`enforceGroupRoleMappings`, called
+once per role). All four run from `index.ts` after `runMigrations`, only
+when `config.oidc` is set (a no-op in single-user mode). A group name can
+only appear in one of these lists — `config.ts`'s `loadConfig` fails fast at
+boot if the same group is force-mapped to two different roles. The admin
+UI's SSO tab reflects which fields/mappings are env-locked (`OidcRoleMapping`
+/`OidcRoleMappingConfig`'s `lockedBy`/`*LockedBy` fields, computed in
+`api/routes/admin.ts`) and refuses edits to them from the API side too, not
+just by disabling the control.
+
 **Bootstrap lockout escape hatch.** Because the group→role mapping table
 starts empty and `/admin` itself requires the `admin` role to reach, a
 fresh OIDC deployment has no way to configure that first admin mapping —
 every user, including whoever is supposed to set it up, resolves to
-`defaultRole` (`viewer`). `OIDC_ADMIN_GROUPS` (`config.ts`, parsed into
-`Config.oidcAdminGroups`) is the one deliberate exception to "group→role
-mapping lives in the DB, not env vars": a comma-separated list of group
-names that `lib/auth-settings.ts`'s `enforceAdminGroupMappings` force-
-upserts to `admin` on every boot (called from `index.ts`, after
-`runMigrations`, only when `config.oidc` is set — it's a no-op in
-single-user mode). "The env var always wins" — it overwrites any existing
-non-admin mapping for those groups back to admin on every restart, even if
-an admin changed it via the UI in the meantime. Once bootstrapped, you can
-leave it set (harmless, just keeps re-asserting the same rows) or unset it;
+`defaultRole` (`viewer`). `OIDC_ADMIN_GROUPS` is what gets you out of that:
+set it to your own admin group(s) on first OIDC setup so you can log in as
+admin and finish configuration from there. Once bootstrapped, you can leave
+it set (harmless, just keeps re-asserting the same rows) or unset it;
 unsetting stops future enforcement but does *not* retroactively demote
 anyone already mapped to admin through that group — that requires an
 explicit change via the `/admin` UI.

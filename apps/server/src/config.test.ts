@@ -167,6 +167,46 @@ describe("loadConfig", () => {
       expect(() => loadConfig({ ...BASE_ENV, OIDC_ADMIN_GROUPS: "foo,,bar" })).toThrow(/OIDC_ADMIN_GROUPS/);
     });
   });
+
+  describe("OIDC_EDITOR_GROUPS", () => {
+    it("defaults to an empty array when unset", () => {
+      const config = loadConfig(BASE_ENV);
+      expect(config.oidcEditorGroups).toEqual([]);
+    });
+
+    it("parses multiple comma-separated groups", () => {
+      const config = loadConfig({ ...BASE_ENV, OIDC_EDITOR_GROUPS: "3d-printing-editors, contributors" });
+      expect(config.oidcEditorGroups).toEqual(["3d-printing-editors", "contributors"]);
+    });
+
+    it("fails fast with a clear error when an entry is empty", () => {
+      expect(() => loadConfig({ ...BASE_ENV, OIDC_EDITOR_GROUPS: "foo,,bar" })).toThrow(/OIDC_EDITOR_GROUPS/);
+    });
+  });
+
+  it("fails fast when the same group is listed under both OIDC_ADMIN_GROUPS and OIDC_EDITOR_GROUPS", () => {
+    expect(() =>
+      loadConfig({ ...BASE_ENV, OIDC_ADMIN_GROUPS: "platform", OIDC_EDITOR_GROUPS: "platform" }),
+    ).toThrow(/"platform" is listed in both OIDC_ADMIN_GROUPS and OIDC_EDITOR_GROUPS/);
+  });
+
+  describe("OIDC_GROUPS_CLAIM / OIDC_DEFAULT_ROLE", () => {
+    it("default to null when unset", () => {
+      const config = loadConfig(BASE_ENV);
+      expect(config.oidcGroupsClaim).toBeNull();
+      expect(config.oidcDefaultRole).toBeNull();
+    });
+
+    it("are parsed when set", () => {
+      const config = loadConfig({ ...BASE_ENV, OIDC_GROUPS_CLAIM: "roles", OIDC_DEFAULT_ROLE: "editor" });
+      expect(config.oidcGroupsClaim).toBe("roles");
+      expect(config.oidcDefaultRole).toBe("editor");
+    });
+
+    it("rejects an unknown OIDC_DEFAULT_ROLE value", () => {
+      expect(() => loadConfig({ ...BASE_ENV, OIDC_DEFAULT_ROLE: "superadmin" })).toThrow();
+    });
+  });
 });
 
 describe("applyConfigOverrides", () => {
