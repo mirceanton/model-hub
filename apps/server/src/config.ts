@@ -55,6 +55,9 @@ const envSchema = z.object({
   OIDC_ADMIN_GROUPS: z.string().optional(),
   // Comma-separated OIDC group names that always resolve to the editor role.
   OIDC_EDITOR_GROUPS: z.string().optional(),
+  // Comma-separated OIDC group names that always resolve to the viewer
+  // (read-only) role.
+  OIDC_READONLY_GROUPS: z.string().optional(),
   // Rate limiting (apps/server/src/lib/rate-limit.ts). Auth routes are keyed
   // per-IP (unauthenticated by nature); upload/create routes are keyed
   // per-user (see rate-limit.ts for why that's a no-op in single-user mode).
@@ -94,6 +97,8 @@ export type Config = {
   oidcAdminGroups: string[];
   /** Parsed, trimmed, non-empty OIDC_EDITOR_GROUPS. Empty array if unset. */
   oidcEditorGroups: string[];
+  /** Parsed, trimmed, non-empty OIDC_READONLY_GROUPS. Empty array if unset. */
+  oidcReadonlyGroups: string[];
   authRateLimitMax: number;
   authRateLimitWindowMs: number;
   uploadRateLimitMax: number;
@@ -215,9 +220,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
 
   const oidcAdminGroups = parseGroupListEnv(parsed.OIDC_ADMIN_GROUPS, "OIDC_ADMIN_GROUPS");
   const oidcEditorGroups = parseGroupListEnv(parsed.OIDC_EDITOR_GROUPS, "OIDC_EDITOR_GROUPS");
+  const oidcReadonlyGroups = parseGroupListEnv(parsed.OIDC_READONLY_GROUPS, "OIDC_READONLY_GROUPS");
   checkNoGroupInMultipleRoles({
     OIDC_ADMIN_GROUPS: oidcAdminGroups,
     OIDC_EDITOR_GROUPS: oidcEditorGroups,
+    OIDC_READONLY_GROUPS: oidcReadonlyGroups,
   });
 
   return {
@@ -238,6 +245,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     oidcDefaultRole: parsed.OIDC_DEFAULT_ROLE ?? null,
     oidcAdminGroups,
     oidcEditorGroups,
+    oidcReadonlyGroups,
     authRateLimitMax: parsed.AUTH_RATE_LIMIT_MAX,
     authRateLimitWindowMs: parsed.AUTH_RATE_LIMIT_WINDOW_MS,
     uploadRateLimitMax: parsed.UPLOAD_RATE_LIMIT_MAX,

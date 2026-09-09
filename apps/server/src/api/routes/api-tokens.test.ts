@@ -35,6 +35,7 @@ const OIDC_CONFIG: Config = {
   oidcDefaultRole: null,
   oidcAdminGroups: [],
   oidcEditorGroups: [],
+  oidcReadonlyGroups: [],
   authRateLimitMax: 10,
   authRateLimitWindowMs: 60_000,
   uploadRateLimitMax: 30,
