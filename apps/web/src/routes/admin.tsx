@@ -1,5 +1,5 @@
 import type { ConfigCategory, ConfigItem, OidcRoleMapping, UserRole } from "@model-hub/shared"
-import { AlertCircle, Loader2, Plus, Trash2 } from "lucide-react"
+import { AlertCircle, Loader2, Lock, Plus, Trash2 } from "lucide-react"
 import { useState } from "react"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
@@ -38,6 +38,16 @@ const ROLE_OPTIONS: UserRole[] = ["admin", "editor", "viewer"]
 function RoleBadge({ role }: { role: UserRole }) {
   const variant = role === "admin" ? "default" : role === "editor" ? "secondary" : "outline"
   return <Badge variant={variant}>{ROLE_LABELS[role]}</Badge>
+}
+
+/** Shown in place of an edit control for a value force-enforced by an env var — see admin.ts's registerAdminRoutes. */
+function LockedBadge({ envVar }: { envVar: string }) {
+  return (
+    <Badge variant="secondary" className="gap-1" title={`Set via the ${envVar} environment variable`}>
+      <Lock className="size-3" />
+      {envVar}
+    </Badge>
+  )
 }
 
 function RoleSelect({
@@ -221,25 +231,35 @@ function AddRoleMappingDialog() {
 function MappingRow({ mapping }: { mapping: OidcRoleMapping }) {
   const updateMapping = useUpdateRoleMapping()
   const deleteMapping = useDeleteRoleMapping()
+  const locked = mapping.lockedBy != null
 
   return (
     <li className="flex items-center justify-between gap-3 px-3 py-2">
       <span className="truncate font-mono text-sm">{mapping.groupName}</span>
       <div className="flex shrink-0 items-center gap-2">
-        <RoleSelect
-          value={mapping.role}
-          onChange={(role) => updateMapping.mutate({ id: mapping.id, role })}
-          disabled={updateMapping.isPending}
-        />
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          aria-label={`Remove mapping for ${mapping.groupName}`}
-          onClick={() => deleteMapping.mutate(mapping.id)}
-          disabled={deleteMapping.isPending}
-        >
-          <Trash2 className="size-3.5" />
-        </Button>
+        {locked ? (
+          <>
+            <RoleBadge role={mapping.role} />
+            <LockedBadge envVar={mapping.lockedBy!} />
+          </>
+        ) : (
+          <>
+            <RoleSelect
+              value={mapping.role}
+              onChange={(role) => updateMapping.mutate({ id: mapping.id, role })}
+              disabled={updateMapping.isPending}
+            />
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label={`Remove mapping for ${mapping.groupName}`}
+              onClick={() => deleteMapping.mutate(mapping.id)}
+              disabled={deleteMapping.isPending}
+            >
+              <Trash2 className="size-3.5" />
+            </Button>
+          </>
+        )}
       </div>
     </li>
   )
@@ -326,6 +346,8 @@ function RoleMappingSection({
   updateSettings: ReturnType<typeof useUpdateRoleMappingSettings>
 }) {
   const claimValue = groupsClaim ?? data.groupsClaim
+  const groupsClaimLocked = data.groupsClaimLockedBy != null
+  const defaultRoleLocked = data.defaultRoleLockedBy != null
 
   return (
     <div className="flex flex-col gap-6">
@@ -349,27 +371,34 @@ function RoleMappingSection({
             The ID token claim your OIDC provider lists group membership under (e.g. "groups" for
             Authelia/Authentik/Keycloak).
           </p>
-          <div className="flex items-center gap-2">
-            <Input
-              value={claimValue}
-              onChange={(e) => setGroupsClaim(e.target.value)}
-              className="max-w-xs"
-            />
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={claimValue === data.groupsClaim || updateSettings.isPending}
-              onClick={() =>
-                updateSettings.mutate(
-                  { groupsClaim: claimValue },
-                  { onSuccess: () => setGroupsClaim(null) },
-                )
-              }
-            >
-              {updateSettings.isPending && <Loader2 className="size-3.5 animate-spin" />}
-              Save
-            </Button>
-          </div>
+          {groupsClaimLocked ? (
+            <div className="flex items-center gap-2">
+              <span className="font-mono text-sm">{data.groupsClaim}</span>
+              <LockedBadge envVar={data.groupsClaimLockedBy!} />
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <Input
+                value={claimValue}
+                onChange={(e) => setGroupsClaim(e.target.value)}
+                className="max-w-xs"
+              />
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={claimValue === data.groupsClaim || updateSettings.isPending}
+                onClick={() =>
+                  updateSettings.mutate(
+                    { groupsClaim: claimValue },
+                    { onSuccess: () => setGroupsClaim(null) },
+                  )
+                }
+              >
+                {updateSettings.isPending && <Loader2 className="size-3.5 animate-spin" />}
+                Save
+              </Button>
+            </div>
+          )}
         </div>
 
         <div className="flex flex-col gap-1.5">
@@ -377,11 +406,18 @@ function RoleMappingSection({
           <p className="text-xs text-muted-foreground">
             Assigned to an authenticated user whose groups match none of the mappings below.
           </p>
-          <RoleSelect
-            value={data.defaultRole}
-            onChange={(role) => updateSettings.mutate({ defaultRole: role })}
-            disabled={updateSettings.isPending}
-          />
+          {defaultRoleLocked ? (
+            <div className="flex items-center gap-2">
+              <RoleBadge role={data.defaultRole} />
+              <LockedBadge envVar={data.defaultRoleLockedBy!} />
+            </div>
+          ) : (
+            <RoleSelect
+              value={data.defaultRole}
+              onChange={(role) => updateSettings.mutate({ defaultRole: role })}
+              disabled={updateSettings.isPending}
+            />
+          )}
         </div>
       </div>
 

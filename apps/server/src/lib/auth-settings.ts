@@ -117,30 +117,55 @@ export function deleteGroupRoleMapping(db: DbClient, id: number): boolean {
 }
 
 /**
- * Force-upserts each of the given OIDC group names to the `admin` role --
- * "the env var always wins." Called at every boot (see index.ts) when
- * OIDC_ADMIN_GROUPS is set, to bootstrap out of the lockout where the
- * group-mapping table starts empty and nobody can reach the /admin UI that
- * would otherwise configure it. Idempotent: a group with no existing
- * mapping row gets one inserted as admin; a group already mapped to a
- * different role gets updated to admin; a group already correctly mapped
- * to admin is left untouched (no unnecessary updatedAt bump). Mappings for
- * groups NOT in `groupNames` are never touched.
+ * Force-upserts each OIDC group name in `groupNamesByRole` to that role --
+ * "the env var always wins." Called at every boot (see index.ts) for each of
+ * OIDC_ADMIN_GROUPS/OIDC_EDITOR_GROUPS/OIDC_READONLY_GROUPS that's set. The
+ * admin case doubles as the bootstrap escape hatch out of the lockout where
+ * the group-mapping table starts empty and nobody can reach the /admin UI
+ * that would otherwise configure it. Idempotent: a group with no existing
+ * mapping row gets one inserted; a group already mapped to a different role
+ * gets updated; a group already correctly mapped is left untouched (no
+ * unnecessary updatedAt bump). Mappings for groups not named by any of these
+ * lists are never touched.
  *
  * By the time this runs, config.ts's loadConfig has already validated each
- * name via normalizeGroupName -- this call is defense in depth, not the
- * primary validation point.
+ * name via normalizeGroupName and confirmed no group appears under more than
+ * one role -- this call is defense in depth, not the primary validation
+ * point.
  */
-export function enforceAdminGroupMappings(db: DbClient, groupNames: string[]): void {
+export function enforceGroupRoleMappings(db: DbClient, groupNamesByRole: Partial<Record<UserRole, string[]>>): void {
   const now = new Date();
-  for (const rawGroupName of groupNames) {
-    const groupName = normalizeGroupName(rawGroupName);
-    const existing = db.select().from(mappingsTable).where(eq(mappingsTable.groupName, groupName)).get();
+  for (const [role, groupNames] of Object.entries(groupNamesByRole) as [UserRole, string[] | undefined][]) {
+    for (const rawGroupName of groupNames ?? []) {
+      const groupName = normalizeGroupName(rawGroupName);
+      const existing = db.select().from(mappingsTable).where(eq(mappingsTable.groupName, groupName)).get();
 
-    if (!existing) {
-      db.insert(mappingsTable).values({ groupName, role: "admin", createdAt: now, updatedAt: now }).run();
-    } else if (existing.role !== "admin") {
-      db.update(mappingsTable).set({ role: "admin", updatedAt: now }).where(eq(mappingsTable.id, existing.id)).run();
+      if (!existing) {
+        db.insert(mappingsTable).values({ groupName, role, createdAt: now, updatedAt: now }).run();
+      } else if (existing.role !== role) {
+        db.update(mappingsTable).set({ role, updatedAt: now }).where(eq(mappingsTable.id, existing.id)).run();
+      }
     }
   }
+}
+
+/**
+ * Force-writes the singleton auth-settings row's groupsClaim/defaultRole
+ * from env-sourced values -- "the env var always wins," same pattern as
+ * enforceGroupRoleMappings above. Called at every boot (see index.ts) when
+ * OIDC_GROUPS_CLAIM and/or OIDC_DEFAULT_ROLE are set; a field left
+ * `undefined` here is untouched (still editable via the /admin UI). Skips
+ * the write entirely when nothing would change, to avoid an unnecessary
+ * updatedAt bump on every restart.
+ */
+export function enforceAuthSettingsFromEnv(db: DbClient, patch: { groupsClaim?: string; defaultRole?: UserRole }): void {
+  const current = ensureAuthSettings(db);
+  const groupsClaim = patch.groupsClaim ?? current.oidcGroupsClaim;
+  const defaultRole = patch.defaultRole ?? current.defaultRole;
+  if (groupsClaim === current.oidcGroupsClaim && defaultRole === current.defaultRole) return;
+
+  db.update(authSettingsTable)
+    .set({ oidcGroupsClaim: groupsClaim, defaultRole, updatedAt: new Date() })
+    .where(eq(authSettingsTable.id, current.id))
+    .run();
 }

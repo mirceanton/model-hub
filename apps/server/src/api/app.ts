@@ -79,7 +79,7 @@ export function buildApp(db: DbClient, config: Config): FastifyInstance {
   // attached by the time any of these routes are declared.
   app.register(async (instance) => {
     registerAuthRoutes(instance, db, config);
-    registerAdminRoutes(instance, db);
+    registerAdminRoutes(instance, db, config);
     registerConfigRoutes(instance, db, config);
     registerStatsRoutes(instance, db, config);
     registerApiTokenRoutes(instance, db);
