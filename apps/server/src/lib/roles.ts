@@ -17,21 +17,25 @@ export function roleSatisfies(role: UserRole, minimumRole: UserRole): boolean {
 /**
  * Picks the highest-ranked role among the OIDC groups a user belongs to. A
  * user with no matching group mapping gets `defaultRole` (recommended:
- * "viewer") rather than silently falling through to admin.
+ * "viewer") rather than silently falling through to admin -- unless
+ * `defaultRole` is null, in which case that user is denied entirely (see
+ * auth/session.ts's upsertOidcUser/AccessDeniedError). A group match always
+ * grants its role regardless of `defaultRole`; only an unmatched user can be
+ * denied.
  */
 export function resolveRoleFromGroups(
   groups: readonly string[],
   mappings: readonly { groupName: string; role: UserRole }[],
-  defaultRole: UserRole,
-): UserRole {
+  defaultRole: UserRole | null,
+): UserRole | null {
   const roleByGroup = new Map(mappings.map((m) => [m.groupName, m.role]));
 
-  let resolved: UserRole = defaultRole;
+  let resolved: UserRole | null = null;
   for (const group of groups) {
     const mapped = roleByGroup.get(group);
-    if (mapped && ROLE_RANK[mapped] > ROLE_RANK[resolved]) {
+    if (mapped && (resolved === null || ROLE_RANK[mapped] > ROLE_RANK[resolved])) {
       resolved = mapped;
     }
   }
-  return resolved;
+  return resolved ?? defaultRole;
 }

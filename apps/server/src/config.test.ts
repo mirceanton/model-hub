@@ -213,16 +213,21 @@ describe("loadConfig", () => {
   });
 
   describe("OIDC_GROUPS_CLAIM / OIDC_DEFAULT_ROLE", () => {
-    it("default to null when unset", () => {
+    it("groupsClaim defaults to null and defaultRole to undefined when unset", () => {
       const config = loadConfig(BASE_ENV);
       expect(config.oidcGroupsClaim).toBeNull();
-      expect(config.oidcDefaultRole).toBeNull();
+      expect(config.oidcDefaultRole).toBeUndefined();
     });
 
     it("are parsed when set", () => {
       const config = loadConfig({ ...BASE_ENV, OIDC_GROUPS_CLAIM: "roles", OIDC_DEFAULT_ROLE: "editor" });
       expect(config.oidcGroupsClaim).toBe("roles");
       expect(config.oidcDefaultRole).toBe("editor");
+    });
+
+    it('parses OIDC_DEFAULT_ROLE="deny" to null, distinct from unset (undefined)', () => {
+      const config = loadConfig({ ...BASE_ENV, OIDC_DEFAULT_ROLE: "deny" });
+      expect(config.oidcDefaultRole).toBeNull();
     });
 
     it("rejects an unknown OIDC_DEFAULT_ROLE value", () => {

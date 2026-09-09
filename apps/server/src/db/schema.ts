@@ -253,10 +253,11 @@ export const authSettings = sqliteTable("auth_settings", {
   // (Authelia/Authentik/Keycloak all name this differently).
   oidcGroupsClaim: text("oidc_groups_claim").notNull().default("groups"),
   // Safe fallback for an authenticated user whose groups match no mapping —
-  // never silently falls through to admin.
-  defaultRole: text("default_role", { enum: ["admin", "editor", "viewer"] })
-    .notNull()
-    .default("viewer"),
+  // never silently falls through to admin. Null disables the fallback
+  // entirely: a user whose groups match nothing is denied login outright
+  // instead of getting any role (see lib/roles.ts's resolveRoleFromGroups
+  // and auth/session.ts's upsertOidcUser/AccessDeniedError).
+  defaultRole: text("default_role", { enum: ["admin", "editor", "viewer"] }).default("viewer"),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
 });
 

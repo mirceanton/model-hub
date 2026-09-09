@@ -4,6 +4,7 @@ import { SESSION_COOKIE_NAME } from "../../auth/constants.js";
 import { readSessionCookie } from "../../auth/cookie.js";
 import { consumePendingAuth, createPendingAuth, getOidcClient } from "../../auth/oidc.js";
 import {
+  AccessDeniedError,
   createSession,
   deleteSession,
   ensureLocalOwner,
@@ -110,6 +111,10 @@ export function registerAuthRoutes(app: FastifyInstance, db: DbClient, config: C
 
       return reply.redirect("/");
     } catch (err) {
+      if (err instanceof AccessDeniedError) {
+        request.log.warn(err, "OIDC login denied: no matching group");
+        return reply.code(403).send({ error: err.message });
+      }
       request.log.error(err, "OIDC callback failed");
       return reply.code(400).send({ error: "login failed" });
     }

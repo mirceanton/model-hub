@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import type { UserRole } from "@model-hub/shared";
 import { and, eq, gt } from "drizzle-orm";
 import type { DbClient } from "../db/client.js";
 import { sessions as sessionsTable, users as usersTable, type UserRow } from "../db/schema.js";
@@ -57,21 +58,35 @@ export interface OidcProfile {
 }
 
 /**
+ * Thrown by upsertOidcUser when the user's groups match no mapping and this
+ * instance's defaultRole is disabled (null / OIDC_DEFAULT_ROLE=deny) — see
+ * lib/roles.ts's resolveRoleFromGroups. auth.ts's callback catches this and
+ * refuses the login (403) without creating a session or a user row.
+ */
+export class AccessDeniedError extends Error {}
+
+/**
  * Resolves an OIDC user's role fresh from their current groups on every
  * login, rather than treating role as a durable manual assignment — a group
  * membership change on the provider side takes effect the next time the
  * user signs in.
  */
-function resolveOidcRole(db: DbClient, groups: string[] | undefined) {
+function resolveOidcRole(db: DbClient, groups: string[] | undefined): UserRole | null {
   const settings = ensureAuthSettings(db);
   const mappings = getGroupRoleMappings(db);
   return resolveRoleFromGroups(groups ?? [], mappings, settings.defaultRole);
 }
 
 export function upsertOidcUser(db: DbClient, profile: OidcProfile): UserRow {
+  const role = resolveOidcRole(db, profile.groups);
+  if (role === null) {
+    throw new AccessDeniedError(
+      "your account isn't a member of any group with access to this instance",
+    );
+  }
+
   const existing = db.select().from(usersTable).where(eq(usersTable.oidcSubject, profile.sub)).get();
   const now = new Date();
-  const role = resolveOidcRole(db, profile.groups);
 
   if (existing) {
     const updated = {

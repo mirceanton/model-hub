@@ -67,4 +67,13 @@ describe("resolveRoleFromGroups", () => {
     const groups = ["unmapped", "3d-printing-editors"];
     expect(resolveRoleFromGroups(groups, mappings, "viewer")).toBe("editor");
   });
+
+  it("returns null (deny) when defaultRole is disabled and no group matches", () => {
+    expect(resolveRoleFromGroups([], mappings, null)).toBeNull();
+    expect(resolveRoleFromGroups(["unmapped"], mappings, null)).toBeNull();
+  });
+
+  it("still grants a matched group's role even when defaultRole is disabled", () => {
+    expect(resolveRoleFromGroups(["3d-printing-admins"], mappings, null)).toBe("admin");
+  });
 });

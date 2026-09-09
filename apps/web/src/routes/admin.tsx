@@ -79,6 +79,47 @@ function RoleSelect({
   )
 }
 
+// Select components use string values, so "deny" stands in for `null` on the wire.
+const DENY_ACCESS_VALUE = "deny"
+const DEFAULT_ROLE_OPTIONS: (UserRole | null)[] = [...ROLE_OPTIONS, null]
+
+function defaultRoleLabel(role: UserRole | null): string {
+  return role === null ? "Deny access" : ROLE_LABELS[role]
+}
+
+function DefaultRoleBadge({ role }: { role: UserRole | null }) {
+  return role === null ? <Badge variant="destructive">Deny access</Badge> : <RoleBadge role={role} />
+}
+
+function DefaultRoleSelect({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: UserRole | null
+  onChange: (role: UserRole | null) => void
+  disabled?: boolean
+}) {
+  return (
+    <Select
+      value={value ?? DENY_ACCESS_VALUE}
+      onValueChange={(v) => onChange(v === DENY_ACCESS_VALUE ? null : (v as UserRole))}
+      disabled={disabled}
+    >
+      <SelectTrigger size="sm" aria-label="Default role">
+        <SelectValue>{(v: string) => defaultRoleLabel(v === DENY_ACCESS_VALUE ? null : (v as UserRole))}</SelectValue>
+      </SelectTrigger>
+      <SelectContent>
+        {DEFAULT_ROLE_OPTIONS.map((role) => (
+          <SelectItem key={role ?? DENY_ACCESS_VALUE} value={role ?? DENY_ACCESS_VALUE}>
+            {defaultRoleLabel(role)}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  )
+}
+
 function UsersTab() {
   const { data: authMe } = useAuthMe()
   const { data: users, isPending, isError, error } = useAdminUsers()
@@ -404,15 +445,16 @@ function RoleMappingSection({
         <div className="flex flex-col gap-1.5">
           <span className="text-sm font-medium">Default role</span>
           <p className="text-xs text-muted-foreground">
-            Assigned to an authenticated user whose groups match none of the mappings below.
+            Assigned to an authenticated user whose groups match none of the mappings below. Set
+            to "Deny access" to refuse login entirely for such users instead.
           </p>
           {defaultRoleLocked ? (
             <div className="flex items-center gap-2">
-              <RoleBadge role={data.defaultRole} />
+              <DefaultRoleBadge role={data.defaultRole} />
               <LockedBadge envVar={data.defaultRoleLockedBy!} />
             </div>
           ) : (
-            <RoleSelect
+            <DefaultRoleSelect
               value={data.defaultRole}
               onChange={(role) => updateSettings.mutate({ defaultRole: role })}
               disabled={updateSettings.isPending}

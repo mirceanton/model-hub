@@ -32,7 +32,7 @@ const OIDC_CONFIG: Config = {
   },
   sessionSecret: "a".repeat(32),
   oidcGroupsClaim: null,
-  oidcDefaultRole: null,
+  oidcDefaultRole: undefined,
   oidcAdminGroups: [],
   oidcEditorGroups: [],
   oidcReadonlyGroups: [],

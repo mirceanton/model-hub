@@ -548,7 +548,7 @@ function useInvalidateRoleMapping() {
 export function useUpdateRoleMappingSettings() {
   const invalidate = useInvalidateRoleMapping()
   return useMutation({
-    mutationFn: (patch: { groupsClaim?: string; defaultRole?: UserRole }) =>
+    mutationFn: (patch: { groupsClaim?: string; defaultRole?: UserRole | null }) =>
       updateRoleMappingSettings(patch),
     onSuccess: invalidate,
   })

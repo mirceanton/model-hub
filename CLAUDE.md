@@ -171,7 +171,15 @@ configurable because providers vary (Authelia/Authentik/Keycloak all name it
 differently); `auth.ts`'s callback reads it straight off the ID token claims
 (no extra userinfo round-trip). A user whose groups match no mapping gets the
 configured `defaultRole` (recommend `viewer`) — deliberately never silently
-falls through to `admin`.
+falls through to `admin`. `defaultRole` can also be disabled outright (null
+in the DB, `"deny"` over the API/env) so an unmatched user is refused login
+entirely instead of getting any role — see `lib/roles.ts`'s
+`resolveRoleFromGroups` (returns `UserRole | null`) and
+`auth/session.ts`'s `upsertOidcUser`, which throws `AccessDeniedError`
+(caught in `auth.ts`'s callback as a 403, before any session or user row is
+created) rather than ever storing `null` as an actual user's role. A group
+match always grants that group's role regardless of this setting — only an
+*unmatched* user can be denied.
 
 `guard.ts`'s `requireRole(minimumRole)` is a per-route Fastify preHandler
 (403, not 401, on an authenticated-but-underprivileged request) — applied
@@ -184,8 +192,13 @@ touch those routes anyway, to avoid one sprawling diff.
 DB-backed value fresh on every boot instead — "the env var always wins," the
 same idiom throughout this app (`config.ts`'s `applyConfigOverrides`,
 described in the Config section below). `OIDC_GROUPS_CLAIM` and
-`OIDC_DEFAULT_ROLE` force-write `auth_settings`'s two fields
-(`lib/auth-settings.ts`'s `enforceAuthSettingsFromEnv`); `OIDC_ADMIN_GROUPS`,
+`OIDC_DEFAULT_ROLE` (accepts `admin`/`editor`/`viewer`/`deny`, the last
+disabling the fallback per above) force-write `auth_settings`'s two fields
+(`lib/auth-settings.ts`'s `enforceAuthSettingsFromEnv` — note `Config.
+oidcDefaultRole`'s three-way `undefined`/`null`/`UserRole` distinguishes
+"env unset" from "env forces deny" from "env forces this role", since `??`
+would otherwise wrongly treat an explicit deny the same as unset);
+`OIDC_ADMIN_GROUPS`,
 `OIDC_EDITOR_GROUPS`, and `OIDC_READONLY_GROUPS` (each a comma-separated
 group-name list, mapping to `admin`/`editor`/`viewer` respectively)
 force-upsert every named group to that role (`enforceGroupRoleMappings`,
