@@ -13,6 +13,7 @@ import {
   getGroupRoleMappings,
   InvalidGroupNameError,
   InvalidRoleError,
+  parseDefaultRoleSetting,
   parseRole,
   updateAuthSettings,
   updateGroupRoleMapping,
@@ -100,7 +101,7 @@ export function registerAdminRoutes(app: FastifyInstance, db: DbClient, config: 
         groupsClaim: settings.oidcGroupsClaim,
         groupsClaimLockedBy: config.oidcGroupsClaim ? "OIDC_GROUPS_CLAIM" : null,
         defaultRole: settings.defaultRole,
-        defaultRoleLockedBy: config.oidcDefaultRole ? "OIDC_DEFAULT_ROLE" : null,
+        defaultRoleLockedBy: config.oidcDefaultRole !== undefined ? "OIDC_DEFAULT_ROLE" : null,
         mappings: mappings.map((m) => toApiMapping(m, lockedByGroup)),
       };
     },
@@ -115,21 +116,21 @@ export function registerAdminRoutes(app: FastifyInstance, db: DbClient, config: 
       if (groupsClaim !== undefined && config.oidcGroupsClaim) {
         return reply.code(400).send({ error: "groupsClaim is set via OIDC_GROUPS_CLAIM and cannot be changed here" });
       }
-      if (rawDefaultRole !== undefined && config.oidcDefaultRole) {
+      if (rawDefaultRole !== undefined && config.oidcDefaultRole !== undefined) {
         return reply.code(400).send({ error: "defaultRole is set via OIDC_DEFAULT_ROLE and cannot be changed here" });
       }
 
-      let defaultRole: UserRole | undefined;
+      let defaultRole: UserRole | null | undefined;
       try {
         if (rawDefaultRole !== undefined) {
-          defaultRole = parseRole(rawDefaultRole);
+          defaultRole = parseDefaultRoleSetting(rawDefaultRole);
         }
         const updated = updateAuthSettings(db, { groupsClaim, defaultRole });
         return {
           groupsClaim: updated.oidcGroupsClaim,
           groupsClaimLockedBy: config.oidcGroupsClaim ? "OIDC_GROUPS_CLAIM" : null,
           defaultRole: updated.defaultRole,
-          defaultRoleLockedBy: config.oidcDefaultRole ? "OIDC_DEFAULT_ROLE" : null,
+          defaultRoleLockedBy: config.oidcDefaultRole !== undefined ? "OIDC_DEFAULT_ROLE" : null,
         };
       } catch (err) {
         if (err instanceof InvalidRoleError || err instanceof InvalidGroupNameError) {

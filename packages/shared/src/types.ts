@@ -60,8 +60,8 @@ export interface OidcRoleMappingConfig {
   groupsClaim: string;
   /** Set to "OIDC_GROUPS_CLAIM" when that env var forces groupsClaim, else null. */
   groupsClaimLockedBy: string | null;
-  // Role assigned when none of a user's groups match a mapping below.
-  defaultRole: UserRole;
+  /** Role assigned when none of a user's groups match a mapping below. Null means that fallback is disabled: such a user is refused login entirely. */
+  defaultRole: UserRole | null;
   /** Set to "OIDC_DEFAULT_ROLE" when that env var forces defaultRole, else null. */
   defaultRoleLockedBy: string | null;
   mappings: OidcRoleMapping[];

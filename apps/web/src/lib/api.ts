@@ -450,8 +450,8 @@ export function fetchInstanceStats(): Promise<InstanceStats> {
 
 export function updateRoleMappingSettings(patch: {
   groupsClaim?: string
-  defaultRole?: UserRole
-}): Promise<{ groupsClaim: string; defaultRole: UserRole }> {
+  defaultRole?: UserRole | null
+}): Promise<{ groupsClaim: string; defaultRole: UserRole | null }> {
   return request("/api/admin/role-mapping/settings", {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },

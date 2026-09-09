@@ -10,7 +10,9 @@ import {
   InvalidGroupNameError,
   InvalidRoleError,
   normalizeGroupName,
+  parseDefaultRoleSetting,
   parseRole,
+  updateAuthSettings,
 } from "./auth-settings.js";
 
 describe("normalizeGroupName", () => {
@@ -42,6 +44,47 @@ describe("parseRole", () => {
   it("rejects an unknown role", () => {
     expect(() => parseRole("superadmin")).toThrow(InvalidRoleError);
     expect(() => parseRole("")).toThrow(InvalidRoleError);
+  });
+});
+
+describe("parseDefaultRoleSetting", () => {
+  it("accepts the three known roles", () => {
+    expect(parseDefaultRoleSetting("admin")).toBe("admin");
+    expect(parseDefaultRoleSetting("editor")).toBe("editor");
+    expect(parseDefaultRoleSetting("viewer")).toBe("viewer");
+  });
+
+  it('parses "deny" to null', () => {
+    expect(parseDefaultRoleSetting("deny")).toBeNull();
+  });
+
+  it("rejects an unknown value", () => {
+    expect(() => parseDefaultRoleSetting("superadmin")).toThrow(InvalidRoleError);
+  });
+});
+
+describe("updateAuthSettings", () => {
+  let db: DbClient;
+
+  beforeEach(() => {
+    db = createDbClient(":memory:");
+    runMigrations(db);
+  });
+
+  it("sets defaultRole to null (deny) when explicitly passed null", () => {
+    updateAuthSettings(db, { defaultRole: "admin" });
+
+    updateAuthSettings(db, { defaultRole: null });
+
+    expect(ensureAuthSettings(db).defaultRole).toBeNull();
+  });
+
+  it("leaves defaultRole untouched when the key is omitted", () => {
+    updateAuthSettings(db, { defaultRole: "admin" });
+
+    updateAuthSettings(db, { groupsClaim: "roles" });
+
+    expect(ensureAuthSettings(db).defaultRole).toBe("admin");
   });
 });
 
@@ -159,6 +202,25 @@ describe("enforceAuthSettingsFromEnv", () => {
     enforceAuthSettingsFromEnv(db, { groupsClaim: "roles", defaultRole: "editor" });
     const second = ensureAuthSettings(db);
 
+    expect(second.updatedAt.getTime()).toBe(first.updatedAt.getTime());
+  });
+
+  it("forces defaultRole to null (deny) when explicitly passed null, not treating it as unset", () => {
+    enforceAuthSettingsFromEnv(db, { defaultRole: "admin" });
+
+    enforceAuthSettingsFromEnv(db, { defaultRole: null });
+
+    expect(ensureAuthSettings(db).defaultRole).toBeNull();
+  });
+
+  it("leaves an already-null defaultRole alone when called again with null (no updatedAt bump)", () => {
+    enforceAuthSettingsFromEnv(db, { defaultRole: null });
+    const first = ensureAuthSettings(db);
+
+    enforceAuthSettingsFromEnv(db, { defaultRole: null });
+    const second = ensureAuthSettings(db);
+
+    expect(second.defaultRole).toBeNull();
     expect(second.updatedAt.getTime()).toBe(first.updatedAt.getTime());
   });
 });

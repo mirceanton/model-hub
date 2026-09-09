@@ -46,7 +46,11 @@ const envSchema = z.object({
   // wins" (see lib/auth-settings.ts's enforceGroupRoleMappings and
   // enforceAuthSettingsFromEnv, and CLAUDE.md's Auth/Roles section).
   OIDC_GROUPS_CLAIM: z.string().min(1).optional(),
-  OIDC_DEFAULT_ROLE: z.enum(["admin", "editor", "viewer"]).optional(),
+  // "deny" disables the fallback entirely: an authenticated user whose
+  // groups match no mapping is refused login outright instead of getting
+  // any role (see lib/auth-settings.ts's DENY_DEFAULT_ROLE/
+  // parseDefaultRoleSetting and auth/session.ts's AccessDeniedError).
+  OIDC_DEFAULT_ROLE: z.enum(["admin", "editor", "viewer", "deny"]).optional(),
   // Comma-separated OIDC group names that always resolve to the admin role.
   // Doubles as the bootstrap escape hatch out of the lockout where the
   // group-mapping table starts empty and /admin itself requires the admin
@@ -91,8 +95,12 @@ export type Config = {
   sessionSecret: string | null;
   /** OIDC_GROUPS_CLAIM. Null if unset, in which case the DB-configured (or default "groups") claim name applies. */
   oidcGroupsClaim: string | null;
-  /** OIDC_DEFAULT_ROLE. Null if unset, in which case the DB-configured (or default "viewer") role applies. */
-  oidcDefaultRole: UserRole | null;
+  /**
+   * OIDC_DEFAULT_ROLE. `undefined` if unset (the DB-configured, or default
+   * "viewer", value applies); `null` if set to "deny" (unmatched users are
+   * refused login); otherwise the forced role.
+   */
+  oidcDefaultRole: UserRole | null | undefined;
   /** Parsed, trimmed, non-empty OIDC_ADMIN_GROUPS. Empty array if unset. */
   oidcAdminGroups: string[];
   /** Parsed, trimmed, non-empty OIDC_EDITOR_GROUPS. Empty array if unset. */
@@ -227,6 +235,16 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     OIDC_READONLY_GROUPS: oidcReadonlyGroups,
   });
 
+  // "deny" -> null (see the Config.oidcDefaultRole doc comment); leave
+  // `undefined` alone so downstream code can tell "unset" apart from
+  // "explicitly set to deny".
+  const oidcDefaultRole: UserRole | null | undefined =
+    parsed.OIDC_DEFAULT_ROLE === undefined
+      ? undefined
+      : parsed.OIDC_DEFAULT_ROLE === "deny"
+        ? null
+        : parsed.OIDC_DEFAULT_ROLE;
+
   return {
     libraryRoot: parsed.LIBRARY_ROOT,
     databasePath: parsed.DATABASE_PATH,
@@ -242,7 +260,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     oidc,
     sessionSecret: parsed.SESSION_SECRET ?? null,
     oidcGroupsClaim: parsed.OIDC_GROUPS_CLAIM ?? null,
-    oidcDefaultRole: parsed.OIDC_DEFAULT_ROLE ?? null,
+    oidcDefaultRole,
     oidcAdminGroups,
     oidcEditorGroups,
     oidcReadonlyGroups,

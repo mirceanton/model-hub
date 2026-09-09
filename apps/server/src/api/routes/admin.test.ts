@@ -37,7 +37,7 @@ const OIDC_CONFIG: Config = {
   },
   sessionSecret: "a".repeat(32),
   oidcGroupsClaim: null,
-  oidcDefaultRole: null,
+  oidcDefaultRole: undefined,
   oidcAdminGroups: [],
   oidcEditorGroups: [],
   oidcReadonlyGroups: [],
@@ -290,5 +290,56 @@ describe("/api/admin/role-mapping (env-locked settings/groups)", () => {
 
     expect(res.statusCode).toBe(400);
     expect(db.select().from(mappingsTable).where(eq(mappingsTable.id, mapping.id)).get()).toBeDefined();
+  });
+});
+
+describe("/api/admin/role-mapping/settings (deny default role)", () => {
+  let db: DbClient;
+  let app: FastifyInstance;
+  let admin: UserRow;
+
+  beforeEach(async () => {
+    db = createDbClient(":memory:");
+    runMigrations(db);
+    app = buildApp(db, OIDC_CONFIG); // oidcDefaultRole unset -> not env-locked
+    await app.ready();
+    admin = insertUser(db, { role: "admin", oidcSubject: "admin-sub" });
+  });
+
+  afterEach(async () => {
+    await app.close();
+  });
+
+  it('PATCH accepts defaultRole: "deny" and persists it as null', async () => {
+    const res = await app.inject({
+      method: "PATCH",
+      url: "/api/admin/role-mapping/settings",
+      cookies: sessionCookie(app, db, admin.id),
+      payload: { defaultRole: "deny" },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().defaultRole).toBeNull();
+
+    const getRes = await app.inject({
+      method: "GET",
+      url: "/api/admin/role-mapping",
+      cookies: sessionCookie(app, db, admin.id),
+    });
+    expect(getRes.json().defaultRole).toBeNull();
+  });
+
+  it("reports defaultRoleLockedBy when OIDC_DEFAULT_ROLE forces deny (null), not just a forced role", async () => {
+    await app.close();
+    app = buildApp(db, { ...OIDC_CONFIG, oidcDefaultRole: null });
+    await app.ready();
+
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/admin/role-mapping",
+      cookies: sessionCookie(app, db, admin.id),
+    });
+
+    expect(res.json().defaultRoleLockedBy).toBe("OIDC_DEFAULT_ROLE");
   });
 });

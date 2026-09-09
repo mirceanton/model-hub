@@ -33,6 +33,20 @@ export function parseRole(rawRole: string): UserRole {
   return rawRole;
 }
 
+/** The API/env spelling of "no default role" (see parseDefaultRoleSetting). */
+export const DENY_DEFAULT_ROLE = "deny";
+
+/**
+ * Like parseRole, but also accepts "deny" (-> null), the settings.defaultRole
+ * value meaning "unmatched users are refused login entirely" -- see
+ * lib/roles.ts's resolveRoleFromGroups and auth/session.ts's
+ * AccessDeniedError.
+ */
+export function parseDefaultRoleSetting(raw: string): UserRole | null {
+  if (raw === DENY_DEFAULT_ROLE) return null;
+  return parseRole(raw);
+}
+
 /**
  * Singleton row holding the instance-wide OIDC role-mapping config (the
  * groups-claim name and the fallback role) — created on first use, same
@@ -51,7 +65,7 @@ export function ensureAuthSettings(db: DbClient): AuthSettingsRow {
 
 export function updateAuthSettings(
   db: DbClient,
-  patch: { groupsClaim?: string; defaultRole?: UserRole },
+  patch: { groupsClaim?: string; defaultRole?: UserRole | null },
 ): AuthSettingsRow {
   const current = ensureAuthSettings(db);
 
@@ -59,14 +73,13 @@ export function updateAuthSettings(
   if (!groupsClaim) {
     throw new InvalidGroupNameError("groupsClaim cannot be empty");
   }
+  // `defaultRole` is `UserRole | null` (null = deny), so `??` would wrongly
+  // discard an explicit null -- only an omitted key falls back to `current`.
+  const defaultRole = patch.defaultRole !== undefined ? patch.defaultRole : current.defaultRole;
 
   return db
     .update(authSettingsTable)
-    .set({
-      oidcGroupsClaim: groupsClaim,
-      defaultRole: patch.defaultRole ?? current.defaultRole,
-      updatedAt: new Date(),
-    })
+    .set({ oidcGroupsClaim: groupsClaim, defaultRole, updatedAt: new Date() })
     .where(eq(authSettingsTable.id, current.id))
     .returning()
     .get();
@@ -158,10 +171,16 @@ export function enforceGroupRoleMappings(db: DbClient, groupNamesByRole: Partial
  * the write entirely when nothing would change, to avoid an unnecessary
  * updatedAt bump on every restart.
  */
-export function enforceAuthSettingsFromEnv(db: DbClient, patch: { groupsClaim?: string; defaultRole?: UserRole }): void {
+export function enforceAuthSettingsFromEnv(
+  db: DbClient,
+  patch: { groupsClaim?: string; defaultRole?: UserRole | null },
+): void {
   const current = ensureAuthSettings(db);
   const groupsClaim = patch.groupsClaim ?? current.oidcGroupsClaim;
-  const defaultRole = patch.defaultRole ?? current.defaultRole;
+  // `defaultRole` is `UserRole | null` (null = deny/OIDC_DEFAULT_ROLE=deny),
+  // so `??` would wrongly discard an explicit null -- only an omitted key
+  // (env unset) falls back to `current`.
+  const defaultRole = patch.defaultRole !== undefined ? patch.defaultRole : current.defaultRole;
   if (groupsClaim === current.oidcGroupsClaim && defaultRole === current.defaultRole) return;
 
   db.update(authSettingsTable)

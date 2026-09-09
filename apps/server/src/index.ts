@@ -37,7 +37,10 @@ async function main(): Promise<void> {
     });
     enforceAuthSettingsFromEnv(db, {
       groupsClaim: config.oidcGroupsClaim ?? undefined,
-      defaultRole: config.oidcDefaultRole ?? undefined,
+      // Not `?? undefined`: null here means OIDC_DEFAULT_ROLE=deny, a real
+      // value to enforce, distinct from `undefined` meaning the env var is
+      // unset (see config.ts's Config.oidcDefaultRole doc comment).
+      defaultRole: config.oidcDefaultRole,
     });
   }
 
@@ -66,8 +69,9 @@ async function main(): Promise<void> {
   if (config.oidc && config.oidcGroupsClaim) {
     app.log.info(`OIDC groups claim forced to "${config.oidcGroupsClaim}" from OIDC_GROUPS_CLAIM`);
   }
-  if (config.oidc && config.oidcDefaultRole) {
-    app.log.info(`OIDC default role forced to "${config.oidcDefaultRole}" from OIDC_DEFAULT_ROLE`);
+  if (config.oidc && config.oidcDefaultRole !== undefined) {
+    const label = config.oidcDefaultRole ?? "deny (unmatched users refused login)";
+    app.log.info(`OIDC default role forced to "${label}" from OIDC_DEFAULT_ROLE`);
   }
   app.addHook("onClose", async () => {
     await closeBrowser();

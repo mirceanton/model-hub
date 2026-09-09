@@ -23,7 +23,7 @@ export function buildTestConfig(overrides: Partial<Config> = {}): Config {
     oidc: null,
     sessionSecret: null,
     oidcGroupsClaim: null,
-    oidcDefaultRole: null,
+    oidcDefaultRole: undefined,
     oidcAdminGroups: [],
     oidcEditorGroups: [],
     oidcReadonlyGroups: [],
