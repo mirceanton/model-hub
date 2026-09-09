@@ -1,4 +1,4 @@
-import type { ConfigCategory, ConfigItem, OidcRoleMapping, UserRole } from "@model-hub/shared"
+import type { ConfigCategory, OidcRoleMapping, UserRole } from "@model-hub/shared"
 import { AlertCircle, Loader2, Lock, Plus, Trash2 } from "lucide-react"
 import { useState } from "react"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -329,7 +329,8 @@ function OidcServerConfigSection() {
     <div className="flex flex-col gap-3">
       <span className="text-sm font-medium">OIDC Server Configuration</span>
       <p className="text-xs text-muted-foreground">
-        Set via environment variables — see the Config tab for every setting this instance reads.
+        Set via environment variables — see the Server, Library & Sync, Thumbnails, and Rate
+        Limiting tabs for every other setting this instance reads.
       </p>
       <ul className="flex flex-col divide-y rounded-lg border">
         {ssoItems.map((item) => (
@@ -493,15 +494,17 @@ const CONFIG_CATEGORY_LABELS: Record<ConfigCategory, string> = {
   sso: "SSO",
   "rate-limiting": "Rate Limiting",
 }
-const CONFIG_CATEGORY_ORDER: ConfigCategory[] = ["library", "server", "thumbnails", "sso", "rate-limiting"]
 
-function groupByCategory(items: ConfigItem[]): [ConfigCategory, ConfigItem[]][] {
-  return CONFIG_CATEGORY_ORDER.map(
-    (category): [ConfigCategory, ConfigItem[]] => [category, items.filter((item) => item.category === category)],
-  ).filter(([, categoryItems]) => categoryItems.length > 0)
-}
+/**
+ * Every ConfigCategory except "sso" gets its own standalone settings tab
+ * here, in this order — "sso" items surface instead in the SSO tab's
+ * OidcServerConfigSection above, alongside the OIDC group-mapping config
+ * that lives outside the env-var-backed Config system entirely.
+ */
+const SETTINGS_TAB_CATEGORIES: ConfigCategory[] = ["library", "server", "thumbnails", "rate-limiting"]
 
-function ConfigTab() {
+/** One standalone settings page/tab for a single ConfigCategory — see SETTINGS_TAB_CATEGORIES. */
+function ConfigCategoryTab({ category }: { category: ConfigCategory }) {
   const { data: items, isPending, isError, error } = useAdminConfig()
 
   if (isPending) {
@@ -524,22 +527,23 @@ function ConfigTab() {
     )
   }
 
+  const categoryItems = items.filter((item) => item.category === category)
+
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-3">
       <p className="text-xs text-muted-foreground">
         Read-only values are set via environment variable. Editable values are saved here and take
         effect after the server restarts.
       </p>
-      {groupByCategory(items).map(([category, categoryItems]) => (
-        <div key={category} className="flex flex-col gap-3">
-          <span className="text-sm font-medium">{CONFIG_CATEGORY_LABELS[category]}</span>
-          <ul className="flex flex-col divide-y rounded-lg border">
-            {categoryItems.map((item) => (
-              <ConfigItemRow key={item.key} item={item} />
-            ))}
-          </ul>
-        </div>
-      ))}
+      {categoryItems.length === 0 ? (
+        <p className="text-sm text-muted-foreground">No settings in this category.</p>
+      ) : (
+        <ul className="flex flex-col divide-y rounded-lg border">
+          {categoryItems.map((item) => (
+            <ConfigItemRow key={item.key} item={item} />
+          ))}
+        </ul>
+      )}
     </div>
   )
 }
@@ -569,7 +573,11 @@ export function AdminPage() {
           <TabsTrigger value="stats">Stats</TabsTrigger>
           <TabsTrigger value="users">Users</TabsTrigger>
           <TabsTrigger value="sso">SSO</TabsTrigger>
-          <TabsTrigger value="config">Config</TabsTrigger>
+          {SETTINGS_TAB_CATEGORIES.map((category) => (
+            <TabsTrigger key={category} value={category}>
+              {CONFIG_CATEGORY_LABELS[category]}
+            </TabsTrigger>
+          ))}
         </TabsList>
         <TabsContent value="stats" className="mt-4">
           <StatsTab />
@@ -580,9 +588,11 @@ export function AdminPage() {
         <TabsContent value="sso" className="mt-4">
           <SsoTab />
         </TabsContent>
-        <TabsContent value="config" className="mt-4">
-          <ConfigTab />
-        </TabsContent>
+        {SETTINGS_TAB_CATEGORIES.map((category) => (
+          <TabsContent key={category} value={category} className="mt-4">
+            <ConfigCategoryTab category={category} />
+          </TabsContent>
+        ))}
       </Tabs>
     </div>
   )
