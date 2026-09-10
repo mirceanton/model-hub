@@ -20,7 +20,6 @@ import { registerModelRoutes } from "./routes/models.js";
 import { registerProjectExportRoutes } from "./routes/project-export.js";
 import { registerProjectThumbnailRoutes } from "./routes/project-thumbnails.js";
 import { registerProjectRoutes } from "./routes/projects.js";
-import { registerSourceSnapshotRoutes } from "./routes/source-snapshot.js";
 import { registerStatsRoutes } from "./routes/stats.js";
 import { registerSyncRoutes } from "./routes/sync.js";
 import { registerTagRoutes } from "./routes/tags.js";
@@ -92,7 +91,6 @@ export function buildApp(db: DbClient, config: Config): FastifyInstance {
     registerDownloadRoutes(instance, db);
     registerVersionRoutes(instance, db, config);
     registerThumbnailRoutes(instance, db);
-    registerSourceSnapshotRoutes(instance, db);
     registerTagRoutes(instance, db);
     registerTrashRoutes(instance, db, config.libraryRoot);
     registerSyncRoutes(instance, db, config.libraryRoot);

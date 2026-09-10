@@ -52,7 +52,6 @@ import {
   getTagsForModels,
   InvalidTagNameError,
 } from "../../lib/tags.js";
-import { enqueueSourceSnapshot } from "../../source-snapshot/trigger.js";
 import { getLog } from "../../sync/git.js";
 import { runExclusive } from "../../sync/queue.js";
 import { LOCAL_UPLOAD_IDENTITY, reconcileModelCore } from "../../sync/reconcile.js";
@@ -76,9 +75,6 @@ export function toApiModel(row: ModelRow, tags: Tag[], duplicateModels: Duplicat
     missingSince: row.missingSince ? row.missingSince.getTime() : null,
     favorite: row.favorite,
     sourceUrl: row.sourceUrl,
-    sourceSnapshotStatus: row.sourceSnapshotStatus,
-    sourceSnapshotError: row.sourceSnapshotError,
-    sourceSnapshotFetchedAt: row.sourceSnapshotFetchedAt ? row.sourceSnapshotFetchedAt.getTime() : null,
     deletedAt: row.deletedAt ? row.deletedAt.getTime() : null,
     createdAt: row.createdAt.getTime(),
     updatedAt: row.updatedAt.getTime(),
@@ -411,7 +407,6 @@ export function registerModelRoutes(
           path: dirPath,
           title: title!.trim(),
           sourceUrl: trimmedSourceUrl,
-          sourceSnapshotStatus: trimmedSourceUrl ? "pending" : "none",
           createdAt: now,
           updatedAt: now,
         })
@@ -442,9 +437,6 @@ export function registerModelRoutes(
 
     const updatedRow = db.select().from(modelsTable).where(eq(modelsTable.id, modelRow.id)).get()!;
     maybeEnqueueThumbnail(db, updatedRow, result);
-    if (trimmedSourceUrl) {
-      enqueueSourceSnapshot(db, updatedRow);
-    }
 
     return reply
       .code(201)
@@ -497,10 +489,6 @@ export function registerModelRoutes(
       files,
       attachments,
       gitLog,
-      // Only on the detail response, not the list one (toApiModel) — same
-      // reasoning as `files`/`gitLog`: potentially large, only needed when
-      // actually viewing one model.
-      sourceSnapshotHtml: row.sourceSnapshotHtml,
     };
     return detail;
   });
@@ -555,14 +543,11 @@ export function registerModelRoutes(
     }
 
     // undefined: field omitted, leave sourceUrl untouched. null or "": clear
-    // it. Non-empty string: must be a syntactically valid http(s) URL — the
-    // SSRF-relevant checks (resolved-IP blocking) happen at fetch time in
-    // source-snapshot/generate.ts, not here.
+    // it. Non-empty string: must be a syntactically valid http(s) URL.
     const normalizedSourceUrl = sourceUrl === undefined ? undefined : sourceUrl?.trim() || null;
     if (normalizedSourceUrl != null && !isValidHttpUrl(normalizedSourceUrl)) {
       return reply.code(400).send({ error: "sourceUrl must be a valid http(s) URL" });
     }
-    const sourceUrlChanged = normalizedSourceUrl !== undefined && normalizedSourceUrl !== row.sourceUrl;
 
     if (primaryFilePath !== undefined) {
       const fileRow = db
@@ -595,18 +580,6 @@ export function registerModelRoutes(
           ? { thumbnailStatus: "pending" as const, thumbnailSource: "auto" as const }
           : {}),
         ...(normalizedSourceUrl !== undefined ? { sourceUrl: normalizedSourceUrl } : {}),
-        // A changed sourceUrl (including clearing it) invalidates whatever
-        // snapshot was fetched for the *previous* URL — drop it and, if
-        // there's a new URL to fetch, mark it pending so the queued job
-        // below has somewhere terminal to land it.
-        ...(sourceUrlChanged
-          ? {
-              sourceSnapshotStatus: normalizedSourceUrl ? ("pending" as const) : ("none" as const),
-              sourceSnapshotHtml: null,
-              sourceSnapshotError: null,
-              sourceSnapshotFetchedAt: null,
-            }
-          : {}),
         updatedAt: new Date(),
       })
       .where(eq(modelsTable.id, id))
@@ -615,9 +588,6 @@ export function registerModelRoutes(
 
     if (primaryFileChanged) {
       enqueueThumbnail(db, updated);
-    }
-    if (sourceUrlChanged && normalizedSourceUrl) {
-      enqueueSourceSnapshot(db, updated);
     }
 
     return toApiModel(updated, getTagsForModel(db, id), getDuplicateModels(db, id));

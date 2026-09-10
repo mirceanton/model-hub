@@ -228,17 +228,6 @@ export function captureThumbnail(id: number, image: Blob): Promise<CaptureThumbn
   })
 }
 
-export interface RefreshSourceSnapshotResult {
-  ok: true
-  sourceSnapshotStatus: "pending"
-}
-
-export function refreshSourceSnapshot(id: number): Promise<RefreshSourceSnapshotResult> {
-  return request<RefreshSourceSnapshotResult>(`/api/models/${id}/source-snapshot/refresh`, {
-    method: "POST",
-  })
-}
-
 export function fetchTrash(): Promise<TrashedModel[]> {
   return request<TrashedModel[]>("/api/trash")
 }
