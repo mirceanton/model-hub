@@ -87,9 +87,6 @@ export const modelSchema = {
     missingSince: { type: ["number", "null"] },
     favorite: { type: "boolean" },
     sourceUrl: { type: ["string", "null"] },
-    sourceSnapshotStatus: { type: "string", enum: ["none", "pending", "ready", "error"] },
-    sourceSnapshotError: { type: ["string", "null"] },
-    sourceSnapshotFetchedAt: { type: ["number", "null"] },
     deletedAt: { type: ["number", "null"] },
     createdAt: { type: "number" },
     updatedAt: { type: "number" },
@@ -113,9 +110,6 @@ export const modelSchema = {
     "missingSince",
     "favorite",
     "sourceUrl",
-    "sourceSnapshotStatus",
-    "sourceSnapshotError",
-    "sourceSnapshotFetchedAt",
     "deletedAt",
     "createdAt",
     "updatedAt",
@@ -154,9 +148,8 @@ export const modelDetailSchema = {
     files: { type: "array", items: fileEntrySchema },
     attachments: { type: "array", items: fileEntrySchema },
     gitLog: { type: "array", items: gitLogEntrySchema },
-    sourceSnapshotHtml: { type: ["string", "null"] },
   },
-  required: [...modelSchema.required, "files", "attachments", "gitLog", "sourceSnapshotHtml"],
+  required: [...modelSchema.required, "files", "attachments", "gitLog"],
 } as const;
 
 export const modelListResultSchema = {

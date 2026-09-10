@@ -5,7 +5,6 @@ import { createDbClient } from "./db/client.js";
 import { runMigrations } from "./db/migrate.js";
 import { enforceAuthSettingsFromEnv, enforceGroupRoleMappings } from "./lib/auth-settings.js";
 import { getConfigOverrides } from "./lib/config-items.js";
-import { initSourceSnapshotPipeline, sweepPendingSourceSnapshots } from "./source-snapshot/trigger.js";
 import { purgeExpiredTrash, scanLibraryRoot } from "./sync/scanner.js";
 import { startWatcher } from "./sync/watcher.js";
 import { closeBrowser } from "./thumbnails/browser.js";
@@ -43,13 +42,6 @@ async function main(): Promise<void> {
       defaultRole: config.oidcDefaultRole,
     });
   }
-
-  // Unlike the thumbnail pipeline, this only ever fetches *other* servers,
-  // so it has no dependency on this server's own app.listen() having bound
-  // yet — safe to start (and sweep any snapshot fetches a crash left
-  // "pending") right away.
-  initSourceSnapshotPipeline();
-  sweepPendingSourceSnapshots(db);
 
   if (config.oidc) {
     await initOidcClient(config.oidc);

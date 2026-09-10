@@ -176,23 +176,17 @@ describe("sourceUrl on the model routes", () => {
     await rm(libraryRoot, { recursive: true, force: true });
   });
 
-  it("defaults to no sourceUrl and a 'none' snapshot status", async () => {
+  it("defaults to no sourceUrl", async () => {
     const model = await createTestModel(db, libraryRoot, "Benchy", {
       "model.stl": "solid benchy\nendsolid benchy\n",
     });
 
     const res = await app.inject({ method: "GET", url: `/api/models/${model.id}` });
-    const body = res.json() as {
-      sourceUrl: string | null;
-      sourceSnapshotStatus: string;
-      sourceSnapshotHtml: string | null;
-    };
+    const body = res.json() as { sourceUrl: string | null };
     expect(body.sourceUrl).toBeNull();
-    expect(body.sourceSnapshotStatus).toBe("none");
-    expect(body.sourceSnapshotHtml).toBeNull();
   });
 
-  it("PATCHing a valid http(s) sourceUrl sets it and marks the snapshot pending", async () => {
+  it("PATCHing a valid http(s) sourceUrl sets it", async () => {
     const model = await createTestModel(db, libraryRoot, "Benchy", {
       "model.stl": "solid benchy\nendsolid benchy\n",
     });
@@ -204,9 +198,8 @@ describe("sourceUrl on the model routes", () => {
     });
 
     expect(res.statusCode).toBe(200);
-    const body = res.json() as { sourceUrl: string; sourceSnapshotStatus: string };
+    const body = res.json() as { sourceUrl: string };
     expect(body.sourceUrl).toBe("https://www.printables.com/model/12345-benchy");
-    expect(body.sourceSnapshotStatus).toBe("pending");
   });
 
   it("rejects a malformed sourceUrl", async () => {
@@ -238,7 +231,7 @@ describe("sourceUrl on the model routes", () => {
     expect(res.statusCode).toBe(400);
   });
 
-  it("clearing sourceUrl also clears the stored snapshot", async () => {
+  it("clears sourceUrl when patched to null", async () => {
     const model = await createTestModel(db, libraryRoot, "Benchy", {
       "model.stl": "solid benchy\nendsolid benchy\n",
     });
@@ -247,11 +240,6 @@ describe("sourceUrl on the model routes", () => {
       url: `/api/models/${model.id}`,
       payload: { sourceUrl: "https://www.printables.com/model/12345-benchy" },
     });
-    // Simulate a snapshot having completed, so we can prove clearing wipes it.
-    db.update(modelsTable)
-      .set({ sourceSnapshotStatus: "ready", sourceSnapshotHtml: "<p>cached</p>" })
-      .where(eq(modelsTable.id, model.id))
-      .run();
 
     const res = await app.inject({
       method: "PATCH",
@@ -260,12 +248,8 @@ describe("sourceUrl on the model routes", () => {
     });
 
     expect(res.statusCode).toBe(200);
-    const body = res.json() as { sourceUrl: string | null; sourceSnapshotStatus: string };
+    const body = res.json() as { sourceUrl: string | null };
     expect(body.sourceUrl).toBeNull();
-    expect(body.sourceSnapshotStatus).toBe("none");
-
-    const detailRes = await app.inject({ method: "GET", url: `/api/models/${model.id}` });
-    expect((detailRes.json() as { sourceSnapshotHtml: string | null }).sourceSnapshotHtml).toBeNull();
   });
 
   it("accepts sourceUrl on model creation", async () => {
@@ -281,9 +265,8 @@ describe("sourceUrl on the model routes", () => {
     });
 
     expect(res.statusCode).toBe(201);
-    const body = res.json() as { sourceUrl: string; sourceSnapshotStatus: string };
+    const body = res.json() as { sourceUrl: string };
     expect(body.sourceUrl).toBe("https://www.thingiverse.com/thing/12345");
-    expect(body.sourceSnapshotStatus).toBe("pending");
   });
 
   it("rejects model creation with a malformed sourceUrl", async () => {

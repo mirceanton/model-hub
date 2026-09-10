@@ -38,7 +38,6 @@ import {
   fetchTrash,
   logout,
   purgeFromTrash,
-  refreshSourceSnapshot,
   regenerateThumbnail,
   removeModelTag,
   removeProjectPin,
@@ -234,14 +233,6 @@ export function useUpdateModel(id: number) {
       primaryFilePath?: string
       sourceUrl?: string | null
     }) => updateModel(id, patch),
-    onSuccess: invalidate,
-  })
-}
-
-export function useRefreshSourceSnapshot(id: number) {
-  const invalidate = useInvalidateModel(id)
-  return useMutation({
-    mutationFn: () => refreshSourceSnapshot(id),
     onSuccess: invalidate,
   })
 }
