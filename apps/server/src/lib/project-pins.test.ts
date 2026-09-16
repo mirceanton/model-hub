@@ -20,6 +20,7 @@ const baseModel: ModelRow = {
   favorite: false,
   sourceUrl: null,
   deletedAt: null,
+  archivedAt: null,
   createdAt: new Date(),
   updatedAt: new Date(),
 };

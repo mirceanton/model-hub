@@ -198,6 +198,10 @@ export interface Model {
   // through a shared code path still type-checks. See TrashedModel for the
   // shape actually used by the Trash view.
   deletedAt: number | null;
+  // Non-null means archived: hidden from the default GET /api/models list
+  // but otherwise fully intact — distinct from deletedAt (trash), which is a
+  // soft-delete pending purge. Archiving has no retention/purge semantics.
+  archivedAt: number | null;
   createdAt: number;
   updatedAt: number;
   tags: Tag[];
@@ -331,7 +335,14 @@ export interface BulkResponse<TId = number> {
   results: BulkResult<TId>[];
 }
 
-export type ModelBulkAction = "delete" | "favorite" | "unfavorite" | "add-tag" | "remove-tag";
+export type ModelBulkAction =
+  | "delete"
+  | "favorite"
+  | "unfavorite"
+  | "archive"
+  | "unarchive"
+  | "add-tag"
+  | "remove-tag";
 
 /**
  * Body of `POST /api/models/bulk`. `tagName` is required (and validated

@@ -197,6 +197,30 @@ describe("bulk operations", () => {
       expect(db.select().from(modelsTable).where(eq(modelsTable.id, b.id)).get()!.favorite).toBe(true);
     });
 
+    it("bulk-archives and bulk-unarchives", async () => {
+      const a = await createTestModel(db, libraryRoot, "Alpha");
+      const b = await createTestModel(db, libraryRoot, "Beta");
+
+      const archiveRes = await app.inject({
+        method: "POST",
+        url: "/api/models/bulk",
+        payload: { ids: [a.id, b.id], action: "archive" },
+      });
+      expect(archiveRes.statusCode).toBe(200);
+      expect((archiveRes.json() as BulkResponse).results.every((r) => r.success)).toBe(true);
+      expect(db.select().from(modelsTable).where(eq(modelsTable.id, a.id)).get()!.archivedAt).not.toBeNull();
+      expect(db.select().from(modelsTable).where(eq(modelsTable.id, b.id)).get()!.archivedAt).not.toBeNull();
+
+      const unarchiveRes = await app.inject({
+        method: "POST",
+        url: "/api/models/bulk",
+        payload: { ids: [a.id], action: "unarchive" },
+      });
+      expect(unarchiveRes.statusCode).toBe(200);
+      expect(db.select().from(modelsTable).where(eq(modelsTable.id, a.id)).get()!.archivedAt).toBeNull();
+      expect(db.select().from(modelsTable).where(eq(modelsTable.id, b.id)).get()!.archivedAt).not.toBeNull();
+    });
+
     it("bulk add-tag attaches an existing-or-created tag to every requested model", async () => {
       const a = await createTestModel(db, libraryRoot, "Alpha");
       const b = await createTestModel(db, libraryRoot, "Beta");

@@ -2,6 +2,7 @@ import type { BulkResponse, Model, ModelSortField, SortOrder } from "@model-hub/
 import {
   AlertCircle,
   Archive,
+  ArchiveRestore,
   ChevronLeft,
   ChevronRight,
   FolderOpen,
@@ -16,6 +17,7 @@ import {
 import { useEffect, useMemo, useState } from "react"
 import { Link, useSearchParams } from "react-router"
 import { useMainMaxWidth } from "@/components/app-shell"
+import { ArchiveToggle } from "@/components/archive-toggle"
 import { BulkActionBar, BulkFailureAlert } from "@/components/bulk-action-bar"
 import { BulkAddTagButton, BulkRemoveTagButton } from "@/components/bulk-tag-dialogs"
 import { CreateModelDialog } from "@/components/create-model-dialog"
@@ -131,6 +133,10 @@ export function ModelListPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const activeTags = useMemo(() => searchParams.getAll("tag"), [searchParams])
   const [favoritesOnly, setFavoritesOnly] = useState(false)
+  // Switches the list between the default (active-only) and archived-only
+  // view — a view mode, not a stackable filter, same treatment as
+  // favoritesOnly above (session-local, not part of the shareable URL).
+  const [archivedOnly, setArchivedOnly] = useState(false)
   const [perPageIndex, setPerPageIndex] = useState(DEFAULT_PER_PAGE_INDEX)
   const [page, setPage] = useState(1)
   const [sortValue, setSortValue] = useState(DEFAULT_SORT.value)
@@ -166,7 +172,7 @@ export function ModelListPage() {
 
   useEffect(() => {
     setPage(1)
-  }, [search, activeTags, favoritesOnly, fileFilters, perPage, sortValue])
+  }, [search, activeTags, favoritesOnly, archivedOnly, fileFilters, perPage, sortValue])
 
   const extensionFilter = fileFilters.extension.trim().toLowerCase() || undefined
   const minSizeMB = parsePositiveNumber(fileFilters.minSizeMB)
@@ -216,6 +222,7 @@ export function ModelListPage() {
     q: search || undefined,
     tags: activeTags.length > 0 ? activeTags : undefined,
     favorite: favoritesOnly || undefined,
+    archived: archivedOnly || undefined,
     extension: extensionFilter,
     minSizeBytes: minSizeMB !== undefined ? Math.round(minSizeMB * MB) : undefined,
     maxSizeBytes: maxSizeMB !== undefined ? Math.round(maxSizeMB * MB) : undefined,
@@ -228,7 +235,7 @@ export function ModelListPage() {
   })
 
   const isFiltered =
-    search.trim().length > 0 || activeTags.length > 0 || favoritesOnly || hasFileFilters
+    search.trim().length > 0 || activeTags.length > 0 || favoritesOnly || archivedOnly || hasFileFilters
   const total = models?.total ?? 0
   const totalPages = Math.max(1, Math.ceil(total / perPage))
 
@@ -260,6 +267,21 @@ export function ModelListPage() {
             >
               <Star className={cn("size-3.5", favoritesOnly && "fill-current")} />
               Favorites
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              aria-pressed={archivedOnly}
+              onClick={() => setArchivedOnly((v) => !v)}
+              className={cn(archivedOnly && "border-primary/50 bg-primary/10 text-primary")}
+            >
+              {archivedOnly ? (
+                <ArchiveRestore className="size-3.5" />
+              ) : (
+                <Archive className="size-3.5" />
+              )}
+              Archived
             </Button>
             <Button
               type="button"
@@ -497,6 +519,36 @@ export function ModelListPage() {
                         <Star className="size-3.5" />
                         Unfavorite
                       </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={bulkAction.isPending}
+                        onClick={() =>
+                          bulkAction.mutate(
+                            { ids: [...selection.selected], action: "archive" },
+                            { onSuccess: handleBulkSuccess },
+                          )
+                        }
+                      >
+                        <Archive className="size-3.5" />
+                        Archive
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={bulkAction.isPending}
+                        onClick={() =>
+                          bulkAction.mutate(
+                            { ids: [...selection.selected], action: "unarchive" },
+                            { onSuccess: handleBulkSuccess },
+                          )
+                        }
+                      >
+                        <ArchiveRestore className="size-3.5" />
+                        Unarchive
+                      </Button>
                       <BulkAddTagButton
                         allTags={tags}
                         disabled={bulkAction.isPending}
@@ -662,11 +714,18 @@ function ModelCard({
               className="absolute top-2 left-2 bg-background/80 backdrop-blur-sm"
             />
           )}
-          <FavoriteToggle
-            favorite={model.favorite}
-            onToggle={() => update.mutate({ favorite: !model.favorite })}
-            className="absolute top-2 right-2 bg-background/80 backdrop-blur-sm hover:bg-background"
-          />
+          <div className="absolute top-2 right-2 flex items-center gap-1">
+            <ArchiveToggle
+              archived={model.archivedAt != null}
+              onToggle={() => update.mutate({ archived: model.archivedAt == null })}
+              className="bg-background/80 backdrop-blur-sm hover:bg-background"
+            />
+            <FavoriteToggle
+              favorite={model.favorite}
+              onToggle={() => update.mutate({ favorite: !model.favorite })}
+              className="bg-background/80 backdrop-blur-sm hover:bg-background"
+            />
+          </div>
         </CardHeader>
         <CardContent className="flex flex-col gap-1.5 px-3">
           <div className="flex items-start justify-between gap-2">
