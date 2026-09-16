@@ -43,6 +43,12 @@ export const models = sqliteTable("models", {
   // (sync/scanner.ts's purgeExpiredTrash, riding the same periodic tick as
   // scanLibraryRoot) hard-deletes anything past the retention window.
   deletedAt: integer("deleted_at", { mode: "timestamp_ms" }),
+  // Non-null means "archived": hidden from the default GET /api/models list
+  // (see api/routes/models.ts) but otherwise fully intact — unlike deletedAt
+  // (trash), archiving has no filesystem/git side effect and no retention/
+  // purge semantics; it's a durable, user-driven "hide from the default
+  // view" flag, individually viewable/editable the same as any active model.
+  archivedAt: integer("archived_at", { mode: "timestamp_ms" }),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
 });

@@ -39,6 +39,8 @@ export interface ModelFilters {
   /** All listed tags must match (AND) — sent as repeated `?tag=` params. */
   tags?: string[]
   favorite?: boolean
+  /** When true, shows only archived models instead of excluding them (the default). */
+  archived?: boolean
   /** Only models with at least one tracked file (model file or attachment) of this extension, e.g. "obj" or "pdf". */
   extension?: string
   minSizeBytes?: number
@@ -56,6 +58,7 @@ export function fetchModels(filters: ModelFilters = {}): Promise<ModelListResult
   if (filters.q) params.set("q", filters.q)
   for (const tag of filters.tags ?? []) params.append("tag", tag)
   if (filters.favorite) params.set("favorite", "true")
+  if (filters.archived) params.set("archived", "true")
   if (filters.extension) params.set("extension", filters.extension)
   if (filters.minSizeBytes !== undefined) params.set("minSizeBytes", String(filters.minSizeBytes))
   if (filters.maxSizeBytes !== undefined) params.set("maxSizeBytes", String(filters.maxSizeBytes))
@@ -79,6 +82,7 @@ export function updateModel(
     title?: string
     description?: string
     favorite?: boolean
+    archived?: boolean
     primaryFilePath?: string
     sourceUrl?: string | null
   },

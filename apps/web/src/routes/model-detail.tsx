@@ -20,6 +20,7 @@ import {
 } from "lucide-react"
 import { lazy, Suspense, useState } from "react"
 import { Link, useNavigate, useParams } from "react-router"
+import { ArchiveToggle } from "@/components/archive-toggle"
 import { BulkActionBar, BulkFailureAlert } from "@/components/bulk-action-bar"
 import { DuplicateBadge } from "@/components/duplicate-badge"
 import { FavoriteToggle } from "@/components/favorite-toggle"
@@ -107,6 +108,7 @@ export function ModelDetailPage() {
             <SyncStatusBadge status={model.syncStatus} />
             <DuplicateBadge duplicates={model.duplicateModels} />
             <ModelFavoriteToggle modelId={model.id} favorite={model.favorite} />
+            <ModelArchiveToggle modelId={model.id} archived={model.archivedAt != null} />
           </div>
           <p className="break-all font-mono text-xs text-muted-foreground">{model.path}</p>
           <ModelSource modelId={model.id} sourceUrl={model.sourceUrl} />
@@ -445,6 +447,13 @@ function ModelFavoriteToggle({ modelId, favorite }: { modelId: number; favorite:
   const update = useUpdateModel(modelId)
   return (
     <FavoriteToggle favorite={favorite} onToggle={() => update.mutate({ favorite: !favorite })} />
+  )
+}
+
+function ModelArchiveToggle({ modelId, archived }: { modelId: number; archived: boolean }) {
+  const update = useUpdateModel(modelId)
+  return (
+    <ArchiveToggle archived={archived} onToggle={() => update.mutate({ archived: !archived })} />
   )
 }
 

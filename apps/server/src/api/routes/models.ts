@@ -12,7 +12,7 @@ import type {
   Tag,
 } from "@model-hub/shared";
 import { classifyAttachmentExtension } from "@model-hub/shared";
-import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNotNull, isNull, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { requireRole } from "../../auth/guard.js";
 import type { Config } from "../../config.js";
@@ -76,6 +76,7 @@ export function toApiModel(row: ModelRow, tags: Tag[], duplicateModels: Duplicat
     favorite: row.favorite,
     sourceUrl: row.sourceUrl,
     deletedAt: row.deletedAt ? row.deletedAt.getTime() : null,
+    archivedAt: row.archivedAt ? row.archivedAt.getTime() : null,
     createdAt: row.createdAt.getTime(),
     updatedAt: row.updatedAt.getTime(),
     tags,
@@ -167,6 +168,10 @@ export function registerModelRoutes(
       // tags must match (AND), not any one of them.
       tag?: string | string[];
       favorite?: string;
+      // Default excludes archived models (like deletedAt, but no retention
+      // semantics — see CLAUDE.md/db/schema.ts). "true" flips the list to
+      // archived-only instead of merely including them alongside active ones.
+      archived?: string;
       // Matches a model having at least one tracked file (model file or
       // attachment, e.g. "obj" or "pdf") with this extension — see
       // lib/file-filters.ts's getModelIdsWithExtension.
@@ -197,6 +202,7 @@ export function registerModelRoutes(
               anyOf: [{ type: "string" }, { type: "array", items: { type: "string" } }],
             },
             favorite: { type: "string", enum: ["true", "false"] },
+            archived: { type: "string", enum: ["true", "false"] },
             extension: { type: "string" },
             minSizeBytes: { type: "string" },
             maxSizeBytes: { type: "string" },
@@ -220,10 +226,15 @@ export function registerModelRoutes(
         : "title";
     const orderFn = request.query.order === "desc" ? desc : asc;
 
+    const archivedFilter =
+      request.query.archived === "true"
+        ? isNotNull(modelsTable.archivedAt)
+        : isNull(modelsTable.archivedAt);
+
     let rows = db
       .select()
       .from(modelsTable)
-      .where(isNull(modelsTable.deletedAt))
+      .where(and(isNull(modelsTable.deletedAt), archivedFilter))
       .orderBy(orderFn(SORT_COLUMNS[sortField]))
       .all();
 
@@ -499,6 +510,7 @@ export function registerModelRoutes(
       title?: string;
       description?: string;
       favorite?: boolean;
+      archived?: boolean;
       primaryFilePath?: string;
       sourceUrl?: string | null;
     };
@@ -515,6 +527,7 @@ export function registerModelRoutes(
             title: { type: "string" },
             description: { type: "string" },
             favorite: { type: "boolean" },
+            archived: { type: "boolean" },
             primaryFilePath: { type: "string" },
             sourceUrl: { type: ["string", "null"] },
           },
@@ -537,7 +550,7 @@ export function registerModelRoutes(
       return reply.code(404).send({ error: "model not found" });
     }
 
-    const { title, description, favorite, primaryFilePath, sourceUrl } = request.body ?? {};
+    const { title, description, favorite, archived, primaryFilePath, sourceUrl } = request.body ?? {};
     if (title !== undefined && title.trim().length === 0) {
       return reply.code(400).send({ error: "title cannot be empty" });
     }
@@ -575,6 +588,7 @@ export function registerModelRoutes(
         ...(title !== undefined ? { title: title.trim() } : {}),
         ...(description !== undefined ? { description } : {}),
         ...(favorite !== undefined ? { favorite } : {}),
+        ...(archived !== undefined ? { archivedAt: archived ? new Date() : null } : {}),
         ...(primaryFilePath !== undefined ? { primaryFilePath } : {}),
         ...(primaryFileChanged
           ? { thumbnailStatus: "pending" as const, thumbnailSource: "auto" as const }
@@ -659,7 +673,7 @@ export function registerModelRoutes(
             ids: { type: "array", items: { type: "number" }, minItems: 1 },
             action: {
               type: "string",
-              enum: ["delete", "favorite", "unfavorite", "add-tag", "remove-tag"],
+              enum: ["delete", "favorite", "unfavorite", "archive", "unarchive", "add-tag", "remove-tag"],
             },
             tagName: { type: "string" },
             tagId: { type: "number" },
@@ -681,6 +695,8 @@ export function registerModelRoutes(
         "delete",
         "favorite",
         "unfavorite",
+        "archive",
+        "unarchive",
         "add-tag",
         "remove-tag",
       ];
@@ -728,6 +744,12 @@ export function registerModelRoutes(
           } else if (action === "favorite" || action === "unfavorite") {
             db.update(modelsTable)
               .set({ favorite: action === "favorite", updatedAt: new Date() })
+              .where(eq(modelsTable.id, id))
+              .run();
+            results.push({ id, success: true });
+          } else if (action === "archive" || action === "unarchive") {
+            db.update(modelsTable)
+              .set({ archivedAt: action === "archive" ? new Date() : null, updatedAt: new Date() })
               .where(eq(modelsTable.id, id))
               .run();
             results.push({ id, success: true });

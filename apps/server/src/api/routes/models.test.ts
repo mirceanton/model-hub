@@ -303,6 +303,80 @@ describe("sourceUrl on the model routes", () => {
   });
 });
 
+describe("archiving models", () => {
+  let libraryRoot: string;
+  let db: DbClient;
+  let app: FastifyInstance;
+
+  beforeEach(async () => {
+    libraryRoot = await mkdtemp(join(tmpdir(), "model-hub-archive-"));
+    db = createDbClient(":memory:");
+    runMigrations(db);
+    app = await buildTestApp(db, libraryRoot);
+  });
+
+  afterEach(async () => {
+    await app.close();
+    await rm(libraryRoot, { recursive: true, force: true });
+  });
+
+  it("defaults to excluding archived models from the list, and ?archived=true shows only archived ones", async () => {
+    const active = await createTestModel(db, libraryRoot, "Active", { "a.stl": "solid a\nendsolid a\n" });
+    const archived = await createTestModel(db, libraryRoot, "Archived", { "b.stl": "solid b\nendsolid b\n" });
+    db.update(modelsTable).set({ archivedAt: new Date() }).where(eq(modelsTable.id, archived.id)).run();
+
+    const defaultRes = await app.inject({ method: "GET", url: "/api/models" });
+    const defaultBody = defaultRes.json() as { data: { id: number }[] };
+    expect(defaultBody.data.map((m) => m.id)).toEqual([active.id]);
+
+    const archivedRes = await app.inject({ method: "GET", url: "/api/models?archived=true" });
+    const archivedBody = archivedRes.json() as { data: { id: number }[] };
+    expect(archivedBody.data.map((m) => m.id)).toEqual([archived.id]);
+  });
+
+  it("PATCH sets and clears archivedAt via the archived field", async () => {
+    const model = await createTestModel(db, libraryRoot, "Benchy", {
+      "model.stl": "solid benchy\nendsolid benchy\n",
+    });
+
+    const setRes = await app.inject({
+      method: "PATCH",
+      url: `/api/models/${model.id}`,
+      payload: { archived: true },
+    });
+    expect(setRes.statusCode).toBe(200);
+    const setBody = setRes.json() as { archivedAt: number | null };
+    expect(setBody.archivedAt).not.toBeNull();
+
+    const clearRes = await app.inject({
+      method: "PATCH",
+      url: `/api/models/${model.id}`,
+      payload: { archived: false },
+    });
+    expect(clearRes.statusCode).toBe(200);
+    const clearBody = clearRes.json() as { archivedAt: number | null };
+    expect(clearBody.archivedAt).toBeNull();
+  });
+
+  it("keeps an archived model individually reachable via GET/PATCH detail routes (only the default list excludes it)", async () => {
+    const model = await createTestModel(db, libraryRoot, "Benchy", {
+      "model.stl": "solid benchy\nendsolid benchy\n",
+    });
+    db.update(modelsTable).set({ archivedAt: new Date() }).where(eq(modelsTable.id, model.id)).run();
+
+    const getRes = await app.inject({ method: "GET", url: `/api/models/${model.id}` });
+    expect(getRes.statusCode).toBe(200);
+
+    const patchRes = await app.inject({
+      method: "PATCH",
+      url: `/api/models/${model.id}`,
+      payload: { title: "Renamed while archived" },
+    });
+    expect(patchRes.statusCode).toBe(200);
+    expect((patchRes.json() as { title: string }).title).toBe("Renamed while archived");
+  });
+});
+
 describe("filtering the model list by tag", () => {
   let libraryRoot: string;
   let db: DbClient;
