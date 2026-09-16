@@ -73,6 +73,7 @@ export function toPinnedModel(pin: ProjectModelPinRow, model: ModelRow): PinnedM
     // matches resolvePinTarget's own `!sha` check above, so a model whose
     // lastSyncedCommitSha hasn't been populated never shows as outdated.
     isOutdated: !!model.lastSyncedCommitSha && model.lastSyncedCommitSha !== pin.pinnedCommitSha,
+    printedAt: pin.printedAt ? pin.printedAt.getTime() : null,
   };
 }
 
@@ -117,6 +118,29 @@ export function updatePin(
   return db
     .update(projectModelPinsTable)
     .set({ pinnedCommitSha: sha, pinnedCommitMessage: message, pinnedAt: new Date() })
+    .where(
+      and(eq(projectModelPinsTable.projectId, projectId), eq(projectModelPinsTable.modelId, modelId)),
+    )
+    .returning()
+    .get();
+}
+
+/**
+ * Sets or clears a pin's printed marker — mirrors updatePin's signature/
+ * return shape above (undefined when no such pin exists, so the route layer
+ * can 404). `printed: true` stamps the current time; `false` clears it back
+ * to null (not-printed), same "set = printed, null = not" convention as the
+ * printedAt column itself.
+ */
+export function setPinPrinted(
+  db: DbClient,
+  projectId: number,
+  modelId: number,
+  printed: boolean,
+): ProjectModelPinRow | undefined {
+  return db
+    .update(projectModelPinsTable)
+    .set({ printedAt: printed ? new Date() : null })
     .where(
       and(eq(projectModelPinsTable.projectId, projectId), eq(projectModelPinsTable.modelId, modelId)),
     )

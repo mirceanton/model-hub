@@ -280,6 +280,10 @@ export interface PinnedModel {
   pinnedAt: number;
   // True when pinnedCommitSha no longer matches the model's current lastSyncedCommitSha.
   isOutdated: boolean;
+  // Non-null means this pin has been marked printed (and records when).
+  // Per-pin, not per-model: the same model can be pinned into multiple
+  // projects and printed in one but not another.
+  printedAt: number | null;
 }
 
 export interface Project {
@@ -366,7 +370,7 @@ export interface ModelFilesBulkRequest {
   action: "delete";
 }
 
-export type ProjectPinsBulkAction = "remove" | "bump";
+export type ProjectPinsBulkAction = "remove" | "bump" | "mark-printed" | "mark-unprinted";
 
 /** Body of `POST /api/projects/:id/pins/bulk` — `ids` are modelIds already pinned to that project. */
 export interface ProjectPinsBulkRequest {

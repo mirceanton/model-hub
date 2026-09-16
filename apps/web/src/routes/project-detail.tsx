@@ -10,6 +10,8 @@ import {
   ListChecks,
   Loader2,
   PackageX,
+  Printer,
+  PrinterCheck,
   Trash2,
   X,
 } from "lucide-react"
@@ -168,6 +170,46 @@ export function ProjectDetailPage() {
                 >
                   <ArrowUpCircle className="size-3.5" />
                   Bump to latest
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={bulkPins.isPending}
+                  onClick={() =>
+                    bulkPins.mutate(
+                      { ids: [...pinSelection.selected], action: "mark-printed" },
+                      {
+                        onSuccess: (data) => {
+                          setPinBulkResult(data)
+                          pinSelection.clear()
+                        },
+                      },
+                    )
+                  }
+                >
+                  <PrinterCheck className="size-3.5" />
+                  Mark printed
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={bulkPins.isPending}
+                  onClick={() =>
+                    bulkPins.mutate(
+                      { ids: [...pinSelection.selected], action: "mark-unprinted" },
+                      {
+                        onSuccess: (data) => {
+                          setPinBulkResult(data)
+                          pinSelection.clear()
+                        },
+                      },
+                    )
+                  }
+                >
+                  <Printer className="size-3.5" />
+                  Mark unprinted
                 </Button>
                 <Button
                   type="button"

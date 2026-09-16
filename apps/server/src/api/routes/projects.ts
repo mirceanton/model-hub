@@ -24,6 +24,7 @@ import {
   pinExists,
   removePin,
   resolvePinTarget,
+  setPinPrinted,
   toPinnedModel,
   updatePin,
 } from "../../lib/project-pins.js";
@@ -301,6 +302,42 @@ export function registerProjectRoutes(app: FastifyInstance, db: DbClient): void 
     },
   );
 
+  // Dedicated to the printed marker — deliberately not folded into the
+  // PATCH .../pins/:modelId route above, which is dedicated to re-pinning/
+  // commit-bumping (and goes through resolvePinTarget's git validation,
+  // which "printed" has nothing to do with).
+  app.patch<{ Params: { id: string; modelId: string }; Body: { printed?: boolean } }>(
+    "/api/projects/:id/pins/:modelId/printed",
+    async (request, reply) => {
+      const id = Number(request.params.id);
+      const modelId = Number(request.params.modelId);
+      if (!Number.isInteger(id) || !Number.isInteger(modelId)) {
+        return reply.code(400).send({ error: "invalid id" });
+      }
+
+      const project = db.select().from(projectsTable).where(eq(projectsTable.id, id)).get();
+      if (!project) {
+        return reply.code(404).send({ error: "project not found" });
+      }
+      const model = getActiveModel(db, modelId);
+      if (!model) {
+        return reply.code(404).send({ error: "model not found" });
+      }
+
+      const printed = request.body?.printed;
+      if (typeof printed !== "boolean") {
+        return reply.code(400).send({ error: "printed is required" });
+      }
+
+      const pinRow = setPinPrinted(db, id, modelId, printed);
+      if (!pinRow) {
+        return reply.code(404).send({ error: "model is not pinned to this project" });
+      }
+      db.update(projectsTable).set({ updatedAt: new Date() }).where(eq(projectsTable.id, id)).run();
+      return toPinnedModel(pinRow, model);
+    },
+  );
+
   app.delete<{ Params: { id: string; modelId: string } }>(
     "/api/projects/:id/pins/:modelId",
     async (request, reply) => {
@@ -324,14 +361,19 @@ export function registerProjectRoutes(app: FastifyInstance, db: DbClient): void 
   // lastSyncedCommitSha) — no separate sha-resolution logic. "remove" reuses
   // removePin, same as the single-item DELETE route, but first checks
   // pinExists so an id that was never (or no longer) pinned here shows up
-  // as a per-item failure instead of a silent no-op success.
+  // as a per-item failure instead of a silent no-op success. "mark-printed"/
+  // "mark-unprinted" reuse setPinPrinted, same pinExists-first check as
+  // "remove" (setPinPrinted itself would just no-op-return undefined, but
+  // checking up front keeps every action's not-pinned failure message
+  // identical).
   //
   // Deliberately left ungated (unlike POST /api/models/bulk and POST
-  // /api/projects/bulk above): both actions here are reversible and not
+  // /api/projects/bulk above): every action here is reversible and not
   // data-destructive — "remove" only drops a pin (the target model is
-  // untouched and can be re-added), "bump" only repoints one — so neither
-  // carries the "one click destroys dozens of things" risk that motivated
-  // gating the other two bulk routes.
+  // untouched and can be re-added), "bump" only repoints one, "mark-
+  // printed"/"mark-unprinted" only toggle a flag — so none carries the "one
+  // click destroys dozens of things" risk that motivated gating the other
+  // two bulk routes.
   app.post<{ Params: { id: string }; Body: ProjectPinsBulkRequest }>(
     "/api/projects/:id/pins/bulk",
     async (request, reply) => {
@@ -348,8 +390,10 @@ export function registerProjectRoutes(app: FastifyInstance, db: DbClient): void 
       if (!Array.isArray(ids) || ids.length === 0 || ids.some((modelId) => !Number.isInteger(modelId))) {
         return reply.code(400).send({ error: "ids must be a non-empty array of model ids" });
       }
-      if (action !== "remove" && action !== "bump") {
-        return reply.code(400).send({ error: 'action must be "remove" or "bump"' });
+      if (action !== "remove" && action !== "bump" && action !== "mark-printed" && action !== "mark-unprinted") {
+        return reply
+          .code(400)
+          .send({ error: 'action must be "remove", "bump", "mark-printed", or "mark-unprinted"' });
       }
 
       const results: BulkResult[] = [];
@@ -361,6 +405,17 @@ export function registerProjectRoutes(app: FastifyInstance, db: DbClient): void 
             continue;
           }
           removePin(db, id, modelId);
+          anyChanged = true;
+          results.push({ id: modelId, success: true });
+          continue;
+        }
+
+        if (action === "mark-printed" || action === "mark-unprinted") {
+          if (!pinExists(db, id, modelId)) {
+            results.push({ id: modelId, success: false, error: "model is not pinned to this project" });
+            continue;
+          }
+          setPinPrinted(db, id, modelId, action === "mark-printed");
           anyChanged = true;
           results.push({ id: modelId, success: true });
           continue;

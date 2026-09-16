@@ -159,6 +159,12 @@ export const projectModelPins = sqliteTable(
     pinnedCommitSha: text("pinned_commit_sha").notNull(),
     pinnedCommitMessage: text("pinned_commit_message").notNull(),
     pinnedAt: integer("pinned_at", { mode: "timestamp_ms" }).notNull(),
+    // Null = not printed, set = printed (and records when). This is a
+    // property of the *pin* (this {project, model} pairing), not of the
+    // model itself — the same model can be pinned into multiple projects
+    // and printed in one but not another, same reasoning as
+    // pinnedCommitMessage being denormalized per-pin above.
+    printedAt: integer("printed_at", { mode: "timestamp_ms" }),
   },
   (table) => ({
     pk: primaryKey({ columns: [table.projectId, table.modelId] }),

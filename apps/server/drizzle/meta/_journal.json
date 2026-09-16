@@ -106,6 +106,13 @@
       "when": 1789584301343,
       "tag": "0014_simple_smasher",
       "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "6",
+      "when": 1789584657294,
+      "tag": "0015_chief_stone_men",
+      "breakpoints": true
     }
   ]
 }

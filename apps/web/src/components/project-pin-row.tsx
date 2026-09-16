@@ -1,5 +1,5 @@
 import type { GitLogEntry, ModelDetail, PinnedModel } from "@model-hub/shared"
-import { ArrowUpCircle, Box, GitCommitHorizontal, Loader2, Trash2 } from "lucide-react"
+import { ArrowUpCircle, Box, GitCommitHorizontal, Loader2, Printer, PrinterCheck, Trash2 } from "lucide-react"
 import { useState } from "react"
 import { Link } from "react-router"
 import { SyncStatusBadge } from "@/components/sync-status-badge"
@@ -17,7 +17,7 @@ import {
 } from "@/components/ui/dialog"
 import { formatDateTime } from "@/lib/format"
 import { thumbnailUrl } from "@/lib/model-loader"
-import { useModel, useModelDiff, useRemovePin, useUpdatePin } from "@/lib/queries"
+import { useModel, useModelDiff, useRemovePin, useSetPinPrinted, useUpdatePin } from "@/lib/queries"
 import { cn } from "@/lib/utils"
 
 export function ProjectPinRow({
@@ -34,6 +34,7 @@ export function ProjectPinRow({
   onToggleSelect?: () => void
 }) {
   const removePin = useRemovePin(projectId)
+  const setPrinted = useSetPinPrinted(projectId)
   const { data: model } = useModel(pin.modelId)
 
   return (
@@ -69,6 +70,11 @@ export function ProjectPinRow({
               outdated
             </Badge>
           )}
+          {pin.printedAt && (
+            <Badge variant="outline" className="text-emerald-600 dark:text-emerald-400">
+              printed
+            </Badge>
+          )}
         </div>
         <span className="truncate text-xs text-muted-foreground">
           {pin.pinnedCommitMessage} ·{" "}
@@ -81,6 +87,22 @@ export function ProjectPinRow({
           <BumpToLatestDialog projectId={projectId} pin={pin} model={model} />
         )}
         <RepinDialog projectId={projectId} pin={pin} model={model} />
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          aria-label={pin.printedAt ? `Mark ${pin.modelTitle} as not printed` : `Mark ${pin.modelTitle} as printed`}
+          aria-pressed={!!pin.printedAt}
+          disabled={setPrinted.isPending}
+          onClick={() => setPrinted.mutate({ modelId: pin.modelId, printed: !pin.printedAt })}
+        >
+          {setPrinted.isPending ? (
+            <Loader2 className="size-4 animate-spin" />
+          ) : pin.printedAt ? (
+            <PrinterCheck className="size-4 text-emerald-500" />
+          ) : (
+            <Printer className="size-4" />
+          )}
+        </Button>
         <Button
           variant="ghost"
           size="icon-sm"

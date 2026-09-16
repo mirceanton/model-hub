@@ -370,6 +370,18 @@ export function removeProjectPin(projectId: number, modelId: number): Promise<vo
   return request<void>(`/api/projects/${projectId}/pins/${modelId}`, { method: "DELETE" })
 }
 
+export function setProjectPinPrinted(
+  projectId: number,
+  modelId: number,
+  printed: boolean,
+): Promise<PinnedModel> {
+  return request<PinnedModel>(`/api/projects/${projectId}/pins/${modelId}/printed`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ printed }),
+  })
+}
+
 export function bulkProjectPinsAction(
   projectId: number,
   modelIds: number[],
