@@ -1,0 +1,1 @@
+ALTER TABLE `project_model_pins` ADD `printed_at` integer;
