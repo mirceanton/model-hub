@@ -99,6 +99,13 @@
       "when": 1789583852935,
       "tag": "0013_busy_electro",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "6",
+      "when": 1789584301343,
+      "tag": "0014_simple_smasher",
+      "breakpoints": true
     }
   ]
 }
