@@ -46,6 +46,7 @@ import {
   restoreModelVersion,
   revokeApiToken,
   setConfigOverride,
+  setProjectPinPrinted,
   updateModel,
   updateProject,
   updateProjectPin,
@@ -436,7 +437,16 @@ export function useRemovePin(projectId: number) {
   })
 }
 
-/** Backs the pinned-models bulk action bar in ProjectDetailPage — "remove" or "bump" (to each model's current commit) via one POST /api/projects/:id/pins/bulk call. */
+export function useSetPinPrinted(projectId: number) {
+  const invalidate = useInvalidateProject(projectId)
+  return useMutation({
+    mutationFn: ({ modelId, printed }: { modelId: number; printed: boolean }) =>
+      setProjectPinPrinted(projectId, modelId, printed),
+    onSuccess: invalidate,
+  })
+}
+
+/** Backs the pinned-models bulk action bar in ProjectDetailPage — "remove", "bump" (to each model's current commit), or "mark-printed"/"mark-unprinted" via one POST /api/projects/:id/pins/bulk call. */
 export function useBulkProjectPinsAction(projectId: number) {
   const invalidate = useInvalidateProject(projectId)
   return useMutation({

@@ -491,6 +491,132 @@ describe("bulk operations", () => {
       });
       expect(badAction.statusCode).toBe(400);
     });
+
+    it("bulk-marks every requested pin as printed, then bulk-marks them back as unprinted", async () => {
+      const { project, models } = await createProjectWithPins(["Alpha", "Beta"]);
+
+      const markRes = await app.inject({
+        method: "POST",
+        url: `/api/projects/${project.id}/pins/bulk`,
+        payload: { ids: models.map((m) => m.id), action: "mark-printed" },
+      });
+      expect(markRes.statusCode).toBe(200);
+      expect((markRes.json() as BulkResponse).results.every((r) => r.success)).toBe(true);
+
+      const afterMark = await app.inject({ method: "GET", url: `/api/projects/${project.id}` });
+      const printedPins = (afterMark.json() as { pins: { modelId: number; printedAt: number | null }[] }).pins;
+      for (const model of models) {
+        expect(printedPins.find((p) => p.modelId === model.id)?.printedAt).not.toBeNull();
+      }
+
+      const unmarkRes = await app.inject({
+        method: "POST",
+        url: `/api/projects/${project.id}/pins/bulk`,
+        payload: { ids: models.map((m) => m.id), action: "mark-unprinted" },
+      });
+      expect(unmarkRes.statusCode).toBe(200);
+      expect((unmarkRes.json() as BulkResponse).results.every((r) => r.success)).toBe(true);
+
+      const afterUnmark = await app.inject({ method: "GET", url: `/api/projects/${project.id}` });
+      const unprintedPins = (afterUnmark.json() as { pins: { modelId: number; printedAt: number | null }[] })
+        .pins;
+      for (const model of models) {
+        expect(unprintedPins.find((p) => p.modelId === model.id)?.printedAt).toBeNull();
+      }
+    });
+
+    it("reports a per-item failure when mark-printed targets a model id that isn't pinned to the project", async () => {
+      const { project, models } = await createProjectWithPins(["Alpha"]);
+      const notPinned = await createTestModel(db, libraryRoot, "Beta");
+
+      const res = await app.inject({
+        method: "POST",
+        url: `/api/projects/${project.id}/pins/bulk`,
+        payload: { ids: [models[0]!.id, notPinned.id], action: "mark-printed" },
+      });
+      expect(res.statusCode).toBe(200);
+      const byId = new Map((res.json() as BulkResponse).results.map((r) => [r.id, r]));
+      expect(byId.get(models[0]!.id)).toEqual({ id: models[0]!.id, success: true });
+      expect(byId.get(notPinned.id)).toMatchObject({ success: false });
+    });
+  });
+
+  describe("PATCH /api/projects/:id/pins/:modelId/printed", () => {
+    async function createProjectWithPin(title: string) {
+      const model = await createTestModel(db, libraryRoot, title);
+      const projectRes = await app.inject({
+        method: "POST",
+        url: "/api/projects",
+        payload: { title: "Bundle" },
+      });
+      const project = projectRes.json() as { id: number };
+      const pinRes = await app.inject({
+        method: "POST",
+        url: `/api/projects/${project.id}/pins`,
+        payload: { modelId: model.id },
+      });
+      expect(pinRes.statusCode).toBe(201);
+      return { project, model };
+    }
+
+    it("marks a pin as printed and returns the updated PinnedModel", async () => {
+      const { project, model } = await createProjectWithPin("Alpha");
+
+      const res = await app.inject({
+        method: "PATCH",
+        url: `/api/projects/${project.id}/pins/${model.id}/printed`,
+        payload: { printed: true },
+      });
+      expect(res.statusCode).toBe(200);
+      const body = res.json() as { modelId: number; printedAt: number | null };
+      expect(body.modelId).toBe(model.id);
+      expect(body.printedAt).not.toBeNull();
+    });
+
+    it("toggles a pin back to unprinted", async () => {
+      const { project, model } = await createProjectWithPin("Alpha");
+
+      await app.inject({
+        method: "PATCH",
+        url: `/api/projects/${project.id}/pins/${model.id}/printed`,
+        payload: { printed: true },
+      });
+      const res = await app.inject({
+        method: "PATCH",
+        url: `/api/projects/${project.id}/pins/${model.id}/printed`,
+        payload: { printed: false },
+      });
+      expect(res.statusCode).toBe(200);
+      expect((res.json() as { printedAt: number | null }).printedAt).toBeNull();
+    });
+
+    it("404s when the model isn't pinned to the project", async () => {
+      const projectRes = await app.inject({
+        method: "POST",
+        url: "/api/projects",
+        payload: { title: "Bundle" },
+      });
+      const project = projectRes.json() as { id: number };
+      const model = await createTestModel(db, libraryRoot, "Unpinned");
+
+      const res = await app.inject({
+        method: "PATCH",
+        url: `/api/projects/${project.id}/pins/${model.id}/printed`,
+        payload: { printed: true },
+      });
+      expect(res.statusCode).toBe(404);
+    });
+
+    it("404s when the project doesn't exist", async () => {
+      const model = await createTestModel(db, libraryRoot, "Alpha");
+
+      const res = await app.inject({
+        method: "PATCH",
+        url: `/api/projects/999999/pins/${model.id}/printed`,
+        payload: { printed: true },
+      });
+      expect(res.statusCode).toBe(404);
+    });
   });
 
   describe("POST /api/projects/bulk", () => {
