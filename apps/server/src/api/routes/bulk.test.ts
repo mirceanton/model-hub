@@ -548,6 +548,50 @@ describe("bulk operations", () => {
       });
       expect(badAction.statusCode).toBe(400);
     });
+
+    it("archives and unarchives every requested project, without deleting any of them", async () => {
+      const a = await createProject("Alpha");
+      const b = await createProject("Beta");
+
+      const archiveRes = await app.inject({
+        method: "POST",
+        url: "/api/projects/bulk",
+        payload: { ids: [a.id, b.id], action: "archive" },
+      });
+      expect(archiveRes.statusCode).toBe(200);
+      expect((archiveRes.json() as BulkResponse).results.every((r) => r.success)).toBe(true);
+
+      let rows = db.select().from(projectsTable).all();
+      expect(rows).toHaveLength(2);
+      expect(rows.every((row) => row.archivedAt != null)).toBe(true);
+
+      const unarchiveRes = await app.inject({
+        method: "POST",
+        url: "/api/projects/bulk",
+        payload: { ids: [a.id, b.id], action: "unarchive" },
+      });
+      expect(unarchiveRes.statusCode).toBe(200);
+      expect((unarchiveRes.json() as BulkResponse).results.every((r) => r.success)).toBe(true);
+
+      rows = db.select().from(projectsTable).all();
+      expect(rows).toHaveLength(2);
+      expect(rows.every((row) => row.archivedAt == null)).toBe(true);
+    });
+
+    it("reports a per-item failure for a project id that doesn't exist when archiving", async () => {
+      const a = await createProject("Alpha");
+      const missingId = 999_999;
+
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/projects/bulk",
+        payload: { ids: [a.id, missingId], action: "archive" },
+      });
+      expect(res.statusCode).toBe(200);
+      const byId = new Map((res.json() as BulkResponse).results.map((r) => [r.id, r]));
+      expect(byId.get(a.id)).toEqual({ id: a.id, success: true });
+      expect(byId.get(missingId)).toMatchObject({ success: false });
+    });
   });
 });
 

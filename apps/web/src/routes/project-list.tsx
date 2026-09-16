@@ -1,7 +1,8 @@
 import type { BulkResponse, Project } from "@model-hub/shared"
-import { AlertCircle, Layers, ListChecks, Loader2, Search, Trash2 } from "lucide-react"
+import { AlertCircle, Archive, ArchiveRestore, Layers, ListChecks, Loader2, Search, Trash2 } from "lucide-react"
 import { useEffect, useState } from "react"
 import { Link } from "react-router"
+import { ArchiveToggle } from "@/components/archive-toggle"
 import { BulkActionBar, BulkFailureAlert } from "@/components/bulk-action-bar"
 import { CreateProjectDialog } from "@/components/create-project-dialog"
 import { ProjectThumbnail } from "@/components/project-thumbnail-mosaic"
@@ -13,7 +14,7 @@ import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useSelection } from "@/hooks/use-selection"
 import { formatDateTime } from "@/lib/format"
-import { useBulkDeleteProjects, useProjects } from "@/lib/queries"
+import { useBulkDeleteProjects, useBulkProjectsAction, useProjects, useUpdateProject } from "@/lib/queries"
 import { cn } from "@/lib/utils"
 
 const SEARCH_DEBOUNCE_MS = 250
@@ -21,30 +22,54 @@ const SEARCH_DEBOUNCE_MS = 250
 export function ProjectListPage() {
   const [searchInput, setSearchInput] = useState("")
   const [search, setSearch] = useState("")
+  const [archivedOnly, setArchivedOnly] = useState(false)
 
   useEffect(() => {
     const timer = setTimeout(() => setSearch(searchInput), SEARCH_DEBOUNCE_MS)
     return () => clearTimeout(timer)
   }, [searchInput])
 
-  const { data: projects, isPending, isError, error } = useProjects({ q: search || undefined })
+  const {
+    data: projects,
+    isPending,
+    isError,
+    error,
+  } = useProjects({ q: search || undefined, archived: archivedOnly || undefined })
   const isFiltered = search.trim().length > 0
 
   const selection = useSelection<number>()
   const bulkDelete = useBulkDeleteProjects()
+  const bulkArchive = useBulkProjectsAction()
   const [bulkResult, setBulkResult] = useState<BulkResponse | undefined>()
 
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="relative w-full sm:max-w-xs">
-          <Search className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
-            placeholder="Search projects…"
-            className="pl-8"
-          />
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative w-full sm:max-w-xs">
+            <Search className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              placeholder="Search projects…"
+              className="pl-8"
+            />
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            aria-pressed={archivedOnly}
+            onClick={() => {
+              setBulkResult(undefined)
+              selection.clear()
+              setArchivedOnly((v) => !v)
+            }}
+            className={cn(archivedOnly && "border-primary/50 bg-primary/10 text-primary")}
+          >
+            <Archive className="size-3.5" />
+            Archived
+          </Button>
         </div>
         <div className="flex items-center gap-2">
           {projects && projects.length > 0 && (
@@ -83,12 +108,18 @@ export function ProjectListPage() {
         <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed py-24 text-center text-muted-foreground">
           <Layers className="size-8" />
           <p className="font-medium text-foreground">
-            {isFiltered ? "No projects match" : "No projects yet"}
+            {isFiltered
+              ? "No projects match"
+              : archivedOnly
+                ? "No archived projects"
+                : "No projects yet"}
           </p>
           <p className="text-sm">
             {isFiltered
               ? "Try a different search."
-              : "Bundle a set of models pinned to specific commits into a project."}
+              : archivedOnly
+                ? "Projects you archive show up here."
+                : "Bundle a set of models pinned to specific commits into a project."}
           </p>
         </div>
       ) : (
@@ -109,6 +140,30 @@ export function ProjectListPage() {
               </label>
               {selection.selected.size > 0 && (
                 <BulkActionBar count={selection.selected.size} onClear={selection.clear}>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={bulkArchive.isPending}
+                    onClick={() =>
+                      bulkArchive.mutate(
+                        { ids: [...selection.selected], action: archivedOnly ? "unarchive" : "archive" },
+                        {
+                          onSuccess: (data) => {
+                            setBulkResult(data)
+                            selection.clear()
+                          },
+                        },
+                      )
+                    }
+                  >
+                    {archivedOnly ? (
+                      <ArchiveRestore className="size-3.5" />
+                    ) : (
+                      <Archive className="size-3.5" />
+                    )}
+                    {archivedOnly ? "Unarchive" : "Archive"}
+                  </Button>
                   <Button
                     type="button"
                     variant="destructive"
@@ -170,6 +225,9 @@ function ProjectCard({
   selected?: boolean
   onToggleSelect?: () => void
 }) {
+  const update = useUpdateProject(project.id)
+  const archived = project.archivedAt != null
+
   return (
     <Link
       to={`/projects/${project.id}`}
@@ -196,6 +254,11 @@ function ProjectCard({
               className="absolute top-2 left-2 bg-background/80 backdrop-blur-sm"
             />
           )}
+          <ArchiveToggle
+            archived={archived}
+            onToggle={() => update.mutate({ archived: !archived })}
+            className="absolute top-2 right-2 bg-background/80 backdrop-blur-sm hover:bg-background"
+          />
         </CardHeader>
         <CardContent className="flex flex-col gap-1.5 px-3">
           <CardTitle className="line-clamp-1 text-sm">{project.title}</CardTitle>

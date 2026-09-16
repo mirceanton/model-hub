@@ -127,6 +127,12 @@ export const projects = sqliteTable("projects", {
   // are set/cleared together.
   thumbnailImage: blob("thumbnail_image", { mode: "buffer" }),
   thumbnailMimeType: text("thumbnail_mime_type"),
+  // Non-destructive "hide from the default view but keep everything" flag —
+  // unlike a hard delete (DELETE /api/projects/:id has no trash of its own,
+  // see the projects table's doc comment above this block), archiving never
+  // removes the row or its pins. Null = active, non-null = archived (the
+  // timestamp of when). Same shape/mode as models.deletedAt/missingSince.
+  archivedAt: integer("archived_at", { mode: "timestamp_ms" }),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
 });

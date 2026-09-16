@@ -1,4 +1,4 @@
-import type { ProjectPinsBulkAction, UserRole } from "@model-hub/shared"
+import type { ProjectBulkAction, ProjectPinsBulkAction, UserRole } from "@model-hub/shared"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   addModelTag,
@@ -7,6 +7,7 @@ import {
   bulkDeleteProjects,
   bulkModelsAction,
   bulkProjectPinsAction,
+  bulkProjectsAction,
   captureThumbnail,
   clearConfigOverride,
   createApiToken,
@@ -372,7 +373,8 @@ export function useCreateProject() {
 export function useUpdateProject(id: number) {
   const invalidate = useInvalidateProject(id)
   return useMutation({
-    mutationFn: (patch: { title?: string; description?: string }) => updateProject(id, patch),
+    mutationFn: (patch: { title?: string; description?: string; archived?: boolean }) =>
+      updateProject(id, patch),
     onSuccess: invalidate,
   })
 }
@@ -391,6 +393,18 @@ export function useBulkDeleteProjects() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (ids: number[]) => bulkDeleteProjects(ids),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["projects"] })
+    },
+  })
+}
+
+/** Backs the project list's bulk archive/unarchive action via one POST /api/projects/bulk call. */
+export function useBulkProjectsAction() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ ids, action }: { ids: number[]; action: ProjectBulkAction }) =>
+      bulkProjectsAction(ids, action),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["projects"] })
     },

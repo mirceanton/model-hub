@@ -293,6 +293,10 @@ export interface Project {
   // is set — fetch it from GET /api/projects/:id/thumbnail. When false, the
   // web app falls back to the auto-generated mosaic of previewPins.
   hasCustomThumbnail: boolean;
+  // Non-null means this project is archived (hidden from the default list
+  // view, but otherwise fully intact and editable) — see schema.ts's
+  // projects.archivedAt doc comment. Null means active.
+  archivedAt: number | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -370,8 +374,10 @@ export interface ProjectPinsBulkRequest {
   action: ProjectPinsBulkAction;
 }
 
+export type ProjectBulkAction = "delete" | "archive" | "unarchive";
+
 /** Body of `POST /api/projects/bulk` — `ids` are project ids. */
 export interface ProjectsBulkRequest {
   ids: number[];
-  action: "delete";
+  action: ProjectBulkAction;
 }
