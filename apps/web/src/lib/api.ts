@@ -15,6 +15,7 @@ import type {
   OidcRoleMappingConfig,
   PinnedModel,
   Project,
+  ProjectBulkAction,
   ProjectDetail,
   ProjectPinsBulkAction,
   SortOrder,
@@ -287,11 +288,14 @@ export function removeModelTag(modelId: number, tagId: number): Promise<void> {
 
 export interface ProjectFilters {
   q?: string
+  /** true shows only archived projects; omitted/false shows only active ones (the default). */
+  archived?: boolean
 }
 
 export function fetchProjects(filters: ProjectFilters = {}): Promise<Project[]> {
   const params = new URLSearchParams()
   if (filters.q) params.set("q", filters.q)
+  if (filters.archived) params.set("archived", "true")
   const query = params.toString()
   return request<Project[]>(`/api/projects${query ? `?${query}` : ""}`)
 }
@@ -310,7 +314,7 @@ export function createProject(input: { title: string; description?: string }): P
 
 export function updateProject(
   id: number,
-  patch: { title?: string; description?: string },
+  patch: { title?: string; description?: string; archived?: boolean },
 ): Promise<Project> {
   return request<Project>(`/api/projects/${id}`, {
     method: "PATCH",
@@ -328,6 +332,14 @@ export function bulkDeleteProjects(ids: number[]): Promise<BulkResponse> {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ ids, action: "delete" }),
+  })
+}
+
+export function bulkProjectsAction(ids: number[], action: ProjectBulkAction): Promise<BulkResponse> {
+  return request<BulkResponse>("/api/projects/bulk", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ids, action }),
   })
 }
 

@@ -1,6 +1,8 @@
 import type { BulkResponse, ProjectActivityNotice, ProjectDetail } from "@model-hub/shared"
 import {
   AlertCircle,
+  Archive,
+  ArchiveRestore,
   ArrowLeft,
   ArrowUpCircle,
   Download,
@@ -14,6 +16,7 @@ import {
 import { useRef, useState } from "react"
 import { Link, useNavigate, useParams } from "react-router"
 import { AddModelPickerDialog } from "@/components/add-model-picker-dialog"
+import { Badge } from "@/components/ui/badge"
 import { BulkActionBar, BulkFailureAlert } from "@/components/bulk-action-bar"
 import { ProjectPinRow } from "@/components/project-pin-row"
 import { ProjectThumbnail } from "@/components/project-thumbnail-mosaic"
@@ -75,11 +78,15 @@ export function ProjectDetailPage() {
         <div className="flex min-w-0 flex-1 gap-3">
           <ProjectThumbnailEditor project={project} />
           <div className="flex min-w-0 flex-1 flex-col gap-2">
-            <EditableTitle projectId={project.id} title={project.title} />
+            <div className="flex flex-wrap items-center gap-2">
+              <EditableTitle projectId={project.id} title={project.title} />
+              {project.archivedAt != null && <Badge variant="secondary">Archived</Badge>}
+            </div>
           </div>
         </div>
         <div className="flex w-full shrink-0 items-center gap-2 sm:w-auto">
           <ExportProjectButton projectId={project.id} disabled={project.pins.length === 0} />
+          <ArchiveProjectButton projectId={project.id} archived={project.archivedAt != null} />
           <DeleteProjectButton projectId={project.id} />
           <AddModelPickerDialog
             projectId={project.id}
@@ -419,6 +426,28 @@ function ExportProjectButton({ projectId, disabled }: { projectId: number; disab
     >
       <Download className="size-4" />
       Export
+    </Button>
+  )
+}
+
+function ArchiveProjectButton({ projectId, archived }: { projectId: number; archived: boolean }) {
+  const update = useUpdateProject(projectId)
+
+  return (
+    <Button
+      variant="outline"
+      size="sm"
+      disabled={update.isPending}
+      onClick={() => update.mutate({ archived: !archived })}
+    >
+      {update.isPending ? (
+        <Loader2 className="size-4 animate-spin" />
+      ) : archived ? (
+        <ArchiveRestore className="size-4" />
+      ) : (
+        <Archive className="size-4" />
+      )}
+      {archived ? "Unarchive" : "Archive"}
     </Button>
   )
 }

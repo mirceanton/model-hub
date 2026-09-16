@@ -7,7 +7,7 @@ import type {
   ProjectPinsBulkRequest,
   ProjectsBulkRequest,
 } from "@model-hub/shared";
-import { eq } from "drizzle-orm";
+import { eq, isNotNull, isNull } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { requireRole } from "../../auth/guard.js";
 import type { DbClient } from "../../db/client.js";
@@ -42,14 +42,25 @@ function toApiProject(row: ProjectRow, pins: PinnedModel[]): Project {
       thumbnailStatus: p.thumbnailStatus,
     })),
     hasCustomThumbnail: row.thumbnailImage != null,
+    archivedAt: row.archivedAt ? row.archivedAt.getTime() : null,
     createdAt: row.createdAt.getTime(),
     updatedAt: row.updatedAt.getTime(),
   };
 }
 
 export function registerProjectRoutes(app: FastifyInstance, db: DbClient): void {
-  app.get<{ Querystring: { q?: string } }>("/api/projects", async (request) => {
-    let rows = db.select().from(projectsTable).all();
+  app.get<{ Querystring: { q?: string; archived?: string } }>("/api/projects", async (request) => {
+    // Default view excludes archived projects — mirrors models.ts's GET
+    // /api/models default (deletedAt IS NULL), even though projects have no
+    // trash: archiving is its own non-destructive hide-from-default-view
+    // state (see schema.ts's projects.archivedAt doc comment). ?archived=true
+    // flips to showing only archived projects instead.
+    const showArchived = request.query.archived === "true";
+    let rows = db
+      .select()
+      .from(projectsTable)
+      .where(showArchived ? isNotNull(projectsTable.archivedAt) : isNull(projectsTable.archivedAt))
+      .all();
 
     const needle = request.query.q?.trim().toLowerCase();
     if (needle) {
@@ -99,7 +110,7 @@ export function registerProjectRoutes(app: FastifyInstance, db: DbClient): void 
     return detail;
   });
 
-  app.patch<{ Params: { id: string }; Body: { title?: string; description?: string } }>(
+  app.patch<{ Params: { id: string }; Body: { title?: string; description?: string; archived?: boolean } }>(
     "/api/projects/:id",
     async (request, reply) => {
       const id = Number(request.params.id);
@@ -112,16 +123,21 @@ export function registerProjectRoutes(app: FastifyInstance, db: DbClient): void 
         return reply.code(404).send({ error: "project not found" });
       }
 
-      const { title, description } = request.body ?? {};
+      const { title, description, archived } = request.body ?? {};
       if (title !== undefined && title.trim().length === 0) {
         return reply.code(400).send({ error: "title cannot be empty" });
       }
 
+      // Archiving only hides a project from the default GET /api/projects
+      // list — it stays individually viewable/editable via GET/PATCH
+      // /api/projects/:id, same principle as a model's favorite flag not
+      // restricting anything (see schema.ts's projects.archivedAt).
       const updated = db
         .update(projectsTable)
         .set({
           ...(title !== undefined ? { title: title.trim() } : {}),
           ...(description !== undefined ? { description } : {}),
+          ...(archived !== undefined ? { archivedAt: archived ? new Date() : null } : {}),
           updatedAt: new Date(),
         })
         .where(eq(projectsTable.id, id))
@@ -155,11 +171,14 @@ export function registerProjectRoutes(app: FastifyInstance, db: DbClient): void 
   // there's no lock or "missing directory" case to worry about here — a
   // missing project id is the only per-item failure mode.
   //
-  // Gated behind requireRole("editor") — see models.ts's POST
+  // "delete" is gated behind requireRole("editor") — see models.ts's POST
   // /api/models/bulk for the general reasoning. Doubly warranted here
   // specifically: unlike a bulk model delete (which moves to trash and is
   // recoverable), a project delete is an unconditional hard delete with no
-  // trash to fall back on — see the single-item DELETE above.
+  // trash to fall back on — see the single-item DELETE above. "archive"/
+  // "unarchive" are non-destructive (same as PATCH .../:id's `archived`
+  // field) but are gated the same way for simplicity, since this is a
+  // single shared route/preHandler.
   app.post<{ Body: ProjectsBulkRequest }>(
     "/api/projects/bulk",
     { preHandler: requireRole("editor") },
@@ -168,8 +187,8 @@ export function registerProjectRoutes(app: FastifyInstance, db: DbClient): void 
       if (!Array.isArray(ids) || ids.length === 0 || ids.some((id) => !Number.isInteger(id))) {
         return reply.code(400).send({ error: "ids must be a non-empty array of project ids" });
       }
-      if (action !== "delete") {
-        return reply.code(400).send({ error: 'action must be "delete"' });
+      if (action !== "delete" && action !== "archive" && action !== "unarchive") {
+        return reply.code(400).send({ error: 'action must be "delete", "archive", or "unarchive"' });
       }
 
       const results: BulkResult[] = [];
@@ -183,7 +202,14 @@ export function registerProjectRoutes(app: FastifyInstance, db: DbClient): void 
           results.push({ id, success: false, error: "project not found" });
           continue;
         }
-        db.delete(projectsTable).where(eq(projectsTable.id, id)).run();
+        if (action === "delete") {
+          db.delete(projectsTable).where(eq(projectsTable.id, id)).run();
+        } else {
+          db.update(projectsTable)
+            .set({ archivedAt: action === "archive" ? new Date() : null, updatedAt: new Date() })
+            .where(eq(projectsTable.id, id))
+            .run();
+        }
         results.push({ id, success: true });
       }
 
