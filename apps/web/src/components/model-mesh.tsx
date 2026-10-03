@@ -4,8 +4,8 @@ import * as THREE from "three"
 import { OBJLoader } from "three/examples/jsm/loaders/OBJLoader.js"
 import { STLLoader } from "three/examples/jsm/loaders/STLLoader.js"
 import { ThreeMFLoader } from "three/examples/jsm/loaders/3MFLoader.js"
+import occtimportjs from "occt-import-js"
 
-/** Thrown when a file parses cleanly but contains no renderable mesh (e.g. some slicer "sliced project" exports omit geometry entirely). */
 export class EmptyGeometryError extends Error {}
 
 function hasVisibleGeometry(object: THREE.Object3D): boolean {
@@ -39,12 +39,6 @@ function ThreeMfModel({ url }: { url: string }) {
   return <primitive object={group} />
 }
 
-// .obj files reference materials/textures via a separate .mtl file (mtllib
-// directive) that we don't fetch or parse — model-hub only ever uploads/serves
-// the single .obj itself. OBJLoader still parses fine without it, just with no
-// material, so give every mesh the same neutral material StlMesh uses instead
-// of leaving three's undefined-material default (implementation-dependent,
-// sometimes invisible under this scene's lighting).
 function ObjModel({ url }: { url: string }) {
   const group = useLoader(OBJLoader, url)
   if (!hasVisibleGeometry(group)) {
@@ -60,9 +54,71 @@ function ObjModel({ url }: { url: string }) {
   return <primitive object={group} />
 }
 
-/** Loads and renders an .stl/.3mf/.obj file. Must be inside a Suspense boundary + error boundary (throws EmptyGeometryError for geometry-less files). */
+let _occtPromise: ReturnType<typeof occtimportjs> | undefined
+
+class STEPLoader extends THREE.Loader {
+  private async _getOcct() {
+    if (!_occtPromise) _occtPromise = occtimportjs()
+    return _occtPromise
+  }
+
+  override load(
+    url: string,
+    onLoad: (group: THREE.Group) => void,
+    _onProgress?: unknown,
+    onError?: unknown,
+  ) {
+    this._getOcct()
+      .then(async (occt) => {
+        const resp = await fetch(url)
+        if (!resp.ok) throw new Error(`Failed to fetch STEP file: ${resp.status}`)
+        const buffer = new Uint8Array(await resp.arrayBuffer())
+        const result = occt.ReadStepFile(buffer, null)
+
+        const group = new THREE.Group()
+        for (const mesh of result.meshes) {
+          const geo = new THREE.BufferGeometry()
+          geo.setAttribute(
+            "position",
+            new THREE.Float32BufferAttribute(mesh.attributes.position.array, 3),
+          )
+          if (mesh.attributes.normal) {
+            geo.setAttribute(
+              "normal",
+              new THREE.Float32BufferAttribute(mesh.attributes.normal.array, 3),
+            )
+          }
+          if (mesh.index) {
+            geo.setIndex(new THREE.BufferAttribute(new Uint32Array(mesh.index.array), 1))
+          }
+          geo.computeVertexNormals()
+          const m = new THREE.Mesh(
+            geo,
+            new THREE.MeshStandardMaterial({ color: "#a1a1aa", roughness: 0.5, metalness: 0.1 }),
+          )
+          m.castShadow = true
+          m.receiveShadow = true
+          group.add(m)
+        }
+        onLoad(group)
+      })
+      .catch((err) => {
+        if (onError) (onError as (err: unknown) => void)(err)
+      })
+  }
+}
+
+function StepModel({ url }: { url: string }) {
+  const group = useLoader(STEPLoader, url) as THREE.Group
+  if (!hasVisibleGeometry(group)) {
+    throw new EmptyGeometryError("STEP contains no mesh objects")
+  }
+  return <primitive object={group} />
+}
+
 export function ModelMesh({ url, extension }: { url: string; extension: ModelExtension }) {
   if (extension === "stl") return <StlMesh url={url} />
   if (extension === "obj") return <ObjModel url={url} />
-  return <ThreeMfModel url={url} />
+  if (extension === "3mf") return <ThreeMfModel url={url} />
+  return <StepModel url={url} />
 }

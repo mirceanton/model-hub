@@ -7,6 +7,7 @@ import {
   ensureGitignore,
   ensureMarkerId,
   listModelFiles,
+  MODEL_EXTENSIONS,
   pickPrimaryFile,
   sanitizeModelDirName,
   sanitizeUploadFilename,
@@ -51,6 +52,34 @@ describe("pickPrimaryFile", () => {
     expect(pickPrimaryFile(files)).toBe("a.stl");
   });
 
+  it("ranks .step below .stl/.obj/.3mf so it's never auto-picked as primary when other formats are present", () => {
+    const files: FileEntry[] = [
+      { relativePath: "model.step", sizeBytes: 10_000, mtime: 0, extension: "step" },
+      { relativePath: "model.stl", sizeBytes: 10, mtime: 0, extension: "stl" },
+    ];
+    expect(pickPrimaryFile(files)).toBe("model.stl");
+
+    const filesNoStl: FileEntry[] = [
+      { relativePath: "model.step", sizeBytes: 10_000, mtime: 0, extension: "step" },
+      { relativePath: "model.obj", sizeBytes: 10, mtime: 0, extension: "obj" },
+    ];
+    expect(pickPrimaryFile(filesNoStl)).toBe("model.obj");
+
+    const filesNoStlObj: FileEntry[] = [
+      { relativePath: "model.step", sizeBytes: 10_000, mtime: 0, extension: "step" },
+      { relativePath: "model.3mf", sizeBytes: 10, mtime: 0, extension: "3mf" },
+    ];
+    expect(pickPrimaryFile(filesNoStlObj)).toBe("model.3mf");
+  });
+
+  it("picks a .step file when it's the only model file present", () => {
+    const files: FileEntry[] = [
+      { relativePath: "part.step", sizeBytes: 100, mtime: 0, extension: "step" },
+      { relativePath: "photo.png", sizeBytes: 500, mtime: 0, extension: "png" },
+    ];
+    expect(pickPrimaryFile(files)).toBe("part.step");
+  });
+
   it("never picks an attachment (image/pdf) file, even if it's the only file", () => {
     const files: FileEntry[] = [
       { relativePath: "photo.png", sizeBytes: 100, mtime: 0, extension: "png" },
@@ -81,13 +110,14 @@ describe("listModelFiles", () => {
 
   it("includes both model files and attachment files (images/pdf)", async () => {
     await writeFile(join(dir, "part.stl"), "stl-bytes");
+    await writeFile(join(dir, "part.step"), "step-bytes");
     await writeFile(join(dir, "photo.png"), "png-bytes");
     await writeFile(join(dir, "instructions.pdf"), "pdf-bytes");
     await writeFile(join(dir, "cover.jpg"), "jpg-bytes");
 
     const files = await listModelFiles(dir);
     const paths = files.map((f) => f.relativePath).sort();
-    expect(paths).toEqual(["cover.jpg", "instructions.pdf", "part.stl", "photo.png"]);
+    expect(paths).toEqual(["cover.jpg", "instructions.pdf", "part.step", "part.stl", "photo.png"]);
   });
 
   it("skips files with unrecognized extensions", async () => {
@@ -108,6 +138,15 @@ describe("listModelFiles", () => {
 
     const files = await listModelFiles(dir);
     expect(files.map((f) => f.relativePath)).toEqual(["part.stl"]);
+  });
+
+  it("includes .step and .stp files as tracked model files", async () => {
+    await writeFile(join(dir, "model.step"), "step-bytes");
+    await writeFile(join(dir, "model.stp"), "stp-bytes");
+
+    const files = await listModelFiles(dir);
+    const paths = files.map((f) => f.relativePath).sort();
+    expect(paths).toEqual(["model.step", "model.stp"]);
   });
 });
 
@@ -176,12 +215,20 @@ describe("sanitizeUploadFilename", () => {
     expect(sanitizeUploadFilename("part.stl")).toBe("part.stl");
     expect(sanitizeUploadFilename("model.3mf")).toBe("model.3mf");
     expect(sanitizeUploadFilename("mesh.obj")).toBe("mesh.obj");
+    expect(sanitizeUploadFilename("part.step")).toBe("part.step");
+    expect(sanitizeUploadFilename("part.stp")).toBe("part.stp");
   });
 
   it("strips directory components from a path-traversal attempt", () => {
     expect(sanitizeUploadFilename("../../etc/passwd.stl")).toBe("passwd.stl");
     expect(sanitizeUploadFilename("/etc/passwd.stl")).toBe("passwd.stl");
     expect(sanitizeUploadFilename("..\\..\\windows\\evil.stl")).toBe("evil.stl");
+  });
+
+  it("strips directory components from .step and .stp path-traversal attempts", () => {
+    expect(sanitizeUploadFilename("../../etc/model.step")).toBe("model.step");
+    expect(sanitizeUploadFilename("/tmp/model.stp")).toBe("model.stp");
+    expect(sanitizeUploadFilename("..\\..\\parts\\widget.step")).toBe("widget.step");
   });
 
   it("rejects non-model, non-attachment extensions", () => {
@@ -234,5 +281,55 @@ describe("sanitizeModelDirName", () => {
   it("truncates very long titles", () => {
     const result = sanitizeModelDirName("x".repeat(200));
     expect(result?.length).toBe(100);
+  });
+});
+
+describe("MODEL_EXTENSIONS", () => {
+  it("includes step and stp alongside stl, 3mf, and obj", () => {
+    expect(MODEL_EXTENSIONS.has("step")).toBe(true);
+    expect(MODEL_EXTENSIONS.has("stp")).toBe(true);
+    expect(MODEL_EXTENSIONS.has("stl")).toBe(true);
+    expect(MODEL_EXTENSIONS.has("3mf")).toBe(true);
+    expect(MODEL_EXTENSIONS.has("obj")).toBe(true);
+    expect(MODEL_EXTENSIONS.size).toBe(5);
+  });
+
+  it("does not include attachment or unknown extensions", () => {
+    expect(MODEL_EXTENSIONS.has("png")).toBe(false);
+    expect(MODEL_EXTENSIONS.has("pdf")).toBe(false);
+    expect(MODEL_EXTENSIONS.has("txt")).toBe(false);
+  });
+});
+
+describe("pickPrimaryFile EXTENSION_RANK for STEP", () => {
+  it("picks a .stp file when it's the only model file", () => {
+    const files: FileEntry[] = [
+      { relativePath: "part.stp", sizeBytes: 100, mtime: 0, extension: "stp" },
+    ];
+    expect(pickPrimaryFile(files)).toBe("part.stp");
+  });
+
+  it("picks the larger .step file among two STEP-only candidates", () => {
+    const files: FileEntry[] = [
+      { relativePath: "small.step", sizeBytes: 50, mtime: 0, extension: "step" },
+      { relativePath: "large.step", sizeBytes: 200, mtime: 0, extension: "step" },
+    ];
+    expect(pickPrimaryFile(files)).toBe("large.step");
+  });
+
+  it("ranks .stp the same as .step (below .stl/.obj/.3mf)", () => {
+    const files: FileEntry[] = [
+      { relativePath: "model.stp", sizeBytes: 10_000, mtime: 0, extension: "stp" },
+      { relativePath: "model.3mf", sizeBytes: 10, mtime: 0, extension: "3mf" },
+    ];
+    expect(pickPrimaryFile(files)).toBe("model.3mf");
+  });
+
+  it("breaks ties between .step and .stp by size, then by path", () => {
+    const files: FileEntry[] = [
+      { relativePath: "z.step", sizeBytes: 100, mtime: 0, extension: "step" },
+      { relativePath: "a.stp", sizeBytes: 100, mtime: 0, extension: "stp" },
+    ];
+    expect(pickPrimaryFile(files)).toBe("a.stp");
   });
 });

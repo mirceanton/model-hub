@@ -100,27 +100,6 @@ export async function pickModelDirPath(libraryRoot: string, db: DbClient, base: 
   }
 }
 
-/**
- * Recoverable "delete": moves the model's entire directory (repo included,
- * plus the untouched .modelhub-id marker inside it) under
- * LIBRARY_ROOT/.trash/ instead of destroying it, and marks deletedAt
- * instead of dropping the DB row — see apps/server/src/api/routes/trash.ts
- * for restore/purge. Runs under the same per-path lock as sync so it can't
- * race an in-flight commit for this model. The DB mutation happens *inside*
- * the lock too (not after), and re-checks deletedAt on a fresh read first —
- * otherwise a second near-simultaneous delete for the same id (two tabs, a
- * naive retry, or one item in a bulk-delete batch racing a concurrent
- * single-item delete) could still see deletedAt=null, acquire the
- * (by-then-free) lock, and try to rename a path that's already been moved
- * away.
- *
- * The single DELETE route below and the bulk "delete" action both call this
- * exact function — no separate/simplified bulk reimplementation of the
- * trash-move — so both stay behaviorally identical by construction.
- *
- * Returns false if the model was already trashed (or vanished) by the time
- * the lock was acquired, true if this call actually moved it.
- */
 async function trashModel(db: DbClient, libraryRoot: string, row: ModelRow): Promise<boolean> {
   const trashRoot = join(libraryRoot, TRASH_DIRNAME);
   const trashPath = join(trashRoot, `${row.fsId}-${Date.now()}`);
@@ -146,7 +125,6 @@ const SORT_COLUMNS = {
   lastSyncedAt: modelsTable.lastSyncedAt,
 } as const;
 
-/** Parses a query-string value as a non-negative integer, or undefined if missing/blank/invalid. */
 function parseNonNegativeInt(value: string | undefined): number | undefined {
   if (value === undefined || value.trim() === "") return undefined;
   const n = Number(value);
@@ -162,19 +140,9 @@ export function registerModelRoutes(
   app.get<{
     Querystring: {
       q?: string;
-      // A single `?tag=foo` parses as a string; repeating it (`?tag=foo&tag=bar`)
-      // parses as an array — Fastify's default querystring parser (fast-querystring)
-      // does this for any repeated key, no custom parsing needed. All listed
-      // tags must match (AND), not any one of them.
       tag?: string | string[];
       favorite?: string;
-      // Default excludes archived models (like deletedAt, but no retention
-      // semantics — see CLAUDE.md/db/schema.ts). "true" flips the list to
-      // archived-only instead of merely including them alongside active ones.
       archived?: string;
-      // Matches a model having at least one tracked file (model file or
-      // attachment, e.g. "obj" or "pdf") with this extension — see
-      // lib/file-filters.ts's getModelIdsWithExtension.
       extension?: string;
       minSizeBytes?: string;
       maxSizeBytes?: string;
@@ -299,16 +267,6 @@ export function registerModelRoutes(
     };
   });
 
-  // Client must send the "title" field before any "files" parts — the
-  // library-root directory (derived from the title) has to exist before
-  // uploaded files can be streamed into it.
-  //
-  // No `body` schema here: this is a `multipart/form-data` request consumed
-  // field-by-field via `request.parts()` (not `@fastify/multipart`'s
-  // `attachFieldsToBody`), so `request.body` is never populated for Fastify
-  // to validate against — a JSON `body` schema would document nothing real
-  // and risk mismatching actual behavior. `consumes` + the description below
-  // are what make the multipart shape show up in the generated spec.
   app.post(
     "/api/models",
     {
@@ -319,7 +277,7 @@ export function registerModelRoutes(
         description:
           "Multipart upload: a required `title` field (sent before any `files` parts), " +
           "optional repeated `tags` and `sourceUrl` fields, then one or more `files` parts " +
-          "(at least one must be a .stl/.3mf/.obj model file; images/pdf attachments may ride along).",
+          "(at least one must be a .stl/.3mf/.obj/.step file; images/pdf attachments may ride along).",
         consumes: ["multipart/form-data"],
         response: {
           201: modelSchema,
@@ -392,16 +350,13 @@ export function registerModelRoutes(
       return reply.code(400).send({ error: validationError });
     }
 
-    // Attachments (images/pdf) may ride along with a new model, but can't
-    // create one on their own — a model needs at least one mesh file to
-    // sync/view/thumbnail.
     const hasModelFile = writtenFiles.some((name) =>
       MODEL_EXTENSIONS.has(extname(name).slice(1).toLowerCase()),
     );
     if (!dirPath || !hasModelFile) {
       if (dirPath) await rm(dirPath, { recursive: true, force: true }).catch(() => {});
       return reply.code(400).send({
-        error: "at least one valid model file (.stl/.3mf/.obj) is required",
+        error: "at least one valid model file (.stl/.3mf/.obj/.step) is required",
         skippedFiles,
       });
     }
@@ -488,10 +443,6 @@ export function registerModelRoutes(
       mtime: f.mtime.getTime(),
       extension: f.extension,
     }));
-    // `files` (model .stl/.3mf/.obj files — viewer/primary-file candidates)
-    // and `attachments` (images/pdf — see classifyAttachmentExtension) are
-    // both drawn from the same `files` table, since the sync engine caches
-    // both categories there; only the API response splits them.
     const files = allFiles.filter((f) => classifyAttachmentExtension(f.extension) === null);
     const attachments = allFiles.filter((f) => classifyAttachmentExtension(f.extension) !== null);
 
@@ -555,8 +506,6 @@ export function registerModelRoutes(
       return reply.code(400).send({ error: "title cannot be empty" });
     }
 
-    // undefined: field omitted, leave sourceUrl untouched. null or "": clear
-    // it. Non-empty string: must be a syntactically valid http(s) URL.
     const normalizedSourceUrl = sourceUrl === undefined ? undefined : sourceUrl?.trim() || null;
     if (normalizedSourceUrl != null && !isValidHttpUrl(normalizedSourceUrl)) {
       return reply.code(400).send({ error: "sourceUrl must be a valid http(s) URL" });
@@ -571,12 +520,8 @@ export function registerModelRoutes(
       if (!fileRow) {
         return reply.code(400).send({ error: "primaryFilePath does not match a known file for this model" });
       }
-      // Attachments (images/pdf) are never valid viewer/thumbnail-source
-      // candidates — same rule as fs-utils.ts's pickPrimaryFile, enforced
-      // here too so a direct API call can't set one as primary even though
-      // the UI only ever offers model files.
       if (!MODEL_EXTENSIONS.has(fileRow.extension)) {
-        return reply.code(400).send({ error: "primaryFilePath must be a model file (.stl/.3mf/.obj)" });
+        return reply.code(400).send({ error: "primaryFilePath must be a model file (.stl/.3mf/.obj/.step)" });
       }
     }
 
@@ -640,22 +585,6 @@ export function registerModelRoutes(
     return reply.code(204).send();
   });
 
-  // See CLAUDE.md / packages/shared/src/types.ts's BulkResponse doc comment
-  // for the shape shared across every bulk endpoint in this app. Every
-  // action here reuses the exact same per-item logic (and, for "delete",
-  // the exact same trashModel helper) as its single-item route above.
-  // Items are processed sequentially, not in parallel: better-sqlite3 is
-  // synchronous/single-threaded anyway, and this keeps one slow/failing
-  // item from racing another's runExclusive lock in confusing ways.
-  //
-  // Gated behind requireRole("editor") even though none of the single-item
-  // routes it batches are gated yet (see auth/guard.ts's comment: the RBAC
-  // sweep was deliberately deferred to follow-up PRs that touch those
-  // routes anyway — this bulk PR is exactly such a PR). Gating is warranted
-  // here specifically because a bulk mutation is qualitatively more
-  // dangerous than a single-item one — one confirm click can delete dozens
-  // of models at once — so it doesn't inherit the single-item routes'
-  // "ungated for now" pass.
   app.post<{ Body: ModelsBulkRequest }>(
     "/api/models/bulk",
     {
@@ -704,10 +633,6 @@ export function registerModelRoutes(
         return reply.code(400).send({ error: `action must be one of: ${validActions.join(", ")}` });
       }
 
-      // Whole-request (not per-item) validation for action-specific
-      // parameters — these describe the batch itself, not any one item, so a
-      // problem here means the request is malformed, not that a particular
-      // model failed.
       let resolvedTag: { id: number } | null = null;
       if (action === "add-tag") {
         if (!tagName) {
