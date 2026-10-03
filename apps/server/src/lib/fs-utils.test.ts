@@ -59,6 +59,15 @@ describe("pickPrimaryFile", () => {
     expect(pickPrimaryFile(files)).toBeNull();
   });
 
+  it("recognizes .step and .stp as model files, ranked below .stl/.obj/.3mf", () => {
+    const files: FileEntry[] = [
+      { relativePath: "cad.step", sizeBytes: 5_000, mtime: 0, extension: "step" },
+      { relativePath: "big.stp", sizeBytes: 10_000, mtime: 0, extension: "stp" },
+    ];
+    // Both are unranked extensions (fall through to ?? 99), so largest wins
+    expect(pickPrimaryFile(files)).toBe("big.stp");
+  });
+
   it("ignores attachments when a model file is also present, regardless of attachment size", () => {
     const files: FileEntry[] = [
       { relativePath: "huge-photo.png", sizeBytes: 1_000_000, mtime: 0, extension: "png" },
@@ -176,6 +185,8 @@ describe("sanitizeUploadFilename", () => {
     expect(sanitizeUploadFilename("part.stl")).toBe("part.stl");
     expect(sanitizeUploadFilename("model.3mf")).toBe("model.3mf");
     expect(sanitizeUploadFilename("mesh.obj")).toBe("mesh.obj");
+    expect(sanitizeUploadFilename("part.step")).toBe("part.step");
+    expect(sanitizeUploadFilename("assembly.stp")).toBe("assembly.stp");
   });
 
   it("strips directory components from a path-traversal attempt", () => {

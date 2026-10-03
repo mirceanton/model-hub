@@ -529,6 +529,20 @@ describe("file-attribute filters and lastSyncedAt sort on the model list", () =>
     expect(body.data.map((m) => m.id)).not.toContain(stlModel.id);
   });
 
+  it("?extension=step matches .step and .stp model files", async () => {
+    const stepModel = await createTestModel(db, libraryRoot, "StepCAD", {
+      "cad.step": "ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION((''),'');\nFILE_SCHEMA((''));\nENDSEC;\nDATA;\nENDSEC;\nEND-ISO-10303-21;\n",
+    });
+    const stlModel = await createTestModel(db, libraryRoot, "StlModel", {
+      "part.stl": "solid a\nendsolid a\n",
+    });
+
+    const res = await app.inject({ method: "GET", url: "/api/models?extension=step" });
+    const body = res.json() as { data: { id: number }[] };
+    expect(body.data.map((m) => m.id)).toEqual([stepModel.id]);
+    expect(body.data.map((m) => m.id)).not.toContain(stlModel.id);
+  });
+
   it("?extension= also matches attachment files (e.g. a PDF instruction sheet), not just model files", async () => {
     const withManual = await createTestModel(db, libraryRoot, "WithManual", {
       "model.stl": "solid a\nendsolid a\n",

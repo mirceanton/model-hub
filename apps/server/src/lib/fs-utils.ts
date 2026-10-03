@@ -12,7 +12,7 @@ export const THUMBNAILS_DIRNAME = ".thumbnails";
 // (sync/scanner.ts excludes this exact top-level name) rather than deleted,
 // so a misclick is recoverable within the retention window.
 export const TRASH_DIRNAME = ".trash";
-export const MODEL_EXTENSIONS = new Set(["stl", "3mf", "obj"]);
+export const MODEL_EXTENSIONS = new Set(["stl", "3mf", "obj", "step", "stp"]);
 // Images and PDFs: recognized as model *attachments* (build photos,
 // instruction sheets) alongside the mesh files, but deliberately never a
 // candidate for the 3D viewer or the primary-file/thumbnail-source ranking
