@@ -141,7 +141,7 @@ export function registerVersionRoutes(app: FastifyInstance, db: DbClient, config
 
       if (writtenFiles.length === 0) {
         return reply.code(400).send({
-          error: "no valid model or attachment files (.stl/.3mf/.obj/.png/.jpg/.jpeg/.webp/.gif/.pdf) were uploaded",
+          error: "no valid model or attachment files (.stl/.3mf/.obj/.step/.stp/.png/.jpg/.jpeg/.webp/.gif/.pdf) were uploaded",
           skippedFiles,
         });
       }

@@ -1,7 +1,7 @@
 export type SyncStatus = "ok" | "error" | "missing";
 export type ThumbnailStatus = "pending" | "generating" | "ready" | "error";
 export type ThumbnailSource = "auto" | "manual";
-export type ModelExtension = "stl" | "3mf" | "obj";
+export type ModelExtension = "stl" | "3mf" | "obj" | "step" | "stp";
 export type ModelSortField = "title" | "createdAt" | "lastSyncedAt";
 export type SortOrder = "asc" | "desc";
 

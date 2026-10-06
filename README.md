@@ -1,6 +1,6 @@
 # model-hub
 
-A self-hosted 3D model library (STL/3MF). Point it at a directory containing
+A self-hosted 3D model library (STL/3MF/OBJ/STEP). Point it at a directory containing
 one subfolder per project and it adopts what's already there — no import
 step, no re-organizing required. Every project's file history lives in a
 real git repo, kept in sync transparently whether a new version comes
@@ -53,14 +53,14 @@ alongside it.
   can be safely deleted and rebuilt from what's on disk.
 - **Automatic thumbnails** — a headless Chromium instance renders each
   project's primary model and writes a thumbnail to disk, using the exact
-  same STL/3MF loading code as the interactive 3D viewer.
+  same STL/3MF/OBJ/STEP loading code as the interactive 3D viewer.
 - **Tags & search** — organize and filter your library by tag, with
   case-insensitive dedup.
 - **OIDC auth, optional** — plug in Authelia, Authentik, Keycloak, or any
   standard OIDC provider. Leave it unconfigured and the app runs in
   single-user mode with no login screen at all.
 - **Sleek, modern UI** — React + shadcn/ui, dark mode included, with an
-  interactive react-three-fiber viewer for STL/3MF files.
+  interactive react-three-fiber viewer for STL/3MF/OBJ/STEP files.
 
 ## Running with Docker
 

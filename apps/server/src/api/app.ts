@@ -29,7 +29,7 @@ import { registerVersionRoutes } from "./routes/versions.js";
 import { registerStaticSpa } from "./static.js";
 
 // Generous for large/multi-plate sliced files — shared by both the create-model
-// and upload-new-version routes, which both accept raw .stl/.3mf/.obj uploads.
+// and upload-new-version routes, which both accept raw .stl/.3mf/.obj/.step/.stp uploads.
 const MAX_UPLOAD_FILE_BYTES = 1024 * 1024 * 1024; // 1GB
 
 export function buildApp(db: DbClient, config: Config): FastifyInstance {
