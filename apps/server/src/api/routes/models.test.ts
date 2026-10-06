@@ -56,6 +56,9 @@ function tagModel(db: DbClient, modelId: number, tagName: string): void {
   db.insert(modelTagsTable).values({ modelId, tagId: tag.id }).onConflictDoNothing().run();
 }
 
+/** Minimal STEP (ISO-10303-21) marker pair. Nothing server-side parses STEP — only the browser viewer does — so these tests only need a valid .step/.stp *name*. */
+const STEP_FILE_BYTES = "ISO-10303-21;\nDATA;\nENDSEC;\nEND-ISO-10303-21;\n";
+
 describe("duplicate detection surfaced on model routes", () => {
   let libraryRoot: string;
   let db: DbClient;
@@ -301,6 +304,29 @@ describe("sourceUrl on the model routes", () => {
     expect(body.error).toContain("model file");
     expect(body.skippedFiles).toEqual(["notes.txt"]);
   });
+
+  it("accepts a .step file as the model file on creation", async () => {
+    const form = new FormData();
+    form.append("title", "Step Upload");
+    form.append("files", new Blob([STEP_FILE_BYTES]), "bracket.step");
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/models",
+      payload: form,
+    });
+
+    expect(res.statusCode).toBe(201);
+    const created = res.json() as { id: number; title: string };
+    expect(created.title).toBe("Step Upload");
+
+    const detail = await app.inject({ method: "GET", url: `/api/models/${created.id}` });
+    expect(detail.statusCode).toBe(200);
+    const detailBody = detail.json() as { files: { relativePath: string; extension: string }[] };
+    expect(detailBody.files).toEqual([
+      expect.objectContaining({ relativePath: "bracket.step", extension: "step" }),
+    ]);
+  });
 });
 
 describe("archiving models", () => {
@@ -529,18 +555,25 @@ describe("file-attribute filters and lastSyncedAt sort on the model list", () =>
     expect(body.data.map((m) => m.id)).not.toContain(stlModel.id);
   });
 
-  it("?extension=step matches .step and .stp model files", async () => {
-    const stepModel = await createTestModel(db, libraryRoot, "StepCAD", {
-      "cad.step": "ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION((''),'');\nFILE_SCHEMA((''));\nENDSEC;\nDATA;\nENDSEC;\nEND-ISO-10303-21;\n",
+  it("?extension= matches .step and .stp CAD files, which are tracked model files", async () => {
+    const stepModel = await createTestModel(db, libraryRoot, "StepCad", {
+      "bracket.step": STEP_FILE_BYTES,
     });
-    const stlModel = await createTestModel(db, libraryRoot, "StlModel", {
+    const stpModel = await createTestModel(db, libraryRoot, "StpCad", {
+      "enclosure.stp": STEP_FILE_BYTES,
+    });
+    const stlModel = await createTestModel(db, libraryRoot, "StlMesh", {
       "part.stl": "solid a\nendsolid a\n",
     });
 
-    const res = await app.inject({ method: "GET", url: "/api/models?extension=step" });
-    const body = res.json() as { data: { id: number }[] };
-    expect(body.data.map((m) => m.id)).toEqual([stepModel.id]);
-    expect(body.data.map((m) => m.id)).not.toContain(stlModel.id);
+    const stepRes = await app.inject({ method: "GET", url: "/api/models?extension=step" });
+    const stepBody = stepRes.json() as { data: { id: number }[] };
+    expect(stepBody.data.map((m) => m.id)).toEqual([stepModel.id]);
+    expect(stepBody.data.map((m) => m.id)).not.toContain(stlModel.id);
+
+    const stpRes = await app.inject({ method: "GET", url: "/api/models?extension=stp" });
+    const stpBody = stpRes.json() as { data: { id: number }[] };
+    expect(stpBody.data.map((m) => m.id)).toEqual([stpModel.id]);
   });
 
   it("?extension= also matches attachment files (e.g. a PDF instruction sheet), not just model files", async () => {

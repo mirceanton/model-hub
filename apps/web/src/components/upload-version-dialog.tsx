@@ -63,7 +63,7 @@ export function UploadVersionDialog({
         <DialogHeader>
           <DialogTitle>Upload new version</DialogTitle>
           <DialogDescription>
-            Model files (.stl/.3mf/.obj/.step) and attachments (images/pdf) are supported. Files with
+            Model files (.stl/.3mf/.obj/.step/.stp) and attachments (images/pdf) are supported. Files with
             the same name replace the current version. This creates a new commit.
           </DialogDescription>
         </DialogHeader>

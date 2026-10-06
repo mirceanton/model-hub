@@ -5,7 +5,7 @@ services:
     ports:
       - "4000:4000"
     volumes:
-      # Your library: one subfolder per project, containing .stl/.3mf files.
+      # Your library: one subfolder per project, containing .stl/.3mf/.obj/.step files.
       - /path/to/your/3d-print-library:/library
       # App state: the SQLite database.
       - model-hub-data:/data

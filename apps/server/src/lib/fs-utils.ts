@@ -90,7 +90,7 @@ export function isDotPath(relativePath: string): boolean {
 }
 
 /**
- * Recursively lists model files (.stl/.3mf/.obj) and attachment files
+ * Recursively lists model files (.stl/.3mf/.obj/.step/.stp) and attachment files
  * (images/pdf — ATTACHMENT_EXTENSIONS) under a model directory. Skips
  * dotfiles/dot-directories (.git, .thumbnails, .modelhub-id, .gitignore).
  */
@@ -129,18 +129,21 @@ export async function listModelFiles(modelDir: string): Promise<FileEntry[]> {
 // Preference order when a model has multiple file types: .stl (single, unambiguous
 // mesh) > .obj (single mesh, no embedded slicer metadata) > .3mf (can be a
 // multi-plate "sliced project" export with no mesh at all — see MODEL_EXTENSIONS
-// callers' EmptyGeometryError handling). Unlisted extensions (including every
-// ATTACHMENT_EXTENSIONS entry) fall through to the ?? 99 default below, but in
-// practice never reach this ranking at all — pickPrimaryFile filters to
-// MODEL_EXTENSIONS before this is ever consulted.
+// callers' EmptyGeometryError handling). .step/.stp are deliberately unranked:
+// they fall through to the ?? 99 default, so a mesh file present in the same
+// directory always wins, while a model whose only model file is a CAD export
+// still gets a thumbnail (largest-file fallback below). Unlisted extensions
+// (including every ATTACHMENT_EXTENSIONS entry) fall through to that same
+// default, but in practice never reach this ranking at all — pickPrimaryFile
+// filters to MODEL_EXTENSIONS before this is ever consulted.
 const EXTENSION_RANK: Record<string, number> = { stl: 0, obj: 1, "3mf": 2 };
 
 /**
  * Picks the file to render for the model thumbnail: prefer .stl, then .obj,
- * then .3mf, then the largest file, breaking ties by path for determinism.
- * Attachment files (images/pdf) are filtered out up front — never candidates
- * for the viewer or thumbnail source, regardless of EXTENSION_RANK's fallback
- * for unlisted extensions.
+ * then .3mf, then the largest remaining model file (.step/.stp included),
+ * breaking ties by path for determinism. Attachment files (images/pdf) are
+ * filtered out up front — never candidates for the viewer or thumbnail source,
+ * regardless of EXTENSION_RANK's fallback for unlisted extensions.
  */
 export function pickPrimaryFile(files: FileEntry[]): string | null {
   const modelFiles = files.filter((f) => MODEL_EXTENSIONS.has(f.extension));

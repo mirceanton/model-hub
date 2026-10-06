@@ -101,7 +101,7 @@ ever stored. A token authenticates as you, with your current role, and can
 be revoked at any time from the same page.
 
 ```bash
-curl -H "Authorization: Bearer *** token>" \
+curl -H "Authorization: Bearer mh_pat_<your token>" \
   http://localhost:4000/api/models
 ```
 

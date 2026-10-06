@@ -59,21 +59,28 @@ describe("pickPrimaryFile", () => {
     expect(pickPrimaryFile(files)).toBeNull();
   });
 
-  it("recognizes .step and .stp as model files, ranked below .stl/.obj/.3mf", () => {
-    const files: FileEntry[] = [
-      { relativePath: "cad.step", sizeBytes: 5_000, mtime: 0, extension: "step" },
-      { relativePath: "big.stp", sizeBytes: 10_000, mtime: 0, extension: "stp" },
-    ];
-    // Both are unranked extensions (fall through to ?? 99), so largest wins
-    expect(pickPrimaryFile(files)).toBe("big.stp");
-  });
-
   it("ignores attachments when a model file is also present, regardless of attachment size", () => {
     const files: FileEntry[] = [
       { relativePath: "huge-photo.png", sizeBytes: 1_000_000, mtime: 0, extension: "png" },
       { relativePath: "part.stl", sizeBytes: 10, mtime: 0, extension: "stl" },
     ];
     expect(pickPrimaryFile(files)).toBe("part.stl");
+  });
+
+  it("prefers any mesh file over a .step/.stp CAD export, regardless of size", () => {
+    const files: FileEntry[] = [
+      { relativePath: "huge.step", sizeBytes: 10_000, mtime: 0, extension: "step" },
+      { relativePath: "small.stl", sizeBytes: 10, mtime: 0, extension: "stl" },
+    ];
+    expect(pickPrimaryFile(files)).toBe("small.stl");
+  });
+
+  it("falls back to the largest .step/.stp when they are the only model files", () => {
+    const files: FileEntry[] = [
+      { relativePath: "cad.step", sizeBytes: 5_000, mtime: 0, extension: "step" },
+      { relativePath: "big.stp", sizeBytes: 10_000, mtime: 0, extension: "stp" },
+    ];
+    expect(pickPrimaryFile(files)).toBe("big.stp");
   });
 });
 
@@ -97,6 +104,16 @@ describe("listModelFiles", () => {
     const files = await listModelFiles(dir);
     const paths = files.map((f) => f.relativePath).sort();
     expect(paths).toEqual(["cover.jpg", "instructions.pdf", "part.stl", "photo.png"]);
+  });
+
+  it("tracks .step and .stp model files alongside the mesh formats", async () => {
+    await writeFile(join(dir, "bracket.step"), "step-bytes");
+    await writeFile(join(dir, "enclosure.stp"), "stp-bytes");
+    await writeFile(join(dir, "notes.txt"), "text");
+
+    const files = await listModelFiles(dir);
+    const paths = files.map((f) => f.relativePath).sort();
+    expect(paths).toEqual(["bracket.step", "enclosure.stp"]);
   });
 
   it("skips files with unrecognized extensions", async () => {
