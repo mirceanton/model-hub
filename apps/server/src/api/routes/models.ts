@@ -319,7 +319,7 @@ export function registerModelRoutes(
         description:
           "Multipart upload: a required `title` field (sent before any `files` parts), " +
           "optional repeated `tags` and `sourceUrl` fields, then one or more `files` parts " +
-          "(at least one must be a .stl/.3mf/.obj model file; images/pdf attachments may ride along).",
+          "(at least one must be a .stl/.3mf/.obj/.step/.stp model file; images/pdf attachments may ride along).",
         consumes: ["multipart/form-data"],
         response: {
           201: modelSchema,
@@ -401,7 +401,7 @@ export function registerModelRoutes(
     if (!dirPath || !hasModelFile) {
       if (dirPath) await rm(dirPath, { recursive: true, force: true }).catch(() => {});
       return reply.code(400).send({
-        error: "at least one valid model file (.stl/.3mf/.obj) is required",
+        error: "at least one valid model file (.stl/.3mf/.obj/.step/.stp) is required",
         skippedFiles,
       });
     }
@@ -488,7 +488,7 @@ export function registerModelRoutes(
       mtime: f.mtime.getTime(),
       extension: f.extension,
     }));
-    // `files` (model .stl/.3mf/.obj files — viewer/primary-file candidates)
+    // `files` (model .stl/.3mf/.obj/.step/.stp files — viewer/primary-file candidates)
     // and `attachments` (images/pdf — see classifyAttachmentExtension) are
     // both drawn from the same `files` table, since the sync engine caches
     // both categories there; only the API response splits them.
@@ -576,7 +576,7 @@ export function registerModelRoutes(
       // here too so a direct API call can't set one as primary even though
       // the UI only ever offers model files.
       if (!MODEL_EXTENSIONS.has(fileRow.extension)) {
-        return reply.code(400).send({ error: "primaryFilePath must be a model file (.stl/.3mf/.obj)" });
+        return reply.code(400).send({ error: "primaryFilePath must be a model file (.stl/.3mf/.obj/.step/.stp)" });
       }
     }
 

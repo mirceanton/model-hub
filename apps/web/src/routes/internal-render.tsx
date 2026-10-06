@@ -4,7 +4,7 @@ import { Canvas, useFrame } from "@react-three/fiber"
 import { Component, Suspense, useEffect, useRef, type ReactNode } from "react"
 import { useSearchParams } from "react-router"
 import { EmptyGeometryError, ModelMesh } from "@/components/model-mesh"
-import { fileUrl } from "@/lib/model-loader"
+import { fileUrl, isViewableExtension } from "@/lib/model-loader"
 
 declare global {
   interface Window {
@@ -68,10 +68,14 @@ export function InternalRenderPage() {
     document.body.style.backgroundColor = "transparent"
   }, [])
 
+  // `isViewableExtension` is the same guard the interactive viewer uses to
+  // enable its "view" action, so the headless renderer can never accept an
+  // extension ModelMesh has no loader for.
   if (
     !Number.isInteger(modelId) ||
     !file ||
-    (extension !== "stl" && extension !== "3mf" && extension !== "obj")
+    extension === null ||
+    !isViewableExtension(extension)
   ) {
     window.__modelHubRenderError = "invalid-params"
     return null

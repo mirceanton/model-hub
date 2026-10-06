@@ -12,6 +12,10 @@ const CONTENT_TYPE_BY_EXTENSION: Record<string, string> = {
   stl: "model/stl",
   "3mf": "model/3mf",
   obj: "model/obj",
+  // .step/.stp are the same ISO-10303-21 CAD format (the shorter extension is
+  // common in the CAD world), so both are served as model/step.
+  step: "model/step",
+  stp: "model/step",
   png: "image/png",
   jpg: "image/jpeg",
   jpeg: "image/jpeg",

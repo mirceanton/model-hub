@@ -46,7 +46,13 @@ export function projectExportUrl(projectId: number): string {
 }
 
 export function isViewableExtension(extension: string): extension is ModelExtension {
-  return extension === "stl" || extension === "3mf" || extension === "obj"
+  return (
+    extension === "stl" ||
+    extension === "3mf" ||
+    extension === "obj" ||
+    extension === "step" ||
+    extension === "stp"
+  )
 }
 
 export function isImageAttachment(extension: string): boolean {
