@@ -33,7 +33,7 @@
     "zod": "^4.0.0"
   },
   "devDependencies": {
-    "@types/adm-zip": "^0.5.8",
+    "@types/adm-zip": "^0.6.0",
     "@types/archiver": "^8.0.0",
     "@types/better-sqlite3": "^9.0.0",
     "@types/node": "^24.0.0",
