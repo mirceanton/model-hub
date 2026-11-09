@@ -19,7 +19,7 @@ importers:
         version: 11.1.5
       '@fastify/multipart':
         specifier: ^10.1.0
-        version: 10.1.7
+        version: 10.1.8
       '@fastify/rate-limit':
         specifier: ^11.2.0
         version: 11.2.2
@@ -851,8 +851,8 @@ packages:
   '@fastify/merge-json-schemas@0.2.1':
     resolution: {integrity: sha512-OA3KGBCy6KtIvLf8DINC5880o5iBlDX4SxzLQS8HorJAbqluzLRn80UXU0bxZn7UOFhFgpRJDasfwn9nG4FG4A==}
 
-  '@fastify/multipart@10.1.7':
-    resolution: {integrity: sha512-Zjqtrjts+litOXPad9wkX9SayV7Jno8Mnw+cNssi0I3FvPbfWwe9GYj69m0W+KMz4kjHViv6q5VKR3b8jW8yjA==}
+  '@fastify/multipart@10.1.8':
+    resolution: {integrity: sha512-GNZ6bKyqiKpb1VRhOJtb38X92NSEQIM+piO3sid13oP5xmuVmdbFq32khGh4Ru/jMAJoAVxt4yzuUNPwc/CdSg==}
 
   '@fastify/proxy-addr@5.1.0':
     resolution: {integrity: sha512-INS+6gh91cLUjB+PVHfu1UqcB76Sqtpyp7bnL+FYojhjygvOPA9ctiD/JDKsyD9Xgu4hUhCSJBPig/w7duNajw==}
@@ -4159,7 +4159,7 @@ snapshots:
     dependencies:
       dequal: 2.0.3
 
-  '@fastify/multipart@10.1.7':
+  '@fastify/multipart@10.1.8':
     dependencies:
       '@fastify/busboy': 3.2.1
       '@fastify/deepmerge': 3.2.1
