@@ -69,6 +69,9 @@ const envSchema = z.object({
   AUTH_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(60_000),
   UPLOAD_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(30),
   UPLOAD_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(60_000),
+  MCP_ENABLED: z.enum(["true", "false"]).default("true"),
+  MCP_MAX_FILE_BYTES: z.coerce.number().int().positive().default(26_214_400),
+  MCP_MAX_FILES_PER_CALL: z.coerce.number().int().min(1).max(50).default(5),
 });
 
 export interface OidcConfig {
@@ -111,6 +114,12 @@ export type Config = {
   authRateLimitWindowMs: number;
   uploadRateLimitMax: number;
   uploadRateLimitWindowMs: number;
+  /** MCP endpoint (POST /api/mcp, Streamable HTTP). See mcp/server.ts. */
+  mcpEnabled: boolean;
+  /** Per-file cap for base64 uploads AND inline downloads over MCP. */
+  mcpMaxFileBytes: number;
+  /** Max files accepted in one create_model/upload_files MCP call. */
+  mcpMaxFilesPerCall: number;
 };
 
 /**
@@ -268,5 +277,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     authRateLimitWindowMs: parsed.AUTH_RATE_LIMIT_WINDOW_MS,
     uploadRateLimitMax: parsed.UPLOAD_RATE_LIMIT_MAX,
     uploadRateLimitWindowMs: parsed.UPLOAD_RATE_LIMIT_WINDOW_MS,
+    mcpEnabled: parsed.MCP_ENABLED === "true",
+    mcpMaxFileBytes: parsed.MCP_MAX_FILE_BYTES,
+    mcpMaxFilesPerCall: parsed.MCP_MAX_FILES_PER_CALL,
   };
 }
