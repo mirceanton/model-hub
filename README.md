@@ -109,6 +109,42 @@ This works the same whether or not OIDC is configured — in single-user mode
 every request already succeeds regardless, so a token there is mostly
 useful for keeping scripts forward-compatible with a future move to OIDC.
 
+## MCP endpoint (AI agents)
+
+`POST /api/mcp` exposes the library as an [MCP](https://modelcontextprotocol.io)
+server (Streamable HTTP, stateless, JSON responses) so agents — e.g. a
+homelab assistant — can manage models conversationally: list/search models,
+create models, upload/download files (base64), version history, diff and
+restore, tags, projects/pins, trash and purge. 26 tools, all thin wrappers
+over the same REST routes the UI uses — identical validation and behavior.
+
+Authentication is the same as the REST API: on OIDC-protected instances send
+a personal API token as `Authorization: Bearer <token>` (create one on the
+**API Tokens** page). Tool access follows the token's role — viewer reads,
+editor creates/uploads/edits, admin deletes/purges — and every tool call
+re-authenticates as the token's user, so the MCP surface can never elevate
+privileges. Single-user mode stays open like the rest of the API.
+
+```jsonc
+// MCP client config (url-mode / streamable-http)
+{
+  "mcpServers": {
+    "model-hub": {
+      "url": "https://modelhub.example.com/api/mcp",
+      "headers": { "Authorization": "Bearer *** token>" }
+    }
+  }
+}
+```
+
+The endpoint is stateless: no `initialize` handshake is required, each POST
+is self-contained, and GET/DELETE return 405 (no SSE stream). That makes it
+safe behind load balancers and trivially proxyable (e.g. LiteLLM's url-mode
+MCP registration). File transfers are bounded by `MCP_MAX_FILE_BYTES`
+(default 25 MiB) and `MCP_MAX_FILES_PER_CALL` (default 5); larger files get
+a `tooLarge` error pointing at the REST download path instead. Set
+`MCP_ENABLED=false` to turn the endpoint off entirely.
+
 ## Development
 
 Monorepo (pnpm workspaces): `apps/server` (Fastify API + sync engine +
