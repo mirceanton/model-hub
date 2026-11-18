@@ -38,9 +38,11 @@ export interface McpRequestContext {
  * One deliberate difference from REST: role enforcement. Several single-
  * item REST routes (DELETE /api/models/:id, DELETE /api/models/:id/files/*)
  * predate the RBAC sweep and are still ungated; the MCP surface enforces
- * the documented role model (CLAUDE.md "Roles & API tokens") from day one:
- * viewer = read-only, editor = create/upload/edit/tag/pin, admin = delete
- * and trash management.
+ * the documented role model (CLAUDE.md "Roles") from day one: viewer =
+ * read-only, editor = create/upload/edit/tag/pin, admin = delete and trash
+ * management. This gates the agent surface only — it is NOT a substitute
+ * for gating those REST routes, which remain reachable directly with the
+ * same token until the RBAC sweep reaches them.
  */
 
 // ---------------------------------------------------------------------------
@@ -92,18 +94,21 @@ async function injectApi(
   };
 }
 
+/** "HTTP <status>: <message>", using the route's `{error}` field when the body is JSON. */
+function httpErrorMessage(res: InjectedResponse): string {
+  let message = res.text;
+  try {
+    const parsed = JSON.parse(res.text) as { error?: string };
+    if (parsed.error) message = parsed.error;
+  } catch {
+    // non-JSON error body — keep the raw text
+  }
+  return `HTTP ${res.status}: ${message}`;
+}
+
 /** Throws with the route's own error message on >=400; parses JSON otherwise (204 -> {ok:true}). */
 function unwrapJson(res: InjectedResponse): unknown {
-  if (res.status >= 400) {
-    let message = res.text;
-    try {
-      const parsed = JSON.parse(res.text) as { error?: string };
-      if (parsed.error) message = parsed.error;
-    } catch {
-      // non-JSON error body — keep the raw text
-    }
-    throw new Error(`HTTP ${res.status}: ${message}`);
-  }
+  if (res.status >= 400) throw new Error(httpErrorMessage(res));
   if (res.status === 204 || res.text.length === 0) return { ok: true };
   return JSON.parse(res.text);
 }
@@ -181,10 +186,47 @@ function buildMultipartBody(
 }
 
 /**
- * Shared tail for download_file/download_model: inline the bytes as base64
- * when they fit under config.mcpMaxFileBytes, otherwise return a structured
- * too-large error pointing at the authenticated REST path (the MCP channel
- * is JSON-only — gigabyte models belong on the NFS share or a direct GET).
+ * Structured too-large error pointing at the authenticated REST path (the
+ * MCP channel is JSON-only — gigabyte models belong on the NFS share or a
+ * direct GET).
+ */
+function tooLargeResult(
+  config: Config,
+  meta: { filename: string; apiPath: string; sizeBytes: number; uncompressed?: boolean },
+): CallToolResult {
+  const what = meta.uncompressed ? "bytes uncompressed" : "bytes";
+  return errorResult(
+    `'${meta.filename}' is ${meta.sizeBytes} ${what}, over the ${config.mcpMaxFileBytes}-byte inline download limit`,
+    {
+      tooLarge: true,
+      sizeBytes: meta.sizeBytes,
+      apiPath: meta.apiPath,
+      hint: "Fetch it with an authenticated GET (Authorization: Bearer <API token>) or copy it from the library share.",
+    },
+  );
+}
+
+/**
+ * Indexed files (model files + attachments) of one model, from the same
+ * GET /api/models/:id the get_model tool uses. Lets the download tools
+ * check sizes from the DB index BEFORE asking the REST route to read (or
+ * zip) anything, so an oversized request never buffers the bytes in memory.
+ */
+async function getIndexedFiles(
+  ctx: McpRequestContext,
+  id: number,
+): Promise<Array<{ relativePath: string; sizeBytes: number }>> {
+  const detail = unwrapJson(await injectApi(ctx, "GET", `/api/models/${id}`)) as {
+    files?: Array<{ relativePath: string; sizeBytes: number }>;
+    attachments?: Array<{ relativePath: string; sizeBytes: number }>;
+  };
+  return [...(detail.files ?? []), ...(detail.attachments ?? [])];
+}
+
+/**
+ * Shared tail for download_file/download_model: inline the bytes as base64.
+ * Callers pre-check the indexed size; the check here is the backstop (e.g.
+ * the file grew on disk since it was indexed, or zip overhead).
  */
 function inlineDownloadResult(
   res: InjectedResponse,
@@ -192,18 +234,10 @@ function inlineDownloadResult(
   meta: { filename: string; apiPath: string },
 ): CallToolResult {
   if (res.status >= 400) {
-    return errorResult(`HTTP ${res.status}: ${res.text}`);
+    return errorResult(httpErrorMessage(res));
   }
   if (res.raw.length > config.mcpMaxFileBytes) {
-    return errorResult(
-      `'${meta.filename}' is ${res.raw.length} bytes, over the ${config.mcpMaxFileBytes}-byte inline download limit`,
-      {
-        tooLarge: true,
-        sizeBytes: res.raw.length,
-        apiPath: meta.apiPath,
-        hint: "Fetch it with an authenticated GET (Authorization: Bearer <API token>) or copy it from the library share.",
-      },
-    );
+    return tooLargeResult(config, { ...meta, sizeBytes: res.raw.length });
   }
   return jsonResult({
     filename: meta.filename,
@@ -226,9 +260,10 @@ interface ToolMeta<Shape extends ZodRawShapeCompat> {
 
 /**
  * Registers one tool with role enforcement + uniform error handling.
- * request.user is always set by the guard (single-user mode: the admin
- * local owner), so the role check mirrors auth/guard.ts's requireRole;
- * the undefined branch is defense in depth, like requireRole's own.
+ * The role check mirrors auth/guard.ts's requireRole, including failing
+ * CLOSED when no user was resolved (e.g. a request that passed the guard
+ * via the internal render token, which carries no user) — no tool runs
+ * without an identified caller whose role satisfies minRole.
  */
 function defineTool<Shape extends ZodRawShapeCompat>(
   server: McpServer,
@@ -254,7 +289,10 @@ function defineTool<Shape extends ZodRawShapeCompat>(
     },
     async (args): Promise<CallToolResult> => {
       try {
-        if (ctx.user && !roleSatisfies(ctx.user.role, meta.minRole)) {
+        if (!ctx.user) {
+          return errorResult(`tool '${name}' requires an authenticated user`);
+        }
+        if (!roleSatisfies(ctx.user.role, meta.minRole)) {
           return errorResult(
             `tool '${name}' requires the '${meta.minRole}' role; this token's user has '${ctx.user.role}'`,
           );
@@ -266,6 +304,13 @@ function defineTool<Shape extends ZodRawShapeCompat>(
     },
   );
 }
+
+// The REST routes match shas exactly against the model's git log (full
+// 40-hex shas, as get_model's gitLog returns them) — abbreviated shas would
+// always be rejected there, so reject them up front with a clear message.
+const commitShaSchema = z
+  .string()
+  .regex(/^[0-9a-f]{40}$/, "must be a full 40-character commit sha from get_model's gitLog");
 
 const modelIdSchema = z.coerce.number().int().positive().describe("Model id (from list_models/get_model)");
 const projectIdSchema = z.coerce.number().int().positive().describe("Project id (from list_projects/get_project)");
@@ -282,7 +327,7 @@ export function registerMcpTools(server: McpServer, ctx: McpRequestContext): voi
     "list_models",
     {
       description:
-        "Search/list models in the library with pagination. Returns items (id, title, tags, file stats, thumbnail status), total, page, perPage.",
+        "Search/list models in the library. Returns { data: models (id, title, tags, file stats, thumbnail status, ...), total } where total counts all matches before pagination. Pagination only applies when perPage is set.",
       inputSchema: {
         q: z.string().optional().describe("Case-insensitive substring match on model titles"),
         tag: z.array(z.string()).optional().describe("Only models carrying ALL of these tag names"),
@@ -291,7 +336,10 @@ export function registerMcpTools(server: McpServer, ctx: McpRequestContext): voi
         extension: z.string().optional().describe("Only models with a file of this extension, e.g. 'stl' or '.step'"),
         page: z.coerce.number().int().min(1).optional(),
         perPage: z.coerce.number().int().min(1).max(100).optional(),
-        sort: z.enum(["createdAt", "updatedAt", "title", "size", "fileCount"]).optional(),
+        sort: z
+          .enum(["title", "createdAt", "lastSyncedAt"])
+          .optional()
+          .describe("Sort field (default: favorites first, then title)"),
         order: z.enum(["asc", "desc"]).optional(),
       },
       minRole: "viewer",
@@ -348,8 +396,13 @@ export function registerMcpTools(server: McpServer, ctx: McpRequestContext): voi
       // Same wildcard route as delete_file: GET /api/models/:id/files/*
       const encodedPath = args.path.split("/").map(encodeURIComponent).join("/");
       const apiPath = `/api/models/${args.id}/files/${encodedPath}`;
+      const filename = args.path.split("/").pop() ?? args.path;
+      const indexed = (await getIndexedFiles(ctx, args.id)).find((f) => f.relativePath === args.path);
+      if (indexed && indexed.sizeBytes > config.mcpMaxFileBytes) {
+        return tooLargeResult(config, { filename, apiPath, sizeBytes: indexed.sizeBytes });
+      }
       const res = await injectApi(ctx, "GET", apiPath);
-      return inlineDownloadResult(res, config, { filename: args.path.split("/").pop() ?? args.path, apiPath });
+      return inlineDownloadResult(res, config, { filename, apiPath });
     },
   );
 
@@ -358,13 +411,25 @@ export function registerMcpTools(server: McpServer, ctx: McpRequestContext): voi
     ctx,
     "download_model",
     {
-      description: `Download a whole model as a zip of its current version (git archive; excludes .git/.modelhub internals). Returns filename, sizeBytes, contentBase64. ${fileLimitNote} Larger models return a tooLarge error with the REST path instead.`,
+      description: `Download a whole model as a zip of its current files (every indexed model file and attachment in the working tree; no git history). Returns filename, sizeBytes, contentBase64. ${fileLimitNote} The limit applies to the model's total uncompressed size; larger models return a tooLarge error with the REST path instead.`,
       inputSchema: { id: modelIdSchema },
       minRole: "viewer",
       annotations: { readOnlyHint: true },
     },
     async (args) => {
       const apiPath = `/api/models/${args.id}/download`;
+      // Check the indexed (uncompressed) total first: the REST route zips at
+      // level 9 and app.inject buffers the whole archive, so an oversized
+      // model must be refused before the route is ever called.
+      const totalBytes = (await getIndexedFiles(ctx, args.id)).reduce((sum, f) => sum + f.sizeBytes, 0);
+      if (totalBytes > config.mcpMaxFileBytes) {
+        return tooLargeResult(config, {
+          filename: `model-${args.id}.zip`,
+          apiPath,
+          sizeBytes: totalBytes,
+          uncompressed: true,
+        });
+      }
       const res = await injectApi(ctx, "GET", apiPath);
       const disposition = String(res.headers["content-disposition"] ?? "");
       const match = /filename="?([^";]+)"?/.exec(disposition);
@@ -412,7 +477,7 @@ export function registerMcpTools(server: McpServer, ctx: McpRequestContext): voi
     ctx,
     "get_project",
     {
-      description: "Full detail for one project: metadata, every pinned model (modelId, title, pinned commitSha, printed flag) and active notices (e.g. upstream model changed since pinning).",
+      description: "Full detail for one project: metadata, every pinned model (modelId, modelTitle, pinnedCommitSha, isOutdated, printedAt) and active notices (e.g. upstream model changed since pinning).",
       inputSchema: { id: projectIdSchema },
       minRole: "viewer",
       annotations: { readOnlyHint: true },
@@ -496,7 +561,7 @@ export function registerMcpTools(server: McpServer, ctx: McpRequestContext): voi
       inputSchema: {
         id: modelIdSchema,
         files: z.array(uploadedFileSchema).min(1),
-        message: z.string().optional().describe("Commit message for this version (defaults to 'Uploaded via API')"),
+        message: z.string().optional().describe("Commit message for this version (defaults to 'Uploaded <filenames>')"),
       },
       minRole: "editor",
     },
@@ -520,7 +585,7 @@ export function registerMcpTools(server: McpServer, ctx: McpRequestContext): voi
         "Roll a model back to an earlier version: restores tracked file contents to that commit and commits the restoration as a new version (history is never rewritten). Files added after that commit are kept, not deleted. sha comes from get_model's gitLog.",
       inputSchema: {
         id: modelIdSchema,
-        sha: z.string().regex(/^[0-9a-f]{7,40}$/).describe("Full commit sha from the model's gitLog (matched exactly)"),
+        sha: commitShaSchema.describe("Full 40-character commit sha from the model's gitLog (matched exactly)"),
       },
       minRole: "editor",
     },
@@ -539,8 +604,8 @@ export function registerMcpTools(server: McpServer, ctx: McpRequestContext): voi
         "Diff two commits of a model: returns the commits between them and the changed files ({path, status: added|modified|removed}). Shas come from get_model's gitLog.",
       inputSchema: {
         id: modelIdSchema,
-        from: z.string().regex(/^[0-9a-f]{7,40}$/).describe("Older commit sha"),
-        to: z.string().regex(/^[0-9a-f]{7,40}$/).describe("Newer commit sha"),
+        from: commitShaSchema.describe("Older full commit sha"),
+        to: commitShaSchema.describe("Newer full commit sha"),
       },
       minRole: "viewer",
       annotations: { readOnlyHint: true },
@@ -633,11 +698,11 @@ export function registerMcpTools(server: McpServer, ctx: McpRequestContext): voi
     "pin_model",
     {
       description:
-        "Pin a model into a project at a specific version. commitSha omitted pins the model's latest commit. Pins are immutable snapshots: later uploads to the model do not change what the project references.",
+        "Pin a model into a project at a specific version. commitSha omitted pins the model's latest commit. A pin references that exact commit: later uploads to the model do not move it (get_project flags it as outdated). To move an existing pin, use update_pin rather than unpinning and re-pinning (which would reset its printed flag).",
       inputSchema: {
         projectId: projectIdSchema,
         modelId: modelIdSchema,
-        commitSha: z.string().regex(/^[0-9a-f]{7,40}$/).optional(),
+        commitSha: commitShaSchema.optional().describe("Full commit sha from the model's gitLog; omit for latest"),
       },
       minRole: "editor",
     },
@@ -645,6 +710,31 @@ export function registerMcpTools(server: McpServer, ctx: McpRequestContext): voi
       const body: { modelId: number; commitSha?: string } = { modelId: args.modelId };
       if (args.commitSha !== undefined) body.commitSha = args.commitSha;
       const res = await injectApi(ctx, "POST", `/api/projects/${args.projectId}/pins`, { json: body });
+      return jsonResult(unwrapJson(res));
+    },
+  );
+
+  defineTool(
+    server,
+    ctx,
+    "update_pin",
+    {
+      description:
+        "Move an existing pin to a different version of its model, in place (keeps the pin's printed flag). commitSha omitted bumps the pin to the model's latest commit.",
+      inputSchema: {
+        projectId: projectIdSchema,
+        modelId: modelIdSchema,
+        commitSha: commitShaSchema.optional().describe("Full commit sha from the model's gitLog; omit to bump to latest"),
+      },
+      minRole: "editor",
+      annotations: { idempotentHint: true },
+    },
+    async (args) => {
+      const body: { commitSha?: string } = {};
+      if (args.commitSha !== undefined) body.commitSha = args.commitSha;
+      const res = await injectApi(ctx, "PATCH", `/api/projects/${args.projectId}/pins/${args.modelId}`, {
+        json: body,
+      });
       return jsonResult(unwrapJson(res));
     },
   );

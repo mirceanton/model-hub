@@ -31,6 +31,9 @@ import { registerMcpTools, type McpRequestContext } from "./tools.js";
  * app.inject() call, so tool calls re-authenticate as the same user and can
  * never elevate privileges.
  */
+/** Room for the JSON-RPC envelope, titles, tags, messages etc. on top of the base64 file payloads. */
+const MCP_ENVELOPE_HEADROOM_BYTES = 1024 * 1024;
+
 export function registerMcpRoutes(app: FastifyInstance, config: Config): void {
   const serverInfo = { name: "model-hub", version: getAppVersion() };
 
@@ -50,7 +53,15 @@ export function registerMcpRoutes(app: FastifyInstance, config: Config): void {
   app.get("/api/mcp", methodNotAllowed);
   app.delete("/api/mcp", methodNotAllowed);
 
-  app.post("/api/mcp", async (request, reply) => {
+  // Fastify's default bodyLimit (1 MiB) would reject any base64 upload over
+  // ~750 KB with a 413 before this handler runs. Size the limit from the
+  // configured caps instead: base64 inflates by 4/3, times the max file
+  // count, plus headroom for the JSON-RPC envelope and other arguments.
+  // Per-file/per-call caps are still enforced precisely in tools.ts.
+  const bodyLimit =
+    Math.ceil(config.mcpMaxFileBytes / 3) * 4 * config.mcpMaxFilesPerCall + MCP_ENVELOPE_HEADROOM_BYTES;
+
+  app.post("/api/mcp", { bodyLimit }, async (request, reply) => {
     // Stateless: a fresh transport + server per request (the SDK forbids
     // reusing a stateless transport across requests — message id collisions).
     const transport = new WebStandardStreamableHTTPServerTransport({

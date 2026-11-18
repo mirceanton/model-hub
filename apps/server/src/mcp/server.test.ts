@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createApiToken } from "../auth/api-tokens.js";
+import { INTERNAL_RENDER_HEADER, INTERNAL_RENDER_TOKEN } from "../auth/internal-token.js";
 import { SESSION_COOKIE_NAME } from "../auth/constants.js";
 import { createSession } from "../auth/session.js";
 import { buildApp } from "../api/app.js";
@@ -124,6 +125,7 @@ const EXPECTED_TOOLS = [
   "create_project",
   "update_project",
   "pin_model",
+  "update_pin",
   "unpin_model",
   "set_pin_printed",
   "sync_library",
@@ -392,6 +394,110 @@ describe("MCP endpoint — single-user mode", () => {
     }
   });
 
+  it("accepts uploads larger than Fastify's default 1 MiB body limit", async () => {
+    // ~2 MiB file -> ~2.7 MiB base64 JSON body; would 413 at the default bodyLimit.
+    const big = Buffer.alloc(2 * 1024 * 1024, 0x61);
+    const created = await callTool(app, "create_model", {
+      title: "Big Upload",
+      files: [{ filename: "big.stl", contentBase64: big.toString("base64") }],
+    });
+    expect(created.ok).toBe(true);
+    const detail = await callTool(app, "get_model", { id: created.data.id as number });
+    const files = detail.data.files as Array<{ relativePath: string; sizeBytes: number }>;
+    expect(files.find((f) => f.relativePath === "big.stl")?.sizeBytes).toBe(big.length);
+  });
+
+  it("refuses oversized downloads from the index, before reading or zipping", async () => {
+    const created = await callTool(app, "create_model", {
+      title: "Download Caps",
+      files: [{ filename: "part.stl", contentBase64: b64(STL_BYTES) }],
+    });
+    const modelId = created.data.id as number;
+    const tiny = buildApp(db, buildTestConfig({ libraryRoot, mcpMaxFileBytes: 16 }));
+    await tiny.ready();
+    try {
+      const file = await callTool(tiny, "download_file", { id: modelId, path: "part.stl" });
+      expect(file.ok).toBe(false);
+      expect(file.data.tooLarge).toBe(true);
+      expect(file.data.sizeBytes).toBe(Buffer.byteLength(STL_BYTES));
+      expect(file.data.apiPath).toBe(`/api/models/${modelId}/files/part.stl`);
+
+      const zip = await callTool(tiny, "download_model", { id: modelId });
+      expect(zip.ok).toBe(false);
+      expect(zip.data.tooLarge).toBe(true);
+      expect(zip.data.apiPath).toBe(`/api/models/${modelId}/download`);
+    } finally {
+      await tiny.close();
+    }
+
+    // download errors use the route's {error} message, like every other tool
+    const missing = await callTool(app, "download_file", { id: 999_999, path: "x.stl" });
+    expect(missing.ok).toBe(false);
+    expect(missing.data.error).toBe("HTTP 404: model not found");
+  });
+
+  it("list_models accepts every sort the REST route accepts and returns {data, total}", async () => {
+    await callTool(app, "create_model", {
+      title: "Sortable",
+      files: [{ filename: "s.stl", contentBase64: b64(STL_BYTES) }],
+    });
+    for (const sort of ["title", "createdAt", "lastSyncedAt"]) {
+      const listed = await callTool(app, "list_models", { sort, order: "desc", perPage: 10 });
+      expect(listed.ok).toBe(true);
+      expect(listed.data.total).toBe(1);
+      expect((listed.data.data as unknown[]).length).toBe(1);
+    }
+  });
+
+  it("rejects abbreviated shas up front; update_pin moves a pin in place and keeps printed", async () => {
+    const created = await callTool(app, "create_model", {
+      title: "Versioned",
+      files: [{ filename: "v.stl", contentBase64: b64(STL_BYTES) }],
+    });
+    const modelId = created.data.id as number;
+    const firstSha = ((await callTool(app, "get_model", { id: modelId })).data.gitLog as Array<{ sha: string }>)[0]
+      ?.sha as string;
+    expect(firstSha).toMatch(/^[0-9a-f]{40}$/);
+
+    const short = await rpc(app, "tools/call", {
+      name: "restore_version",
+      arguments: { id: modelId, sha: firstSha.slice(0, 7) },
+    });
+    const shortResult = short.body.result as unknown as ToolCallResult | undefined;
+    // Either a JSON-RPC invalid-params error or an isError tool result — never a 400 from REST.
+    expect(short.body.error !== undefined || shortResult?.isError === true).toBe(true);
+    expect(JSON.stringify(short.body)).toContain("40-character");
+
+    const project = await callTool(app, "create_project", { title: "Bump Test" });
+    const projectId = project.data.id as number;
+    expect((await callTool(app, "pin_model", { projectId, modelId })).ok).toBe(true);
+    expect((await callTool(app, "set_pin_printed", { projectId, modelId, printed: true })).ok).toBe(true);
+
+    await callTool(app, "upload_files", {
+      id: modelId,
+      files: [{ filename: "v.stl", contentBase64: b64(STL_BYTES.replace("bracket", "bracket-v2")) }],
+    });
+    const latestSha = ((await callTool(app, "get_model", { id: modelId })).data.gitLog as Array<{ sha: string }>)[0]
+      ?.sha as string;
+    expect(latestSha).not.toBe(firstSha);
+
+    const bumped = await callTool(app, "update_pin", { projectId, modelId });
+    expect(bumped.ok).toBe(true);
+    const pins = (await callTool(app, "get_project", { id: projectId })).data.pins as Array<{
+      modelId: number;
+      pinnedCommitSha: string;
+      printedAt: number | null;
+      isOutdated: boolean;
+    }>;
+    const pin = pins.find((p) => p.modelId === modelId);
+    expect(pin?.pinnedCommitSha).toBe(latestSha);
+    expect(pin?.isOutdated).toBe(false);
+    expect(pin?.printedAt).not.toBeNull();
+
+    const back = await callTool(app, "update_pin", { projectId, modelId, commitSha: firstSha });
+    expect(back.ok).toBe(true);
+  });
+
   it("is absent when mcpEnabled=false", async () => {
     const disabled = buildApp(db, buildTestConfig({ libraryRoot, mcpEnabled: false }));
     await disabled.ready();
@@ -519,6 +625,14 @@ describe("MCP endpoint — OIDC mode (PAT auth + RBAC)", () => {
 
     const adminDel = await callTool(app, "delete_model", { id: modelId }, bearer(adminToken));
     expect(adminDel.ok).toBe(true);
+  });
+
+  it("fails closed when the request resolved no user (internal render token)", async () => {
+    // The render token gets past the guard without setting request.user;
+    // tool role checks must refuse rather than skip.
+    const res = await callTool(app, "list_trash", {}, { [INTERNAL_RENDER_HEADER]: INTERNAL_RENDER_TOKEN });
+    expect(res.ok).toBe(false);
+    expect(res.raw.content[0]?.text ?? "").toContain("authenticated user");
   });
 
   it("a token whose user was deleted stops working", async () => {

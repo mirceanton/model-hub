@@ -115,7 +115,7 @@ useful for keeping scripts forward-compatible with a future move to OIDC.
 server (Streamable HTTP, stateless, JSON responses) so agents — e.g. a
 homelab assistant — can manage models conversationally: list/search models,
 create models, upload/download files (base64), version history, diff and
-restore, tags, projects/pins, trash and purge. 26 tools, all thin wrappers
+restore, tags, projects/pins, trash and purge. 27 tools, all thin wrappers
 over the same REST routes the UI uses — identical validation and behavior.
 
 Authentication is the same as the REST API: on OIDC-protected instances send
@@ -131,7 +131,7 @@ privileges. Single-user mode stays open like the rest of the API.
   "mcpServers": {
     "model-hub": {
       "url": "https://modelhub.example.com/api/mcp",
-      "headers": { "Authorization": "Bearer *** token>" }
+      "headers": { "Authorization": "Bearer mh_pat_<your token>" }
     }
   }
 }

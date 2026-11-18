@@ -227,7 +227,7 @@ explicit change via the `/admin` UI.
 ### MCP endpoint (`apps/server/src/mcp/`)
 
 `POST /api/mcp` is a stateless MCP server (Streamable HTTP, JSON responses)
-exposing 26 tools over the existing REST routes — model CRUD, base64 file
+exposing 27 tools over the existing REST routes — model CRUD, base64 file
 upload/download, version history/diff/restore, tags, projects/pins, trash.
 Design constraints worth knowing before touching it:
 
@@ -240,7 +240,10 @@ Design constraints worth knowing before touching it:
   `authorization`/`cookie` headers, re-authenticating as the same user —
   the MCP layer cannot elevate privileges. Per-tool `minRole` checks are
   deliberately *stricter* than REST: several single-item REST routes predate
-  the RBAC sweep and are ungated; the agent surface gates all of them.
+  the RBAC sweep and are ungated; the agent surface gates all of them. A
+  tool fails closed (refused) when the request resolved no user. This gates
+  only the MCP surface — the same token can still hit those ungated REST
+  routes directly until the RBAC sweep reaches them.
 - **WebStandard transport, not the Node one.** The SDK's
   `StreamableHTTPServerTransport` wraps `@hono/node-server` and needs raw
   Node streams — incompatible with Fastify's reply lifecycle and with
@@ -254,8 +257,13 @@ Design constraints worth knowing before touching it:
   forbids reusing a stateless transport across requests. No session state =
   safe behind LBs/replicas and proxyable by LiteLLM url-mode MCP.
 - **Bounded payloads.** `MCP_MAX_FILE_BYTES` / `MCP_MAX_FILES_PER_CALL`
-  (config.ts) cap base64 transfers; oversized downloads return `tooLarge`
-  with the REST path. `MCP_ENABLED=false` unmounts the route.
+  (config.ts) cap base64 transfers; the route's Fastify `bodyLimit` is
+  derived from them (base64 overhead × file count + envelope headroom), since
+  Fastify's 1 MiB default would 413 any real upload. Download tools check
+  the indexed sizes (`get_model`'s file list) *before* calling the REST
+  route, so an oversized file/model is never read or zipped into memory;
+  they return `tooLarge` with the REST path instead. `download_model`'s cap
+  applies to the model's total uncompressed size. `MCP_ENABLED=false` unmounts the route.
 - Tests (`mcp/server.test.ts`) speak raw JSON-RPC over `app.inject()` —
   exactly what a url-mode proxy sends — covering the full lifecycle, RBAC
   per role, PAT and cookie auth, and the payload caps.
