@@ -31,6 +31,9 @@ export function buildTestConfig(overrides: Partial<Config> = {}): Config {
     authRateLimitWindowMs: 60_000,
     uploadRateLimitMax: 30,
     uploadRateLimitWindowMs: 60_000,
+    mcpEnabled: true,
+    mcpMaxFileBytes: 26_214_400,
+    mcpMaxFilesPerCall: 5,
     ...overrides,
   };
 }

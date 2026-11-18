@@ -26,6 +26,7 @@ import { registerTagRoutes } from "./routes/tags.js";
 import { registerThumbnailRoutes } from "./routes/thumbnails.js";
 import { registerTrashRoutes } from "./routes/trash.js";
 import { registerVersionRoutes } from "./routes/versions.js";
+import { registerMcpRoutes } from "../mcp/server.js";
 import { registerStaticSpa } from "./static.js";
 
 // Generous for large/multi-plate sliced files — shared by both the create-model
@@ -94,6 +95,9 @@ export function buildApp(db: DbClient, config: Config): FastifyInstance {
     registerTagRoutes(instance, db);
     registerTrashRoutes(instance, db, config.libraryRoot);
     registerSyncRoutes(instance, db, config.libraryRoot);
+    if (config.mcpEnabled) {
+      registerMcpRoutes(instance, config);
+    }
   });
 
   if (config.staticWebDir) {

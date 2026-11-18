@@ -224,6 +224,50 @@ unsetting stops future enforcement but does *not* retroactively demote
 anyone already mapped to admin through that group — that requires an
 explicit change via the `/admin` UI.
 
+### MCP endpoint (`apps/server/src/mcp/`)
+
+`POST /api/mcp` is a stateless MCP server (Streamable HTTP, JSON responses)
+exposing 27 tools over the existing REST routes — model CRUD, base64 file
+upload/download, version history/diff/restore, tags, projects/pins, trash.
+Design constraints worth knowing before touching it:
+
+- **Thin wrappers, no duplicated logic.** Every tool calls the real route
+  via `app.inject()` (`tools.ts`), so validation, git semantics and error
+  shapes stay identical to the UI's API by construction.
+- **Auth is reused, never bypassed.** The route lives under `/api/*`, so
+  `auth/guard.ts` authenticates it like any API route (PAT bearer or session
+  cookie on OIDC instances). Each inject forwards the caller's own
+  `authorization`/`cookie` headers, re-authenticating as the same user —
+  the MCP layer cannot elevate privileges. Per-tool `minRole` checks are
+  deliberately *stricter* than REST: several single-item REST routes predate
+  the RBAC sweep and are ungated; the agent surface gates all of them. A
+  tool fails closed (refused) when the request resolved no user. This gates
+  only the MCP surface — the same token can still hit those ungated REST
+  routes directly until the RBAC sweep reaches them.
+- **WebStandard transport, not the Node one.** The SDK's
+  `StreamableHTTPServerTransport` wraps `@hono/node-server` and needs raw
+  Node streams — incompatible with Fastify's reply lifecycle and with
+  `app.inject()` (the test harness). `server.ts` converts the parsed Fastify
+  request into a Web `Request`, hands the body over via `parsedBody`, and
+  writes the returned Web `Response` back through `reply`. GET/DELETE are
+  refused with 405 at the route layer: the SDK's stateless GET handler opens
+  a never-ending SSE stream, which would hang request/response proxies.
+- **Stateless per request.** Fresh `McpServer` + transport per POST
+  (`sessionIdGenerator: undefined`, `enableJsonResponse: true`); the SDK
+  forbids reusing a stateless transport across requests. No session state =
+  safe behind LBs/replicas and proxyable by LiteLLM url-mode MCP.
+- **Bounded payloads.** `MCP_MAX_FILE_BYTES` / `MCP_MAX_FILES_PER_CALL`
+  (config.ts) cap base64 transfers; the route's Fastify `bodyLimit` is
+  derived from them (base64 overhead × file count + envelope headroom), since
+  Fastify's 1 MiB default would 413 any real upload. Download tools check
+  the indexed sizes (`get_model`'s file list) *before* calling the REST
+  route, so an oversized file/model is never read or zipped into memory;
+  they return `tooLarge` with the REST path instead. `download_model`'s cap
+  applies to the model's total uncompressed size. `MCP_ENABLED=false` unmounts the route.
+- Tests (`mcp/server.test.ts`) speak raw JSON-RPC over `app.inject()` —
+  exactly what a url-mode proxy sends — covering the full lifecycle, RBAC
+  per role, PAT and cookie auth, and the payload caps.
+
 ### Projects (grouping) (`apps/server/src/lib/project-pins.ts`, `apps/server/src/api/routes/projects.ts`)
 
 A **Project** is a separate, DB-only entity from a **Model** (no filesystem

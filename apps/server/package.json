@@ -21,6 +21,7 @@
     "@fastify/swagger": "^9.8.1",
     "@fastify/swagger-ui": "^6.1.1",
     "@model-hub/shared": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.32.2",
     "archiver": "^8.0.0",
     "better-sqlite3": "^13.0.2",
     "chokidar": "^6.0.0",
