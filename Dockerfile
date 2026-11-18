@@ -9,7 +9,11 @@ FROM ${PLAYWRIGHT_IMAGE} AS build
 RUN apt-get update \
     && apt-get install -y --no-install-recommends build-essential python3 \
     && rm -rf /var/lib/apt/lists/*
-RUN corepack enable
+# Node >= 25 (shipped by the Playwright base image) no longer bundles corepack,
+# so `corepack enable` fails with "command not found". Install pnpm explicitly
+# instead. Keep this version in sync with .mise.toml — it must match the pnpm
+# that generates pnpm-lock.yaml, or `pnpm install --frozen-lockfile` breaks.
+RUN npm install -g pnpm@12.21.0
 WORKDIR /app
 
 COPY pnpm-workspace.yaml pnpm-lock.yaml package.json tsconfig.base.json ./
