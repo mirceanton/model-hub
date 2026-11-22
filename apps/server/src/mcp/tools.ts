@@ -134,7 +134,6 @@ function decodeUploadedFiles(
   files: Array<{ filename: string; contentBase64: string }>,
   config: Config,
 ): DecodedFile[] {
-  if (files.length === 0) throw new Error("at least one file is required");
   if (files.length > config.mcpMaxFilesPerCall) {
     throw new Error(`too many files: ${files.length} (max ${config.mcpMaxFilesPerCall} per call)`);
   }
@@ -215,12 +214,16 @@ function tooLargeResult(
 async function getIndexedFiles(
   ctx: McpRequestContext,
   id: number,
-): Promise<Array<{ relativePath: string; sizeBytes: number }>> {
+): Promise<{ files: Array<{ relativePath: string; sizeBytes: number }>; commitSha: string | null }> {
   const detail = unwrapJson(await injectApi(ctx, "GET", `/api/models/${id}`)) as {
     files?: Array<{ relativePath: string; sizeBytes: number }>;
     attachments?: Array<{ relativePath: string; sizeBytes: number }>;
+    lastSyncedCommitSha?: string | null;
   };
-  return [...(detail.files ?? []), ...(detail.attachments ?? [])];
+  return {
+    files: [...(detail.files ?? []), ...(detail.attachments ?? [])],
+    commitSha: detail.lastSyncedCommitSha ?? null,
+  };
 }
 
 /**
@@ -231,7 +234,7 @@ async function getIndexedFiles(
 function inlineDownloadResult(
   res: InjectedResponse,
   config: Config,
-  meta: { filename: string; apiPath: string },
+  meta: { filename: string; apiPath: string; commitSha: string | null },
 ): CallToolResult {
   if (res.status >= 400) {
     return errorResult(httpErrorMessage(res));
@@ -243,6 +246,7 @@ function inlineDownloadResult(
     filename: meta.filename,
     sizeBytes: res.raw.length,
     mimeType: res.headers["content-type"] ?? "application/octet-stream",
+    commitSha: meta.commitSha,
     contentBase64: res.raw.toString("base64"),
   });
 }
@@ -384,7 +388,7 @@ export function registerMcpTools(server: McpServer, ctx: McpRequestContext): voi
     ctx,
     "download_file",
     {
-      description: `Download one file from a model's current version. Returns filename, sizeBytes, mimeType and contentBase64. ${fileLimitNote} Larger files return a tooLarge error with the REST path instead.`,
+      description: `Download one file from a model's current version. Returns filename, sizeBytes, mimeType, commitSha (the version it came from — pass it as upload_files' baseSha when pushing edits back) and contentBase64. ${fileLimitNote} Larger files return a tooLarge error with the REST path instead.`,
       inputSchema: {
         id: modelIdSchema,
         path: z.string().min(1).describe("relativePath from get_model's files list, e.g. 'bracket.stl' or 'parts/arm.stl'"),
@@ -397,12 +401,13 @@ export function registerMcpTools(server: McpServer, ctx: McpRequestContext): voi
       const encodedPath = args.path.split("/").map(encodeURIComponent).join("/");
       const apiPath = `/api/models/${args.id}/files/${encodedPath}`;
       const filename = args.path.split("/").pop() ?? args.path;
-      const indexed = (await getIndexedFiles(ctx, args.id)).find((f) => f.relativePath === args.path);
+      const { files, commitSha } = await getIndexedFiles(ctx, args.id);
+      const indexed = files.find((f) => f.relativePath === args.path);
       if (indexed && indexed.sizeBytes > config.mcpMaxFileBytes) {
         return tooLargeResult(config, { filename, apiPath, sizeBytes: indexed.sizeBytes });
       }
       const res = await injectApi(ctx, "GET", apiPath);
-      return inlineDownloadResult(res, config, { filename, apiPath });
+      return inlineDownloadResult(res, config, { filename, apiPath, commitSha });
     },
   );
 
@@ -411,7 +416,7 @@ export function registerMcpTools(server: McpServer, ctx: McpRequestContext): voi
     ctx,
     "download_model",
     {
-      description: `Download a whole model as a zip of its current files (every indexed model file and attachment in the working tree; no git history). Returns filename, sizeBytes, contentBase64. ${fileLimitNote} The limit applies to the model's total uncompressed size; larger models return a tooLarge error with the REST path instead.`,
+      description: `Download a whole model as a zip of its current files (every indexed model file and attachment in the working tree; no git history). Returns filename, sizeBytes, commitSha (the version it came from — pass it as upload_files' baseSha when pushing edits back) and contentBase64. ${fileLimitNote} The limit applies to the model's total uncompressed size; larger models return a tooLarge error with the REST path instead.`,
       inputSchema: { id: modelIdSchema },
       minRole: "viewer",
       annotations: { readOnlyHint: true },
@@ -421,7 +426,8 @@ export function registerMcpTools(server: McpServer, ctx: McpRequestContext): voi
       // Check the indexed (uncompressed) total first: the REST route zips at
       // level 9 and app.inject buffers the whole archive, so an oversized
       // model must be refused before the route is ever called.
-      const totalBytes = (await getIndexedFiles(ctx, args.id)).reduce((sum, f) => sum + f.sizeBytes, 0);
+      const { files, commitSha } = await getIndexedFiles(ctx, args.id);
+      const totalBytes = files.reduce((sum, f) => sum + f.sizeBytes, 0);
       if (totalBytes > config.mcpMaxFileBytes) {
         return tooLargeResult(config, {
           filename: `model-${args.id}.zip`,
@@ -433,7 +439,11 @@ export function registerMcpTools(server: McpServer, ctx: McpRequestContext): voi
       const res = await injectApi(ctx, "GET", apiPath);
       const disposition = String(res.headers["content-disposition"] ?? "");
       const match = /filename="?([^";]+)"?/.exec(disposition);
-      return inlineDownloadResult(res, config, { filename: match?.[1] ?? `model-${args.id}.zip`, apiPath });
+      return inlineDownloadResult(res, config, {
+        filename: match?.[1] ?? `model-${args.id}.zip`,
+        apiPath,
+        commitSha,
+      });
     },
   );
 
@@ -557,18 +567,39 @@ export function registerMcpTools(server: McpServer, ctx: McpRequestContext): voi
     ctx,
     "upload_files",
     {
-      description: `Add a NEW VERSION to an existing model: uploads files (added or replaced by relative path) and commits them to the model's git repo. Existing files not re-uploaded are kept; history is preserved (see get_model's gitLog, restore_version to roll back). ${fileLimitNote}`,
+      description:
+        `Add a NEW VERSION to an existing model as ONE commit: uploads files (added or replaced at the model root) and/or deletes files, then commits the whole changeset to the model's git repo. Existing files not re-uploaded or deleted are kept; history is preserved (see get_model's gitLog, restore_version to roll back). ` +
+        `For a download → edit → push-back workflow, pass the commitSha you got from download_model/download_file (or get_model's lastSyncedCommitSha) as baseSha: if the model changed in the meantime the call fails with HTTP 409 and nothing is written, so re-download and reapply instead of clobbering someone else's edit. ` +
+        `The result's headSha is the new version, usable as the next call's baseSha. Deleting files requires the admin role. ${fileLimitNote}`,
       inputSchema: {
         id: modelIdSchema,
-        files: z.array(uploadedFileSchema).min(1),
-        message: z.string().optional().describe("Commit message for this version (defaults to 'Uploaded <filenames>')"),
+        files: z.array(uploadedFileSchema).optional().describe("Files to add or replace (may be omitted when only deleting)"),
+        deletePaths: z
+          .array(z.string().min(1))
+          .optional()
+          .describe("relativePaths (from get_model's files list) to delete in the same commit. Requires the admin role."),
+        baseSha: z
+          .string()
+          .regex(/^[0-9a-fA-F]{7,40}$/, "must be a 7-40 character hex commit sha")
+          .optional()
+          .describe("Commit sha your edits are based on; the upload is refused (409) if the model's current version differs"),
+        message: z
+          .string()
+          .optional()
+          .describe("Commit message for this version (defaults to 'Uploaded <filenames>; deleted <paths>')"),
       },
       minRole: "editor",
     },
     async (args) => {
-      const files = decodeUploadedFiles(args.files, config);
+      const files = decodeUploadedFiles(args.files ?? [], config);
+      const deletePaths = args.deletePaths ?? [];
+      if (files.length === 0 && deletePaths.length === 0) {
+        throw new Error("at least one file or deletePath is required");
+      }
       const fields: Array<[string, string]> = [];
       if (args.message !== undefined) fields.push(["message", args.message]);
+      if (args.baseSha !== undefined) fields.push(["baseSha", args.baseSha]);
+      for (const path of deletePaths) fields.push(["delete", path]);
       const res = await injectApi(ctx, "POST", `/api/models/${args.id}/upload`, {
         multipart: buildMultipartBody(fields, files),
       });

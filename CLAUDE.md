@@ -71,6 +71,21 @@ overlap. Upload/restore hold that same lock across their own file write +
 commit (calling `reconcileModelCore` directly, *not* the locked
 `reconcileModel`, which would deadlock against itself).
 
+**Uploads are staged changesets.** `POST /api/models/:id/upload` streams
+file parts into a private staging dir (`lib/upload-staging.ts` —
+`<model>/.git/modelhub-staging/<uuid>`, invisible to git, the watcher and
+`listModelFiles`; OS temp dir fallback) *without* holding the lock, so a
+slow client never stalls the scan and the watcher can never auto-commit a
+half-written file. Only after validation does it take the lock, move the
+files into place, apply any `delete` fields (admin-only, same as every other
+delete), and commit everything as **one** version. An optional `baseSha`
+field makes it conditional: under the lock it first commits any
+not-yet-synced on-disk edits as auto-sync (so they count as a change), then
+409s unless HEAD still matches. This is the supported way for an external
+agent to edit a model — download it (MCP `download_model`/`download_file`
+return `commitSha`), work offline, push back with `upload_files`
+(`baseSha` + `deletePaths`) — instead of pausing the watcher.
+
 Git identity varies by trigger: `AUTO_SYNC_IDENTITY` for scanner/watcher
 commits, `LOCAL_UPLOAD_IDENTITY` for UI-driven ones (upload, restore) — this
 is what lets the History tab visually distinguish "you did this" from "we

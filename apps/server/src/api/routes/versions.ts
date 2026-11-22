@@ -1,5 +1,5 @@
 import { createWriteStream } from "node:fs";
-import { rm } from "node:fs/promises";
+import { rm, stat } from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
 import { pipeline } from "node:stream/promises";
 import type { BulkResponse, BulkResult, ModelFilesBulkRequest } from "@model-hub/shared";
@@ -10,13 +10,15 @@ import type { Config } from "../../config.js";
 import type { DbClient } from "../../db/client.js";
 import { files as filesTable, type ModelRow } from "../../db/schema.js";
 import { sanitizeUploadFilename } from "../../lib/fs-utils.js";
+import { roleSatisfies } from "../../lib/roles.js";
+import { createUploadStaging, moveIntoPlace, resolveDeletePath } from "../../lib/upload-staging.js";
 import { getModelDiff } from "../../lib/model-diff.js";
 import { getActiveModel } from "../../lib/model-lookup.js";
 import { InvalidCommitShaError } from "../../lib/project-pins.js";
 import { uploadRateLimit } from "../../lib/rate-limit.js";
-import { getLog, restoreToCommit } from "../../sync/git.js";
+import { getHeadSha, getLog, restoreToCommit } from "../../sync/git.js";
 import { runExclusive } from "../../sync/queue.js";
-import { LOCAL_UPLOAD_IDENTITY, reconcileModelCore } from "../../sync/reconcile.js";
+import { LOCAL_UPLOAD_IDENTITY, type ReconcileResult, reconcileModelCore } from "../../sync/reconcile.js";
 import { maybeEnqueueThumbnail } from "../../thumbnails/trigger.js";
 import {
   bulkResponseSchema,
@@ -79,6 +81,22 @@ export function registerVersionRoutes(app: FastifyInstance, db: DbClient, config
   // `request.parts()` (see models.ts's create-model route for the same
   // reasoning), so `request.body` is never populated for Fastify to
   // validate against.
+  //
+  // One request = one commit ("changeset"): any number of `files` parts
+  // (added/replaced at the model root) plus any number of `delete` fields
+  // (relative paths to remove). File parts are streamed into a private
+  // staging dir first (lib/upload-staging.ts), *outside* the model's
+  // working tree and without holding its lock; everything is validated, and
+  // only then — under the per-path lock — moved into place and committed.
+  // So the watcher/scanner can never observe (and auto-commit) a
+  // half-written upload, and a rejected request leaves the model untouched.
+  //
+  // `baseSha` (optional) makes the write conditional, for clients that
+  // download, edit offline and push back (e.g. an agent via MCP): the
+  // request is refused with 409 unless the model's HEAD — after first
+  // committing any not-yet-synced on-disk edits, so those count as a
+  // conflicting change too — still matches the commit the client started
+  // from.
   app.post<{ Params: { id: string } }>(
     "/api/models/:id/upload",
     {
@@ -87,8 +105,13 @@ export function registerVersionRoutes(app: FastifyInstance, db: DbClient, config
         tags: ["files"],
         summary: "Upload a new version",
         description:
-          "Multipart upload: one or more `files` parts (model and/or attachment files) plus " +
-          "an optional `message` field used as the git commit message.",
+          "Multipart upload committed as ONE new version: zero or more `files` parts (model and/or " +
+          "attachment files, added or replaced at the model root), zero or more `delete` fields " +
+          "(relative paths of files to remove in the same commit; requires the admin role), an " +
+          "optional `message` field used as the git commit message, and an optional `baseSha` " +
+          "field (the commit sha you started from, 7-40 hex chars) — when given, the request fails " +
+          "with 409 if the model has changed since. At least one file or delete is required. " +
+          "Returns the resulting `headSha`, usable as the next request's `baseSha`.",
         params: numericIdParamSchema,
         consumes: ["multipart/form-data"],
         response: {
@@ -98,12 +121,31 @@ export function registerVersionRoutes(app: FastifyInstance, db: DbClient, config
               ok: { type: "boolean" },
               committed: { type: "boolean" },
               writtenFiles: { type: "array", items: { type: "string" } },
+              deletedFiles: { type: "array", items: { type: "string" } },
               skippedFiles: { type: "array", items: { type: "string" } },
+              headSha: { type: ["string", "null"] },
             },
-            required: ["ok", "committed", "writtenFiles", "skippedFiles"],
+            required: ["ok", "committed", "writtenFiles", "deletedFiles", "skippedFiles", "headSha"],
           },
           400: errorResponseWithSkippedFilesSchema,
-          404: errorResponseSchema,
+          403: errorResponseSchema,
+          404: {
+            type: "object",
+            properties: {
+              error: { type: "string" },
+              missingFiles: { type: "array", items: { type: "string" } },
+            },
+            required: ["error"],
+          },
+          409: {
+            type: "object",
+            properties: {
+              error: { type: "string" },
+              baseSha: { type: "string" },
+              headSha: { type: ["string", "null"] },
+            },
+            required: ["error", "baseSha", "headSha"],
+          },
           500: errorResponseSchema,
         },
       },
@@ -119,46 +161,143 @@ export function registerVersionRoutes(app: FastifyInstance, db: DbClient, config
         return reply.code(404).send({ error: "model not found" });
       }
 
-      let message: string | undefined;
-      const writtenFiles: string[] = [];
-      const skippedFiles: string[] = [];
+      const staging = await createUploadStaging(model.path);
+      try {
+        let message: string | undefined;
+        let baseSha: string | undefined;
+        const deleteRequests: string[] = [];
+        const writtenFiles: string[] = [];
+        const skippedFiles: string[] = [];
 
-      for await (const part of request.parts()) {
-        if (part.type === "file") {
-          const safeName = sanitizeUploadFilename(part.filename);
-          if (!safeName) {
-            part.file.resume(); // drain so the iterator can continue
-            skippedFiles.push(part.filename);
-            continue;
+        for await (const part of request.parts()) {
+          if (part.type === "file") {
+            const safeName = sanitizeUploadFilename(part.filename);
+            if (!safeName) {
+              part.file.resume(); // drain so the iterator can continue
+              skippedFiles.push(part.filename);
+              continue;
+            }
+            // A repeated filename overwrites its earlier staged copy: last one wins.
+            await pipeline(part.file, createWriteStream(join(staging.dir, safeName)));
+            if (!writtenFiles.includes(safeName)) writtenFiles.push(safeName);
+          } else if (typeof part.value === "string") {
+            if (part.fieldname === "message") message = part.value;
+            else if (part.fieldname === "baseSha") baseSha = part.value.trim();
+            else if (part.fieldname === "delete") deleteRequests.push(part.value);
           }
-          const dest = join(model.path, safeName);
-          await pipeline(part.file, createWriteStream(dest));
-          writtenFiles.push(safeName);
-        } else if (part.fieldname === "message" && typeof part.value === "string") {
-          message = part.value;
         }
-      }
 
-      if (writtenFiles.length === 0) {
-        return reply.code(400).send({
-          error: "no valid model or attachment files (.stl/.3mf/.obj/.step/.stp/.png/.jpg/.jpeg/.webp/.gif/.pdf) were uploaded",
-          skippedFiles,
+        if (baseSha !== undefined && !/^[0-9a-f]{7,40}$/i.test(baseSha)) {
+          return reply.code(400).send({ error: "baseSha must be a 7-40 character hex commit sha" });
+        }
+
+        const deletes: Array<{ relativePath: string; absolutePath: string }> = [];
+        for (const raw of deleteRequests) {
+          const absolutePath = resolveDeletePath(model.path, raw);
+          if (!absolutePath) {
+            return reply.code(400).send({ error: `invalid delete path: ${JSON.stringify(raw)}` });
+          }
+          const relativePath = raw.replace(/\\/g, "/").trim();
+          if (deletes.some((d) => d.absolutePath === absolutePath)) continue;
+          if (writtenFiles.some((name) => resolve(model.path, name) === absolutePath)) {
+            return reply.code(400).send({ error: `'${relativePath}' is both uploaded and deleted in the same request` });
+          }
+          deletes.push({ relativePath, absolutePath });
+        }
+
+        if (writtenFiles.length === 0 && deletes.length === 0) {
+          return reply.code(400).send({
+            error: "no valid model or attachment files (.stl/.3mf/.obj/.step/.stp/.png/.jpg/.jpeg/.webp/.gif/.pdf) were uploaded",
+            skippedFiles,
+          });
+        }
+
+        // Deleting is an admin-only action everywhere else in the app (see
+        // CLAUDE.md's Roles section and the MCP delete_file tool), so an
+        // upload that carries deletions is gated the same way rather than
+        // becoming a side door around that rule.
+        if (deletes.length > 0 && !(request.user && roleSatisfies(request.user.role, "admin"))) {
+          return reply.code(403).send({ error: 'deleting files requires the "admin" role' });
+        }
+
+        const deletedFiles = deletes.map((d) => d.relativePath);
+        const defaultMessageParts: string[] = [];
+        if (writtenFiles.length > 0) defaultMessageParts.push(`Uploaded ${writtenFiles.join(", ")}`);
+        if (deletedFiles.length > 0) {
+          defaultMessageParts.push(`${writtenFiles.length > 0 ? "deleted" : "Deleted"} ${deletedFiles.join(", ")}`);
+        }
+        const commitMessage = message?.trim() || defaultMessageParts.join("; ");
+
+        type ApplyOutcome =
+          | { kind: "ok"; result: ReconcileResult; headSha: string | null }
+          | { kind: "error"; error: string }
+          | { kind: "conflict"; headSha: string | null }
+          | { kind: "missing"; missingFiles: string[] };
+
+        const outcome = await runExclusive(model.path, async (): Promise<ApplyOutcome> => {
+          if (baseSha !== undefined) {
+            // Fold any on-disk edits nobody has committed yet into history
+            // first (as auto-sync, same as the scanner would), so HEAD
+            // reflects what's really there before comparing it.
+            const pre = await reconcileModelCore(db, model);
+            if (pre.status === "error") return { kind: "error", error: pre.error ?? "unknown error" };
+            const headSha = await getHeadSha(model.path);
+            if (!headSha || !headSha.toLowerCase().startsWith(baseSha.toLowerCase())) {
+              return { kind: "conflict", headSha };
+            }
+          }
+
+          const missingFiles: string[] = [];
+          for (const d of deletes) {
+            const info = await stat(d.absolutePath).catch(() => null);
+            if (!info?.isFile()) missingFiles.push(d.relativePath);
+          }
+          if (missingFiles.length > 0) return { kind: "missing", missingFiles };
+
+          for (const name of writtenFiles) {
+            await moveIntoPlace(join(staging.dir, name), join(model.path, name));
+          }
+          for (const d of deletes) {
+            await rm(d.absolutePath);
+          }
+
+          const result = await reconcileModelCore(db, model, {
+            identity: LOCAL_UPLOAD_IDENTITY,
+            commitMessage,
+          });
+          if (result.status === "error") return { kind: "error", error: result.error ?? "unknown error" };
+          return { kind: "ok", result, headSha: await getHeadSha(model.path) };
         });
-      }
 
-      const commitMessage = message?.trim() || `Uploaded ${writtenFiles.join(", ")}`;
-      const result = await runExclusive(model.path, () =>
-        reconcileModelCore(db, model, {
-          identity: LOCAL_UPLOAD_IDENTITY,
-          commitMessage,
-        }),
-      );
+        if (outcome.kind === "error") {
+          return reply.code(500).send({ error: outcome.error });
+        }
+        if (outcome.kind === "conflict") {
+          return reply.code(409).send({
+            error: "model has changed since baseSha; re-download it, reapply your changes and retry",
+            baseSha,
+            headSha: outcome.headSha,
+          });
+        }
+        if (outcome.kind === "missing") {
+          return reply.code(404).send({
+            error: `file(s) to delete not found: ${outcome.missingFiles.join(", ")}`,
+            missingFiles: outcome.missingFiles,
+          });
+        }
 
-      if (result.status === "error") {
-        return reply.code(500).send({ error: result.error });
+        maybeEnqueueThumbnail(db, model, outcome.result);
+        return {
+          ok: true,
+          committed: outcome.result.committed,
+          writtenFiles,
+          deletedFiles,
+          skippedFiles,
+          headSha: outcome.headSha,
+        };
+      } finally {
+        await staging.cleanup();
       }
-      maybeEnqueueThumbnail(db, model, result);
-      return { ok: true, committed: result.committed, writtenFiles, skippedFiles };
     },
   );
 

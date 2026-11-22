@@ -513,6 +513,63 @@ describe("MCP endpoint — single-user mode", () => {
       await disabled.close();
     }
   });
+
+  it("download -> edit -> push back: commitSha feeds baseSha, one commit per changeset, stale baseSha is refused", async () => {
+    const created = await callTool(app, "create_model", {
+      title: "Agent Edit",
+      files: [
+        { filename: "body.stl", contentBase64: b64(STL_BYTES) },
+        { filename: "old-part.stl", contentBase64: b64(STL_BYTES) },
+      ],
+    });
+    const modelId = created.data.id as number;
+
+    const zip = await callTool(app, "download_model", { id: modelId });
+    expect(zip.ok).toBe(true);
+    const baseSha = zip.data.commitSha as string;
+    expect(baseSha).toMatch(/^[0-9a-f]{40}$/);
+    const single = await callTool(app, "download_file", { id: modelId, path: "body.stl" });
+    expect(single.data.commitSha).toBe(baseSha);
+
+    const pushed = await callTool(app, "upload_files", {
+      id: modelId,
+      baseSha,
+      files: [{ filename: "body.stl", contentBase64: b64(STL_BYTES.replace("bracket", "body-v2")) }],
+      deletePaths: ["old-part.stl"],
+      message: "agent: rework body, drop old part",
+    });
+    expect(pushed.ok).toBe(true);
+    expect(pushed.data.deletedFiles).toEqual(["old-part.stl"]);
+    const newSha = pushed.data.headSha as string;
+    expect(newSha).not.toBe(baseSha);
+
+    const detail = await callTool(app, "get_model", { id: modelId });
+    const gitLog = detail.data.gitLog as Array<{ sha: string; message: string }>;
+    expect(gitLog).toHaveLength(2);
+    expect(gitLog[0]).toMatchObject({ sha: newSha, message: "agent: rework body, drop old part" });
+    expect((detail.data.files as Array<{ relativePath: string }>).map((f) => f.relativePath)).toEqual(["body.stl"]);
+
+    // Pushing again from the ORIGINAL base is a conflict, and changes nothing.
+    const stale = await callTool(app, "upload_files", {
+      id: modelId,
+      baseSha,
+      files: [{ filename: "body.stl", contentBase64: b64(STL_BYTES) }],
+    });
+    expect(stale.ok).toBe(false);
+    expect(stale.raw.content[0]?.text ?? "").toContain("409");
+    const after = await callTool(app, "get_model", { id: modelId });
+    expect((after.data.gitLog as unknown[]).length).toBe(2);
+  });
+
+  it("upload_files requires at least one file or deletePath", async () => {
+    const created = await callTool(app, "create_model", {
+      title: "Empty Push",
+      files: [{ filename: "m.stl", contentBase64: b64(STL_BYTES) }],
+    });
+    const res = await callTool(app, "upload_files", { id: created.data.id as number });
+    expect(res.ok).toBe(false);
+    expect(res.raw.content[0]?.text ?? "").toContain("at least one file or deletePath");
+  });
 });
 
 describe("MCP endpoint — OIDC mode (PAT auth + RBAC)", () => {
@@ -625,6 +682,37 @@ describe("MCP endpoint — OIDC mode (PAT auth + RBAC)", () => {
 
     const adminDel = await callTool(app, "delete_model", { id: modelId }, bearer(adminToken));
     expect(adminDel.ok).toBe(true);
+  });
+
+  it("upload_files with deletePaths needs admin; plain uploads stay editor-level", async () => {
+    const created = await callTool(app, "create_model", {
+      title: "Changeset RBAC",
+      files: [
+        { filename: "a.stl", contentBase64: b64(STL_BYTES) },
+        { filename: "b.stl", contentBase64: b64(STL_BYTES) },
+      ],
+    }, bearer(editorToken));
+    const modelId = created.data.id as number;
+
+    const editorDelete = await callTool(app, "upload_files", {
+      id: modelId,
+      files: [{ filename: "c.stl", contentBase64: b64(STL_BYTES) }],
+      deletePaths: ["b.stl"],
+    }, bearer(editorToken));
+    expect(editorDelete.ok).toBe(false);
+    expect(editorDelete.raw.content[0]?.text ?? "").toContain("admin");
+
+    const editorUpload = await callTool(app, "upload_files", {
+      id: modelId,
+      files: [{ filename: "c.stl", contentBase64: b64(STL_BYTES) }],
+    }, bearer(editorToken));
+    expect(editorUpload.ok).toBe(true);
+
+    const adminDelete = await callTool(app, "upload_files", {
+      id: modelId,
+      deletePaths: ["b.stl"],
+    }, bearer(adminToken));
+    expect(adminDelete.ok).toBe(true);
   });
 
   it("fails closed when the request resolved no user (internal render token)", async () => {

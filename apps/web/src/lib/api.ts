@@ -152,7 +152,9 @@ export interface UploadResult {
   ok: true
   committed: boolean
   writtenFiles: string[]
+  deletedFiles: string[]
   skippedFiles: string[]
+  headSha: string | null
 }
 
 export function uploadModelVersion(

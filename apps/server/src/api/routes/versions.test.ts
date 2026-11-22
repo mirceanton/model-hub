@@ -1,16 +1,19 @@
-import { mkdir, mkdtemp, rm, writeFile, unlink } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile, unlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import multipart from "@fastify/multipart";
+import type { UserRole } from "@model-hub/shared";
 import { eq } from "drizzle-orm";
 import Fastify, { type FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { registerAuthGuard } from "../../auth/guard.js";
 import { createDbClient, type DbClient } from "../../db/client.js";
 import { runMigrations } from "../../db/migrate.js";
 import { models as modelsTable, type ModelRow } from "../../db/schema.js";
 import { ensureMarkerId } from "../../lib/fs-utils.js";
 import { buildTestConfig } from "../../test-support/config.js";
-import { LOCAL_UPLOAD_IDENTITY, reconcileModelCore } from "../../sync/reconcile.js";
+import { getLog, getStatus } from "../../sync/git.js";
+import { AUTO_SYNC_IDENTITY, LOCAL_UPLOAD_IDENTITY, reconcileModelCore } from "../../sync/reconcile.js";
 import { registerModelRoutes } from "./models.js";
 import { registerVersionRoutes } from "./versions.js";
 
@@ -251,5 +254,269 @@ describe("POST /api/models/:id/upload", () => {
     const body = res.json() as { error: string; skippedFiles: string[] };
     expect(body.error).toContain("no valid model or attachment files");
     expect(body.skippedFiles).toEqual(["notes.txt"]);
+  });
+});
+
+describe("POST /api/models/:id/upload — changesets, baseSha and staging", () => {
+  let libraryRoot: string;
+  let db: DbClient;
+
+  beforeEach(async () => {
+    libraryRoot = await mkdtemp(join(tmpdir(), "model-hub-changeset-"));
+    db = createDbClient(":memory:");
+    runMigrations(db);
+  });
+
+  afterEach(async () => {
+    await rm(libraryRoot, { recursive: true, force: true });
+  });
+
+  /** Same as buildTestApp, but with the real auth guard (single-user mode: admin local owner) so role checks see a user. */
+  function buildGuardedApp(roleOverride?: UserRole): FastifyInstance {
+    const app = Fastify({ logger: false });
+    app.register(multipart);
+    const config = buildTestConfig();
+    registerAuthGuard(app, db, config);
+    if (roleOverride) {
+      app.addHook("onRequest", async (request) => {
+        if (request.user) request.user = { ...request.user, role: roleOverride };
+      });
+    }
+    registerModelRoutes(app, db, libraryRoot, config);
+    registerVersionRoutes(app, db, config);
+    return app;
+  }
+
+  function changesetForm(opts: {
+    files?: Record<string, string>;
+    deletes?: string[];
+    baseSha?: string;
+    message?: string;
+  }): FormData {
+    const form = new FormData();
+    if (opts.message !== undefined) form.append("message", opts.message);
+    if (opts.baseSha !== undefined) form.append("baseSha", opts.baseSha);
+    for (const path of opts.deletes ?? []) form.append("delete", path);
+    for (const [name, content] of Object.entries(opts.files ?? {})) {
+      form.append("files", new Blob([content]), name);
+    }
+    return form;
+  }
+
+  async function exists(path: string): Promise<boolean> {
+    return stat(path)
+      .then(() => true)
+      .catch(() => false);
+  }
+
+  it("commits uploads and deletes as a single version and returns the new headSha", async () => {
+    const app = buildGuardedApp();
+    const model = await createTestModel(db, libraryRoot, "Widget", { "a.stl": "a1\n", "b.stl": "b1\n" });
+    const logBefore = await getLog(model.path);
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/models/${model.id}/upload`,
+      payload: changesetForm({ files: { "a.stl": "a2\n", "c.stl": "c1\n" }, deletes: ["b.stl"] }),
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as {
+      committed: boolean;
+      writtenFiles: string[];
+      deletedFiles: string[];
+      headSha: string;
+    };
+    expect(body.committed).toBe(true);
+    expect(body.writtenFiles).toEqual(["a.stl", "c.stl"]);
+    expect(body.deletedFiles).toEqual(["b.stl"]);
+
+    const logAfter = await getLog(model.path);
+    expect(logAfter).toHaveLength(logBefore.length + 1);
+    expect(logAfter[0]!.sha).toBe(body.headSha);
+    expect(logAfter[0]!.message).toBe("Uploaded a.stl, c.stl; deleted b.stl");
+    expect(await readFile(join(model.path, "a.stl"), "utf8")).toBe("a2\n");
+    expect(await exists(join(model.path, "b.stl"))).toBe(false);
+
+    const row = db.select().from(modelsTable).where(eq(modelsTable.id, model.id)).get()!;
+    expect(row.lastSyncedCommitSha).toBe(body.headSha);
+    await app.close();
+  });
+
+  it("leaves no staging leftovers behind and nothing uncommitted in the working tree", async () => {
+    const app = buildGuardedApp();
+    const model = await createTestModel(db, libraryRoot, "Widget", { "a.stl": "a1\n" });
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/models/${model.id}/upload`,
+      payload: changesetForm({ files: { "new.stl": "n\n" } }),
+    });
+    expect(res.statusCode).toBe(200);
+
+    const stagingRoot = join(model.path, ".git", "modelhub-staging");
+    const leftovers = (await exists(stagingRoot)) ? await readdir(stagingRoot) : [];
+    expect(leftovers).toEqual([]);
+    expect((await getStatus(model.path)).isClean).toBe(true);
+    await app.close();
+  });
+
+  it("accepts a matching baseSha, including an abbreviated one", async () => {
+    const app = buildGuardedApp();
+    const model = await createTestModel(db, libraryRoot, "Widget", { "a.stl": "a1\n" });
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/models/${model.id}/upload`,
+      payload: changesetForm({ files: { "a.stl": "a2\n" }, baseSha: model.lastSyncedCommitSha!.slice(0, 7) }),
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(await readFile(join(model.path, "a.stl"), "utf8")).toBe("a2\n");
+    await app.close();
+  });
+
+  it("refuses a stale baseSha with 409 and writes nothing", async () => {
+    const app = buildGuardedApp();
+    const model = await createTestModel(db, libraryRoot, "Widget", { "a.stl": "a1\n" });
+    const staleSha = model.lastSyncedCommitSha!;
+    const updated = await commitChange(db, model, (dir) => writeFile(join(dir, "a.stl"), "a2\n"), "Someone else");
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/models/${model.id}/upload`,
+      payload: changesetForm({ files: { "a.stl": "agent\n", "extra.stl": "x\n" }, baseSha: staleSha }),
+    });
+
+    expect(res.statusCode).toBe(409);
+    const body = res.json() as { baseSha: string; headSha: string };
+    expect(body.baseSha).toBe(staleSha);
+    expect(body.headSha).toBe(updated.lastSyncedCommitSha);
+    expect(await readFile(join(model.path, "a.stl"), "utf8")).toBe("a2\n");
+    expect(await exists(join(model.path, "extra.stl"))).toBe(false);
+    expect((await getLog(model.path))[0]!.sha).toBe(updated.lastSyncedCommitSha);
+    await app.close();
+  });
+
+  it("treats an uncommitted on-disk edit as a conflict, committing it as auto-sync first", async () => {
+    const app = buildGuardedApp();
+    const model = await createTestModel(db, libraryRoot, "Widget", { "a.stl": "a1\n" });
+    const baseSha = model.lastSyncedCommitSha!;
+    // Edited over the share, not yet picked up by the watcher/scanner.
+    await writeFile(join(model.path, "a.stl"), "edited on disk\n");
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/models/${model.id}/upload`,
+      payload: changesetForm({ files: { "a.stl": "agent\n" }, baseSha }),
+    });
+
+    expect(res.statusCode).toBe(409);
+    expect(await readFile(join(model.path, "a.stl"), "utf8")).toBe("edited on disk\n");
+    const [latest] = await getLog(model.path);
+    expect(latest!.sha).not.toBe(baseSha);
+    expect(latest!.authorName).toBe(AUTO_SYNC_IDENTITY.name);
+    await app.close();
+  });
+
+  it("rejects an invalid baseSha", async () => {
+    const app = buildGuardedApp();
+    const model = await createTestModel(db, libraryRoot, "Widget", { "a.stl": "a1\n" });
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/models/${model.id}/upload`,
+      payload: changesetForm({ files: { "a.stl": "a2\n" }, baseSha: "not-a-sha" }),
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(await readFile(join(model.path, "a.stl"), "utf8")).toBe("a1\n");
+    await app.close();
+  });
+
+  it("supports a delete-only changeset", async () => {
+    const app = buildGuardedApp();
+    const model = await createTestModel(db, libraryRoot, "Widget", { "a.stl": "a1\n", "b.stl": "b1\n" });
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/models/${model.id}/upload`,
+      payload: changesetForm({ deletes: ["b.stl"] }),
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(await exists(join(model.path, "b.stl"))).toBe(false);
+    expect((await getLog(model.path))[0]!.message).toBe("Deleted b.stl");
+    await app.close();
+  });
+
+  it("applies nothing when a file to delete does not exist", async () => {
+    const app = buildGuardedApp();
+    const model = await createTestModel(db, libraryRoot, "Widget", { "a.stl": "a1\n" });
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/models/${model.id}/upload`,
+      payload: changesetForm({ files: { "a.stl": "a2\n" }, deletes: ["gone.stl"] }),
+    });
+
+    expect(res.statusCode).toBe(404);
+    expect((res.json() as { missingFiles: string[] }).missingFiles).toEqual(["gone.stl"]);
+    expect(await readFile(join(model.path, "a.stl"), "utf8")).toBe("a1\n");
+    await app.close();
+  });
+
+  it.each([["../other/a.stl"], [".modelhub-id"], [".git/config"], ["notes.txt"], ["/etc/passwd.stl"]])(
+    "rejects unsafe delete path %s",
+    async (path) => {
+      const app = buildGuardedApp();
+      const model = await createTestModel(db, libraryRoot, "Widget", { "a.stl": "a1\n" });
+
+      const res = await app.inject({
+        method: "POST",
+        url: `/api/models/${model.id}/upload`,
+        payload: changesetForm({ deletes: [path] }),
+      });
+
+      expect(res.statusCode).toBe(400);
+      expect(await exists(join(model.path, ".modelhub-id"))).toBe(true);
+      await app.close();
+    },
+  );
+
+  it("rejects uploading and deleting the same file in one request", async () => {
+    const app = buildGuardedApp();
+    const model = await createTestModel(db, libraryRoot, "Widget", { "a.stl": "a1\n" });
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/models/${model.id}/upload`,
+      payload: changesetForm({ files: { "a.stl": "a2\n" }, deletes: ["a.stl"] }),
+    });
+
+    expect(res.statusCode).toBe(400);
+    await app.close();
+  });
+
+  it("requires the admin role to delete, but not to upload", async () => {
+    const app = buildGuardedApp("editor");
+    const model = await createTestModel(db, libraryRoot, "Widget", { "a.stl": "a1\n", "b.stl": "b1\n" });
+
+    const deleteRes = await app.inject({
+      method: "POST",
+      url: `/api/models/${model.id}/upload`,
+      payload: changesetForm({ files: { "a.stl": "a2\n" }, deletes: ["b.stl"] }),
+    });
+    expect(deleteRes.statusCode).toBe(403);
+    expect(await exists(join(model.path, "b.stl"))).toBe(true);
+    expect(await readFile(join(model.path, "a.stl"), "utf8")).toBe("a1\n");
+
+    const uploadRes = await app.inject({
+      method: "POST",
+      url: `/api/models/${model.id}/upload`,
+      payload: changesetForm({ files: { "a.stl": "a2\n" } }),
+    });
+    expect(uploadRes.statusCode).toBe(200);
+    await app.close();
   });
 });
