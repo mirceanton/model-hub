@@ -78,7 +78,14 @@ file parts into a private staging dir (`lib/upload-staging.ts` —
 slow client never stalls the scan and the watcher can never auto-commit a
 half-written file. Only after validation does it take the lock, move the
 files into place, apply any `delete` fields (admin-only, same as every other
-delete), and commit everything as **one** version. An optional `baseSha`
+delete), and commit everything as **one** version. Upload filenames (here
+and in `POST /api/models`) may be relative paths like `parts/arm.stl`:
+both routes call `request.parts({ preservePath: true })` (busboy otherwise
+basenames them) and validate with `fs-utils.ts`'s `sanitizeUploadPath`,
+which *rejects* rather than repairs traversal, dot-segments and SMB-unsafe
+names. Under the lock, `inspectTarget` (lstat, per segment) refuses to
+write or delete through a symlinked folder or under a path that exists as
+a file; deletes prune folders they leave empty. An optional `baseSha`
 field makes it conditional: under the lock it first commits any
 not-yet-synced on-disk edits as auto-sync (so they count as a change), then
 409s unless HEAD still matches. This is the supported way for an external

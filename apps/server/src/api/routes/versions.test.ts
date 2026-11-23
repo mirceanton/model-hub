@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile, unlink } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile, unlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import multipart from "@fastify/multipart";
@@ -495,6 +495,134 @@ describe("POST /api/models/:id/upload — changesets, baseSha and staging", () =
     });
 
     expect(res.statusCode).toBe(400);
+    await app.close();
+  });
+
+  it("writes uploads into subfolders, creating them, in one commit", async () => {
+    const app = buildGuardedApp();
+    const model = await createTestModel(db, libraryRoot, "Widget", { "a.stl": "a1\n" });
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/models/${model.id}/upload`,
+      payload: changesetForm({ files: { "parts/arm.stl": "arm\n", "parts/left/hand.stl": "hand\n" } }),
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as { writtenFiles: string[] }).writtenFiles).toEqual(["parts/arm.stl", "parts/left/hand.stl"]);
+    expect(await readFile(join(model.path, "parts", "left", "hand.stl"), "utf8")).toBe("hand\n");
+    expect((await getLog(model.path))[0]!.message).toBe("Uploaded parts/arm.stl, parts/left/hand.stl");
+    expect((await getStatus(model.path)).isClean).toBe(true);
+
+    const detail = await app.inject({ method: "GET", url: `/api/models/${model.id}` });
+    const paths = (detail.json() as { files: Array<{ relativePath: string }> }).files.map((f) => f.relativePath);
+    expect(paths.sort()).toEqual(["a.stl", "parts/arm.stl", "parts/left/hand.stl"]);
+    await app.close();
+  });
+
+  it("skips upload paths that try to escape the model or touch dot-folders", async () => {
+    const app = buildGuardedApp();
+    const model = await createTestModel(db, libraryRoot, "Widget", { "a.stl": "a1\n" });
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/models/${model.id}/upload`,
+      payload: changesetForm({
+        files: { "../Other/evil.stl": "x", ".git/hooks/evil.stl": "x", "ok/fine.stl": "fine\n" },
+      }),
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { writtenFiles: string[]; skippedFiles: string[] };
+    expect(body.writtenFiles).toEqual(["ok/fine.stl"]);
+    expect(body.skippedFiles.sort()).toEqual(["../Other/evil.stl", ".git/hooks/evil.stl"]);
+    expect(await exists(join(libraryRoot, "Other", "evil.stl"))).toBe(false);
+    expect(await exists(join(model.path, ".git", "hooks", "evil.stl"))).toBe(false);
+    await app.close();
+  });
+
+  it("deletes nested files and prunes the folders they leave empty", async () => {
+    const app = buildGuardedApp();
+    const model = await createTestModel(db, libraryRoot, "Widget", { "a.stl": "a1\n" });
+    await commitChange(
+      db,
+      model,
+      async (dir) => {
+        await mkdir(join(dir, "parts", "left"), { recursive: true });
+        await writeFile(join(dir, "parts", "left", "hand.stl"), "hand\n");
+        await writeFile(join(dir, "parts", "arm.stl"), "arm\n");
+      },
+      "add parts",
+    );
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/models/${model.id}/upload`,
+      payload: changesetForm({ deletes: ["parts/left/hand.stl"] }),
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(await exists(join(model.path, "parts", "left"))).toBe(false);
+    expect(await exists(join(model.path, "parts", "arm.stl"))).toBe(true);
+    await app.close();
+  });
+
+  it("refuses to write or delete through a symlinked folder", async () => {
+    const app = buildGuardedApp();
+    const model = await createTestModel(db, libraryRoot, "Widget", { "a.stl": "a1\n" });
+    const outside = join(libraryRoot, "outside");
+    await mkdir(outside);
+    await writeFile(join(outside, "victim.stl"), "keep\n");
+    await symlink(outside, join(model.path, "linked"));
+
+    const write = await app.inject({
+      method: "POST",
+      url: `/api/models/${model.id}/upload`,
+      payload: changesetForm({ files: { "linked/planted.stl": "x" } }),
+    });
+    expect(write.statusCode).toBe(400);
+    expect(write.json()).toMatchObject({ error: expect.stringContaining("symlink") });
+    expect(await exists(join(outside, "planted.stl"))).toBe(false);
+
+    const del = await app.inject({
+      method: "POST",
+      url: `/api/models/${model.id}/upload`,
+      payload: changesetForm({ deletes: ["linked/victim.stl"] }),
+    });
+    expect(del.statusCode).toBe(400);
+    expect(await readFile(join(outside, "victim.stl"), "utf8")).toBe("keep\n");
+    await app.close();
+  });
+
+  it("refuses a path whose parent exists as a file, or that names an existing folder", async () => {
+    const app = buildGuardedApp();
+    const model = await createTestModel(db, libraryRoot, "Widget", { "a.stl": "a1\n" });
+    await mkdir(join(model.path, "dir.stl"));
+    await writeFile(join(model.path, "dir.stl", "inner.stl"), "inner\n");
+
+    const underFile = await app.inject({
+      method: "POST",
+      url: `/api/models/${model.id}/upload`,
+      payload: changesetForm({ files: { "a.stl/b.stl": "x", "fine.stl": "f\n" } }),
+    });
+    expect(underFile.statusCode).toBe(400);
+    expect(underFile.json()).toMatchObject({ error: expect.stringContaining("is a file, not a folder") });
+    expect(await exists(join(model.path, "fine.stl"))).toBe(false);
+
+    const overFolder = await app.inject({
+      method: "POST",
+      url: `/api/models/${model.id}/upload`,
+      payload: changesetForm({ files: { "dir.stl": "x" } }),
+    });
+    expect(overFolder.statusCode).toBe(400);
+    expect(overFolder.json()).toMatchObject({ error: expect.stringContaining("folder with that name exists") });
+
+    const clash = await app.inject({
+      method: "POST",
+      url: `/api/models/${model.id}/upload`,
+      payload: changesetForm({ files: { "x.stl": "x", "x.stl/y.stl": "y" } }),
+    });
+    expect(clash.statusCode).toBe(400);
     await app.close();
   });
 

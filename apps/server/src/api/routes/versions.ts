@@ -1,5 +1,5 @@
 import { createWriteStream } from "node:fs";
-import { rm, stat } from "node:fs/promises";
+import { rm } from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
 import { pipeline } from "node:stream/promises";
 import type { BulkResponse, BulkResult, ModelFilesBulkRequest } from "@model-hub/shared";
@@ -9,9 +9,15 @@ import { requireRole } from "../../auth/guard.js";
 import type { Config } from "../../config.js";
 import type { DbClient } from "../../db/client.js";
 import { files as filesTable, type ModelRow } from "../../db/schema.js";
-import { sanitizeUploadFilename } from "../../lib/fs-utils.js";
+import { findFileFolderClash, sanitizeUploadPath } from "../../lib/fs-utils.js";
 import { roleSatisfies } from "../../lib/roles.js";
-import { createUploadStaging, moveIntoPlace, resolveDeletePath } from "../../lib/upload-staging.js";
+import {
+  createUploadStaging,
+  inspectTarget,
+  moveIntoPlace,
+  pruneEmptyParents,
+  resolveModelPath,
+} from "../../lib/upload-staging.js";
 import { getModelDiff } from "../../lib/model-diff.js";
 import { getActiveModel } from "../../lib/model-lookup.js";
 import { InvalidCommitShaError } from "../../lib/project-pins.js";
@@ -62,6 +68,7 @@ async function deleteSingleFile(
 
   const result = await runExclusive(model.path, async () => {
     await rm(absolutePath);
+    await pruneEmptyParents(model.path, absolutePath);
     return reconcileModelCore(db, model, {
       identity: LOCAL_UPLOAD_IDENTITY,
       commitMessage: `Deleted ${relativePath}`,
@@ -83,8 +90,10 @@ export function registerVersionRoutes(app: FastifyInstance, db: DbClient, config
   // validate against.
   //
   // One request = one commit ("changeset"): any number of `files` parts
-  // (added/replaced at the model root) plus any number of `delete` fields
-  // (relative paths to remove). File parts are streamed into a private
+  // (added/replaced at their filename, which may be a relative path into a
+  // subfolder — see fs-utils.ts's sanitizeUploadPath) plus any number of
+  // `delete` fields (relative paths to remove; folders left empty are
+  // pruned). File parts are streamed into a private
   // staging dir first (lib/upload-staging.ts), *outside* the model's
   // working tree and without holding its lock; everything is validated, and
   // only then — under the per-path lock — moved into place and committed.
@@ -106,7 +115,8 @@ export function registerVersionRoutes(app: FastifyInstance, db: DbClient, config
         summary: "Upload a new version",
         description:
           "Multipart upload committed as ONE new version: zero or more `files` parts (model and/or " +
-          "attachment files, added or replaced at the model root), zero or more `delete` fields " +
+          "attachment files, added or replaced at the part's filename, which may be a relative path " +
+          "like `parts/arm.stl` — missing folders are created), zero or more `delete` fields " +
           "(relative paths of files to remove in the same commit; requires the admin role), an " +
           "optional `message` field used as the git commit message, and an optional `baseSha` " +
           "field (the commit sha you started from, 7-40 hex chars) — when given, the request fails " +
@@ -168,18 +178,28 @@ export function registerVersionRoutes(app: FastifyInstance, db: DbClient, config
         const deleteRequests: string[] = [];
         const writtenFiles: string[] = [];
         const skippedFiles: string[] = [];
+        // Relative path in the model -> flat name of its staged copy (staged
+        // flat, so the staging dir never needs the upload's folder structure).
+        const stagedNames = new Map<string, string>();
 
-        for await (const part of request.parts()) {
+        // preservePath: keep the client's "parts/arm.stl" instead of busboy's
+        // default basename-only filename; sanitizeUploadPath validates it.
+        for await (const part of request.parts({ preservePath: true })) {
           if (part.type === "file") {
-            const safeName = sanitizeUploadFilename(part.filename);
-            if (!safeName) {
+            const safePath = sanitizeUploadPath(part.filename);
+            if (!safePath) {
               part.file.resume(); // drain so the iterator can continue
               skippedFiles.push(part.filename);
               continue;
             }
-            // A repeated filename overwrites its earlier staged copy: last one wins.
-            await pipeline(part.file, createWriteStream(join(staging.dir, safeName)));
-            if (!writtenFiles.includes(safeName)) writtenFiles.push(safeName);
+            // A repeated path overwrites its earlier staged copy: last one wins.
+            let stagedName = stagedNames.get(safePath);
+            if (!stagedName) {
+              stagedName = String(stagedNames.size);
+              stagedNames.set(safePath, stagedName);
+              writtenFiles.push(safePath);
+            }
+            await pipeline(part.file, createWriteStream(join(staging.dir, stagedName)));
           } else if (typeof part.value === "string") {
             if (part.fieldname === "message") message = part.value;
             else if (part.fieldname === "baseSha") baseSha = part.value.trim();
@@ -191,18 +211,24 @@ export function registerVersionRoutes(app: FastifyInstance, db: DbClient, config
           return reply.code(400).send({ error: "baseSha must be a 7-40 character hex commit sha" });
         }
 
+        const clash = findFileFolderClash(writtenFiles);
+        if (clash) {
+          return reply.code(400).send({ error: `'${clash}' is uploaded both as a file and as a folder` });
+        }
+
         const deletes: Array<{ relativePath: string; absolutePath: string }> = [];
         for (const raw of deleteRequests) {
-          const absolutePath = resolveDeletePath(model.path, raw);
-          if (!absolutePath) {
+          const resolved = resolveModelPath(model.path, raw);
+          if (!resolved) {
             return reply.code(400).send({ error: `invalid delete path: ${JSON.stringify(raw)}` });
           }
-          const relativePath = raw.replace(/\\/g, "/").trim();
-          if (deletes.some((d) => d.absolutePath === absolutePath)) continue;
-          if (writtenFiles.some((name) => resolve(model.path, name) === absolutePath)) {
-            return reply.code(400).send({ error: `'${relativePath}' is both uploaded and deleted in the same request` });
+          if (deletes.some((d) => d.relativePath === resolved.relativePath)) continue;
+          if (stagedNames.has(resolved.relativePath)) {
+            return reply
+              .code(400)
+              .send({ error: `'${resolved.relativePath}' is both uploaded and deleted in the same request` });
           }
-          deletes.push({ relativePath, absolutePath });
+          deletes.push(resolved);
         }
 
         if (writtenFiles.length === 0 && deletes.length === 0) {
@@ -232,6 +258,7 @@ export function registerVersionRoutes(app: FastifyInstance, db: DbClient, config
           | { kind: "ok"; result: ReconcileResult; headSha: string | null }
           | { kind: "error"; error: string }
           | { kind: "conflict"; headSha: string | null }
+          | { kind: "invalid"; error: string }
           | { kind: "missing"; missingFiles: string[] };
 
         const outcome = await runExclusive(model.path, async (): Promise<ApplyOutcome> => {
@@ -247,18 +274,29 @@ export function registerVersionRoutes(app: FastifyInstance, db: DbClient, config
             }
           }
 
+          // Everything is checked against the live tree before anything is
+          // touched, so a bad request is refused whole, never half-applied.
+          for (const relativePath of writtenFiles) {
+            const target = await inspectTarget(model.path, relativePath);
+            if (!target.ok) return { kind: "invalid", error: `cannot write '${relativePath}': ${target.reason}` };
+            if (target.existing === "directory") {
+              return { kind: "invalid", error: `cannot write '${relativePath}': a folder with that name exists` };
+            }
+          }
           const missingFiles: string[] = [];
           for (const d of deletes) {
-            const info = await stat(d.absolutePath).catch(() => null);
-            if (!info?.isFile()) missingFiles.push(d.relativePath);
+            const target = await inspectTarget(model.path, d.relativePath);
+            if (!target.ok) return { kind: "invalid", error: `cannot delete '${d.relativePath}': ${target.reason}` };
+            if (target.existing !== "file") missingFiles.push(d.relativePath);
           }
           if (missingFiles.length > 0) return { kind: "missing", missingFiles };
 
-          for (const name of writtenFiles) {
-            await moveIntoPlace(join(staging.dir, name), join(model.path, name));
+          for (const relativePath of writtenFiles) {
+            await moveIntoPlace(join(staging.dir, stagedNames.get(relativePath)!), join(model.path, relativePath));
           }
           for (const d of deletes) {
             await rm(d.absolutePath);
+            await pruneEmptyParents(model.path, d.absolutePath);
           }
 
           const result = await reconcileModelCore(db, model, {
@@ -278,6 +316,9 @@ export function registerVersionRoutes(app: FastifyInstance, db: DbClient, config
             baseSha,
             headSha: outcome.headSha,
           });
+        }
+        if (outcome.kind === "invalid") {
+          return reply.code(400).send({ error: outcome.error });
         }
         if (outcome.kind === "missing") {
           return reply.code(404).send({

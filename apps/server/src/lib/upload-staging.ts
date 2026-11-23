@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { copyFile, mkdir, rename, rm, stat } from "node:fs/promises";
+import { copyFile, lstat, mkdir, rename, rm, rmdir, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { extname, join, resolve, sep } from "node:path";
-import { isDotPath, isTrackedExtension } from "./fs-utils.js";
+import { dirname, join, resolve, sep } from "node:path";
+import { sanitizeUploadPath } from "./fs-utils.js";
 
 const STAGING_DIRNAME = "modelhub-staging";
 
@@ -39,8 +39,9 @@ export async function createUploadStaging(modelPath: string): Promise<UploadStag
   };
 }
 
-/** Moves a staged file over its destination: rename when possible, copy + delete across filesystems. */
+/** Moves a staged file over its destination (creating parent folders): rename when possible, copy + delete across filesystems. */
 export async function moveIntoPlace(source: string, destination: string): Promise<void> {
+  await mkdir(dirname(destination), { recursive: true });
   try {
     await rename(source, destination);
   } catch (err) {
@@ -51,23 +52,69 @@ export async function moveIntoPlace(source: string, destination: string): Promis
 }
 
 /**
- * Validates a caller-supplied relative path for deletion as part of an
- * upload changeset, returning its absolute path or null if it isn't
- * acceptable: must stay inside the model dir, must not touch any dot-path
- * (.git, .modelhub-id, .gitignore, .thumbnails, ...), and must be a tracked
- * model/attachment extension — the same set of files the app itself
- * indexes, so a changeset can never delete anything the UI couldn't.
+ * Resolves a caller-supplied relative path inside a model dir, or null if
+ * sanitizeUploadPath rejects it (or it would somehow still escape the
+ * model root). Returns the normalized relative path alongside.
  */
-export function resolveDeletePath(modelPath: string, relativePath: string): string | null {
-  const normalized = relativePath.replace(/\\/g, "/").trim();
-  if (!normalized || normalized.startsWith("/") || normalized.includes("\0")) return null;
-  const segments = normalized.split("/");
-  if (segments.some((segment) => segment === "" || segment === "." || segment === "..")) return null;
-  if (isDotPath(normalized)) return null;
-  if (!isTrackedExtension(extname(normalized).slice(1))) return null;
-
+export function resolveModelPath(
+  modelPath: string,
+  rawRelativePath: string,
+): { relativePath: string; absolutePath: string } | null {
+  const relativePath = sanitizeUploadPath(rawRelativePath.trim());
+  if (!relativePath) return null;
   const modelRoot = resolve(modelPath);
-  const absolutePath = resolve(modelRoot, normalized);
+  const absolutePath = resolve(modelRoot, relativePath);
   if (!absolutePath.startsWith(modelRoot + sep)) return null;
-  return absolutePath;
+  return { relativePath, absolutePath };
+}
+
+export type TargetInspection =
+  | { ok: true; existing: "file" | "directory" | null }
+  | { ok: false; reason: string };
+
+/**
+ * Checks what's on disk along a (sanitized) relative path before writing
+ * or deleting there. Uses lstat and refuses to go through a symlink at any
+ * level — a symlinked subfolder in the model dir (e.g. created over the
+ * share) must never let an upload or delete reach outside the model. An
+ * ancestor that exists as a file (so the path can't be a folder) is
+ * reported as a problem too; missing ancestors are fine (they get created).
+ */
+export async function inspectTarget(modelPath: string, relativePath: string): Promise<TargetInspection> {
+  const segments = relativePath.split("/");
+  let current = resolve(modelPath);
+  for (let i = 0; i < segments.length; i++) {
+    current = join(current, segments[i]!);
+    const shown = segments.slice(0, i + 1).join("/");
+    const info = await lstat(current).catch(() => null);
+    if (!info) return { ok: true, existing: null };
+    if (info.isSymbolicLink()) return { ok: false, reason: `'${shown}' is a symlink` };
+    const isLast = i === segments.length - 1;
+    if (!isLast && !info.isDirectory()) return { ok: false, reason: `'${shown}' is a file, not a folder` };
+    if (isLast) {
+      if (info.isDirectory()) return { ok: true, existing: "directory" };
+      if (info.isFile()) return { ok: true, existing: "file" };
+      return { ok: false, reason: `'${shown}' is not a regular file` };
+    }
+  }
+  return { ok: true, existing: null };
+}
+
+/**
+ * After deleting a file, removes the folders it leaves empty, walking up
+ * towards (never including) the model root. Git doesn't track empty
+ * folders, so leaving them behind would only be clutter on the share.
+ * Stops at the first non-empty (or otherwise unremovable) folder.
+ */
+export async function pruneEmptyParents(modelPath: string, deletedAbsolutePath: string): Promise<void> {
+  const modelRoot = resolve(modelPath);
+  let dir = dirname(deletedAbsolutePath);
+  while (dir !== modelRoot && dir.startsWith(modelRoot + sep)) {
+    try {
+      await rmdir(dir);
+    } catch {
+      return;
+    }
+    dir = dirname(dir);
+  }
 }

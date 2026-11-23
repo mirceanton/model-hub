@@ -121,7 +121,9 @@ const uploadedFileSchema = z.object({
   filename: z
     .string()
     .min(1)
-    .describe("File name, e.g. 'bracket.stl'. Path separators are rejected; nested paths are not supported."),
+    .describe(
+      "Path of the file inside the model, '/'-separated: 'bracket.stl' for the model's top folder, or e.g. 'parts/arm.stl' to place it in a subfolder (created if missing). No '..', no leading '/', no dot-folders.",
+    ),
   contentBase64: z.string().min(1).describe("The file's bytes, base64-encoded."),
 });
 
@@ -138,8 +140,17 @@ function decodeUploadedFiles(
     throw new Error(`too many files: ${files.length} (max ${config.mcpMaxFilesPerCall} per call)`);
   }
   return files.map((file) => {
-    if (/[/\\\0\r\n]/.test(file.filename) || file.filename.length > 255) {
-      throw new Error(`invalid filename: ${JSON.stringify(file.filename)}`);
+    // Shape check only; the REST route's sanitizeUploadPath is the real
+    // validator (and skips anything it rejects, reported as skippedFiles).
+    if (
+      /[\\\0\r\n]/.test(file.filename) ||
+      file.filename.startsWith("/") ||
+      file.filename.split("/").some((segment) => segment === "" || segment === "." || segment === "..") ||
+      file.filename.length > 1024
+    ) {
+      throw new Error(
+        `invalid filename: ${JSON.stringify(file.filename)} (use a relative, '/'-separated path like 'parts/arm.stl')`,
+      );
     }
     const normalized = file.contentBase64.replace(/\s+/g, "");
     if (normalized.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(normalized)) {
@@ -568,7 +579,7 @@ export function registerMcpTools(server: McpServer, ctx: McpRequestContext): voi
     "upload_files",
     {
       description:
-        `Add a NEW VERSION to an existing model as ONE commit: uploads files (added or replaced at the model root) and/or deletes files, then commits the whole changeset to the model's git repo. Existing files not re-uploaded or deleted are kept; history is preserved (see get_model's gitLog, restore_version to roll back). ` +
+        `Add a NEW VERSION to an existing model as ONE commit: uploads files (added or replaced at their relative path — subfolders like 'parts/arm.stl' are created as needed) and/or deletes files (folders left empty are removed), then commits the whole changeset to the model's git repo. Existing files not re-uploaded or deleted are kept; history is preserved (see get_model's gitLog, restore_version to roll back). ` +
         `For a download → edit → push-back workflow, pass the commitSha you got from download_model/download_file (or get_model's lastSyncedCommitSha) as baseSha: if the model changed in the meantime the call fails with HTTP 409 and nothing is written, so re-download and reapply instead of clobbering someone else's edit. ` +
         `The result's headSha is the new version, usable as the next call's baseSha. Deleting files requires the admin role. ${fileLimitNote}`,
       inputSchema: {

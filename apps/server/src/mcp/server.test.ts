@@ -561,6 +561,40 @@ describe("MCP endpoint — single-user mode", () => {
     expect((after.data.gitLog as unknown[]).length).toBe(2);
   });
 
+  it("upload_files and create_model accept subfolder paths; delete_file paths can be nested too", async () => {
+    const created = await callTool(app, "create_model", {
+      title: "Nested MCP",
+      files: [
+        { filename: "body.stl", contentBase64: b64(STL_BYTES) },
+        { filename: "parts/arm.stl", contentBase64: b64(STL_BYTES) },
+      ],
+    });
+    expect(created.ok).toBe(true);
+    const modelId = created.data.id as number;
+
+    const pushed = await callTool(app, "upload_files", {
+      id: modelId,
+      files: [{ filename: "parts/left/hand.stl", contentBase64: b64(STL_BYTES) }],
+      deletePaths: ["parts/arm.stl"],
+    });
+    expect(pushed.ok).toBe(true);
+    expect(pushed.data.writtenFiles).toEqual(["parts/left/hand.stl"]);
+
+    const detail = await callTool(app, "get_model", { id: modelId });
+    const paths = (detail.data.files as Array<{ relativePath: string }>).map((f) => f.relativePath).sort();
+    expect(paths).toEqual(["body.stl", "parts/left/hand.stl"]);
+
+    const nested = await callTool(app, "download_file", { id: modelId, path: "parts/left/hand.stl" });
+    expect(Buffer.from(nested.data.contentBase64 as string, "base64").toString("utf8")).toBe(STL_BYTES);
+
+    const traversal = await callTool(app, "upload_files", {
+      id: modelId,
+      files: [{ filename: "../escape.stl", contentBase64: b64(STL_BYTES) }],
+    });
+    expect(traversal.ok).toBe(false);
+    expect(traversal.raw.content[0]?.text ?? "").toContain("relative, '/'-separated path");
+  });
+
   it("upload_files requires at least one file or deletePath", async () => {
     const created = await callTool(app, "create_model", {
       title: "Empty Push",

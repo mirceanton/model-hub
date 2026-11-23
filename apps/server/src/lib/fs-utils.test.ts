@@ -4,12 +4,14 @@ import { join } from "node:path";
 import type { FileEntry } from "@model-hub/shared";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  findFileFolderClash,
+  MAX_UPLOAD_PATH_DEPTH,
   ensureGitignore,
   ensureMarkerId,
   listModelFiles,
   pickPrimaryFile,
   sanitizeModelDirName,
-  sanitizeUploadFilename,
+  sanitizeUploadPath,
 } from "./fs-utils.js";
 
 describe("pickPrimaryFile", () => {
@@ -197,39 +199,79 @@ describe("ensureGitignore", () => {
   });
 });
 
-describe("sanitizeUploadFilename", () => {
+describe("sanitizeUploadPath", () => {
   it("accepts a plain model filename", () => {
-    expect(sanitizeUploadFilename("part.stl")).toBe("part.stl");
-    expect(sanitizeUploadFilename("model.3mf")).toBe("model.3mf");
-    expect(sanitizeUploadFilename("mesh.obj")).toBe("mesh.obj");
-    expect(sanitizeUploadFilename("part.step")).toBe("part.step");
-    expect(sanitizeUploadFilename("assembly.stp")).toBe("assembly.stp");
+    expect(sanitizeUploadPath("part.stl")).toBe("part.stl");
+    expect(sanitizeUploadPath("model.3mf")).toBe("model.3mf");
+    expect(sanitizeUploadPath("mesh.obj")).toBe("mesh.obj");
+    expect(sanitizeUploadPath("part.step")).toBe("part.step");
+    expect(sanitizeUploadPath("assembly.stp")).toBe("assembly.stp");
   });
 
-  it("strips directory components from a path-traversal attempt", () => {
-    expect(sanitizeUploadFilename("../../etc/passwd.stl")).toBe("passwd.stl");
-    expect(sanitizeUploadFilename("/etc/passwd.stl")).toBe("passwd.stl");
-    expect(sanitizeUploadFilename("..\\..\\windows\\evil.stl")).toBe("evil.stl");
+  it("accepts relative paths into subfolders, normalizing backslashes", () => {
+    expect(sanitizeUploadPath("parts/arm.stl")).toBe("parts/arm.stl");
+    expect(sanitizeUploadPath("v2/parts/arm left.stl")).toBe("v2/parts/arm left.stl");
+    expect(sanitizeUploadPath("parts\\arm.stl")).toBe("parts/arm.stl");
+  });
+
+  it("rejects path traversal and absolute paths instead of guessing", () => {
+    expect(sanitizeUploadPath("../../etc/passwd.stl")).toBeNull();
+    expect(sanitizeUploadPath("parts/../../evil.stl")).toBeNull();
+    expect(sanitizeUploadPath("/etc/passwd.stl")).toBeNull();
+    expect(sanitizeUploadPath("..\\..\\windows\\evil.stl")).toBeNull();
+    expect(sanitizeUploadPath("C:\\fakepath\\part.stl")).toBeNull();
+  });
+
+  it("rejects empty, dot and SMB-unsafe segments", () => {
+    expect(sanitizeUploadPath("parts//arm.stl")).toBeNull();
+    expect(sanitizeUploadPath("./arm.stl")).toBeNull();
+    expect(sanitizeUploadPath(".git/hooks/x.stl")).toBeNull();
+    expect(sanitizeUploadPath("parts/.hidden.stl")).toBeNull();
+    expect(sanitizeUploadPath(".thumbnails/thumb.png")).toBeNull();
+    expect(sanitizeUploadPath("parts /arm.stl")).toBeNull();
+    expect(sanitizeUploadPath("parts./arm.stl")).toBeNull();
+    expect(sanitizeUploadPath("what?/arm.stl")).toBeNull();
+    expect(sanitizeUploadPath("a\u0000b.stl")).toBeNull();
+  });
+
+  it("rejects paths nested deeper than the cap", () => {
+    const tooDeep = `${Array.from({ length: MAX_UPLOAD_PATH_DEPTH }, (_, i) => `d${i}`).join("/")}/x.stl`;
+    expect(sanitizeUploadPath(tooDeep)).toBeNull();
+    const deepest = `${Array.from({ length: MAX_UPLOAD_PATH_DEPTH - 1 }, (_, i) => `d${i}`).join("/")}/x.stl`;
+    expect(sanitizeUploadPath(deepest)).toBe(deepest);
   });
 
   it("rejects non-model, non-attachment extensions", () => {
-    expect(sanitizeUploadFilename("readme.txt")).toBeNull();
-    expect(sanitizeUploadFilename("archive.zip")).toBeNull();
+    expect(sanitizeUploadPath("readme.txt")).toBeNull();
+    expect(sanitizeUploadPath("archive.zip")).toBeNull();
+    expect(sanitizeUploadPath("parts.stl/readme.txt")).toBeNull();
   });
 
   it("accepts image and pdf attachment filenames", () => {
-    expect(sanitizeUploadFilename("photo.png")).toBe("photo.png");
-    expect(sanitizeUploadFilename("photo.JPG")).toBe("photo.JPG");
-    expect(sanitizeUploadFilename("photo.jpeg")).toBe("photo.jpeg");
-    expect(sanitizeUploadFilename("cover.webp")).toBe("cover.webp");
-    expect(sanitizeUploadFilename("animated.gif")).toBe("animated.gif");
-    expect(sanitizeUploadFilename("manual.pdf")).toBe("manual.pdf");
+    expect(sanitizeUploadPath("photo.png")).toBe("photo.png");
+    expect(sanitizeUploadPath("photo.JPG")).toBe("photo.JPG");
+    expect(sanitizeUploadPath("photo.jpeg")).toBe("photo.jpeg");
+    expect(sanitizeUploadPath("cover.webp")).toBe("cover.webp");
+    expect(sanitizeUploadPath("animated.gif")).toBe("animated.gif");
+    expect(sanitizeUploadPath("docs/manual.pdf")).toBe("docs/manual.pdf");
   });
 
-  it("rejects empty or dot-only names", () => {
-    expect(sanitizeUploadFilename("")).toBeNull();
-    expect(sanitizeUploadFilename(".")).toBeNull();
-    expect(sanitizeUploadFilename("..")).toBeNull();
+  it("rejects empty and bare dot names", () => {
+    expect(sanitizeUploadPath("")).toBeNull();
+    expect(sanitizeUploadPath(".")).toBeNull();
+    expect(sanitizeUploadPath("..")).toBeNull();
+  });
+});
+
+describe("findFileFolderClash", () => {
+  it("finds a path that another entry needs as a folder", () => {
+    expect(findFileFolderClash(["a.stl", "a.stl/b.stl"])).toBe("a.stl");
+    expect(findFileFolderClash(["x/y/z.stl", "x/y"])).toBe("x/y");
+  });
+
+  it("returns null for compatible paths", () => {
+    expect(findFileFolderClash(["a.stl", "parts/a.stl", "parts/b.stl"])).toBeNull();
+    expect(findFileFolderClash([])).toBeNull();
   });
 });
 

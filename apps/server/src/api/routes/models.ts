@@ -1,6 +1,6 @@
 import { createWriteStream } from "node:fs";
 import { mkdir, rename, rm, stat } from "node:fs/promises";
-import { extname, join } from "node:path";
+import { dirname, extname, join } from "node:path";
 import { pipeline } from "node:stream/promises";
 import type {
   BulkResponse,
@@ -36,9 +36,10 @@ import { computeDuplicateModelMap, type DuplicateModelRef, getDuplicateModels } 
 import { getModelFileAggregates, getModelIdsWithExtension } from "../../lib/file-filters.js";
 import {
   ensureMarkerId,
+  findFileFolderClash,
   MODEL_EXTENSIONS,
   sanitizeModelDirName,
-  sanitizeUploadFilename,
+  sanitizeUploadPath,
   TRASH_DIRNAME,
 } from "../../lib/fs-utils.js";
 import { getActiveModel } from "../../lib/model-lookup.js";
@@ -319,6 +320,7 @@ export function registerModelRoutes(
         description:
           "Multipart upload: a required `title` field (sent before any `files` parts), " +
           "optional repeated `tags` and `sourceUrl` fields, then one or more `files` parts " +
+          "(each filename may be a relative path like `parts/arm.stl` to create subfolders) " +
           "(at least one must be a .stl/.3mf/.obj/.step/.stp model file; images/pdf attachments may ride along).",
         consumes: ["multipart/form-data"],
         response: {
@@ -337,7 +339,7 @@ export function registerModelRoutes(
     let validationError: string | null = null;
 
     try {
-      for await (const part of request.parts()) {
+      for await (const part of request.parts({ preservePath: true })) {
         if (part.type === "field") {
           if (part.fieldname === "title" && typeof part.value === "string") {
             title = part.value;
@@ -372,15 +374,22 @@ export function registerModelRoutes(
           continue;
         }
 
-        const safeName = sanitizeUploadFilename(part.filename);
-        if (!safeName) {
+        const safePath = sanitizeUploadPath(part.filename);
+        if (!safePath) {
           part.file.resume();
           skippedFiles.push(part.filename);
           continue;
         }
-        const dest = join(dirPath!, safeName);
+        const clash = findFileFolderClash([...writtenFiles, safePath]);
+        if (clash) {
+          validationError = `'${clash}' is uploaded both as a file and as a folder`;
+          part.file.resume();
+          continue;
+        }
+        const dest = join(dirPath!, safePath);
+        await mkdir(dirname(dest), { recursive: true });
         await pipeline(part.file, createWriteStream(dest));
-        writtenFiles.push(safeName);
+        if (!writtenFiles.includes(safePath)) writtenFiles.push(safePath);
       }
     } catch (err) {
       if (dirPath) await rm(dirPath, { recursive: true, force: true }).catch(() => {});

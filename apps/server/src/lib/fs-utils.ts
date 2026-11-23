@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { readFile, readdir, stat, writeFile } from "node:fs/promises";
-import { basename, extname, join, relative, sep } from "node:path";
+import { extname, join, relative, sep } from "node:path";
 import type { FileEntry } from "@model-hub/shared";
 
 export const MARKER_FILENAME = ".modelhub-id";
@@ -160,18 +160,60 @@ export function pickPrimaryFile(files: FileEntry[]): string | null {
   return sorted[0]?.relativePath ?? null;
 }
 
+// Characters that are invalid in a Windows/SMB path segment (the library
+// root may be an SMB share), plus control characters. Checked per segment.
+const FORBIDDEN_PATH_SEGMENT_CHARS = /[<>:"|?*\x00-\x1f]/;
+export const MAX_UPLOAD_PATH_DEPTH = 16;
+const MAX_UPLOAD_PATH_LENGTH = 1024;
+const MAX_PATH_SEGMENT_LENGTH = 255;
+
 /**
- * Reduces an uploaded filename to a safe basename within the model dir, or
- * null if it's not a usable model or attachment file. Strips any directory
- * components (defends against path traversal in a crafted multipart
- * filename) and rejects anything outside the MODEL_EXTENSIONS/
- * ATTACHMENT_EXTENSIONS allowlist.
+ * Validates a client-supplied path for a file inside a model directory and
+ * returns it normalized ("parts/arm.stl", "/"-separated), or null if it's
+ * not acceptable. Used for upload filenames (which may carry subfolders)
+ * and for paths to delete.
+ *
+ * Rejects rather than repairs anything suspicious, so a crafted name can
+ * never land somewhere other than what the client literally asked for:
+ * absolute paths, `.`/`..`/empty segments, any dot-segment (.git,
+ * .modelhub-id, .thumbnails, ...), SMB-invalid characters (incl. drive
+ * letters' `:`), segments with leading/trailing spaces or a trailing dot,
+ * and anything outside MODEL_EXTENSIONS/ATTACHMENT_EXTENSIONS. Backslashes
+ * are treated as separators. Depth is capped well inside the watcher's
+ * chokidar depth so every accepted file is still watched.
  */
-export function sanitizeUploadFilename(rawName: string): string | null {
-  const base = basename(rawName.replace(/\\/g, "/")).trim();
-  if (!base || base === "." || base === "..") return null;
-  if (!TRACKED_EXTENSIONS.has(extensionOf(base))) return null;
-  return base;
+export function sanitizeUploadPath(rawPath: string): string | null {
+  const normalized = rawPath.replace(/\\/g, "/");
+  if (!normalized || normalized.length > MAX_UPLOAD_PATH_LENGTH || normalized.startsWith("/")) return null;
+
+  const segments = normalized.split("/");
+  if (segments.length > MAX_UPLOAD_PATH_DEPTH) return null;
+  for (const segment of segments) {
+    if (!segment || segment.length > MAX_PATH_SEGMENT_LENGTH) return null;
+    if (segment.startsWith(".")) return null; // also covers "." and ".."
+    if (segment !== segment.trim() || segment.endsWith(".")) return null;
+    if (FORBIDDEN_PATH_SEGMENT_CHARS.test(segment)) return null;
+  }
+
+  if (!TRACKED_EXTENSIONS.has(extensionOf(segments[segments.length - 1]!))) return null;
+  return segments.join("/");
+}
+
+/**
+ * Returns a path from `paths` that some *other* entry needs as a folder
+ * (e.g. "a.stl" alongside "a.stl/b.stl"), or null. Such a set can't be
+ * written to disk, so callers reject it up front instead of failing halfway.
+ */
+export function findFileFolderClash(paths: string[]): string | null {
+  const set = new Set(paths);
+  for (const path of paths) {
+    const segments = path.split("/");
+    for (let i = 1; i < segments.length; i++) {
+      const ancestor = segments.slice(0, i).join("/");
+      if (set.has(ancestor)) return ancestor;
+    }
+  }
+  return null;
 }
 
 const FORBIDDEN_DIR_NAME_CHARS = /[<>:"/\\|?*\x00-\x1f]/g;

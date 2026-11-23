@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import multipart from "@fastify/multipart";
@@ -303,6 +303,35 @@ describe("sourceUrl on the model routes", () => {
     const body = res.json() as { error: string; skippedFiles: string[] };
     expect(body.error).toContain("model file");
     expect(body.skippedFiles).toEqual(["notes.txt"]);
+  });
+
+  it("creates subfolders from relative paths in uploaded filenames", async () => {
+    const form = new FormData();
+    form.append("title", "Nested Create");
+    form.append("files", new Blob(["solid body\nendsolid body\n"]), "body.stl");
+    form.append("files", new Blob(["solid arm\nendsolid arm\n"]), "parts/arm.stl");
+    form.append("files", new Blob(["x"]), "../escape.stl");
+
+    const res = await app.inject({ method: "POST", url: "/api/models", payload: form });
+
+    expect(res.statusCode).toBe(201);
+    const dir = join(libraryRoot, "Nested Create");
+    expect(await readFile(join(dir, "parts", "arm.stl"), "utf8")).toBe("solid arm\nendsolid arm\n");
+    expect(await readFile(join(dir, "body.stl"), "utf8")).toBe("solid body\nendsolid body\n");
+    await expect(stat(join(libraryRoot, "escape.stl"))).rejects.toThrow();
+  });
+
+  it("rejects a file/folder clash in a new model without leaving a directory behind", async () => {
+    const form = new FormData();
+    form.append("title", "Clash Create");
+    form.append("files", new Blob(["a"]), "a.stl");
+    form.append("files", new Blob(["b"]), "a.stl/b.stl");
+
+    const res = await app.inject({ method: "POST", url: "/api/models", payload: form });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toMatchObject({ error: expect.stringContaining("both as a file and as a folder") });
+    await expect(stat(join(libraryRoot, "Clash Create"))).rejects.toThrow();
   });
 
   it("accepts a .step file as the model file on creation", async () => {
